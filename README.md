@@ -115,7 +115,7 @@ The simulation requires two input files:
 
 ```bash
 cd T0.154
-../mc_gpu.exe
+../bin/mc_gpu.exe
 ```
 
 ### Example Input Structure
