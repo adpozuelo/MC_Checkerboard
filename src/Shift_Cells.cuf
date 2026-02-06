@@ -1,0 +1,33 @@
+! ==============================================================================
+! SUBROUTINE: Shift_Cells
+! ==============================================================================
+! DESCRIPTION:
+!   Shifts the cell grid boundaries by a random displacement to prevent
+!   artifacts from fixed cell boundaries. Particles are redistributed into
+!   cells according to the new grid. This technique helps maintain ergodicity
+!   and prevents particles from being "trapped" near cell boundaries.
+!
+! ARGUMENTS:
+!   ivec(0:ndim-1) - Direction vector for grid shift (+/-1 in x,y,z)
+!   disp(0:ndim-1) - Magnitude of displacement in each direction
+!
+! METHOD:
+!   Calls GPU kernel to efficiently reassign all particles to their new cells
+!   after the grid displacement. Updates Sphere_Cell array with new relative
+!   positions within cells.
+! ==============================================================================
+Subroutine Shift_Cells(ivec,disp)
+
+   Use set_precision
+   Use Cell
+   Use Configuration
+   Use cuda_fortran
+   Implicit None
+   Integer     :: ivec(0:ndim-1)  ! Shift direction vector
+   Real(wp)    :: disp(0:ndim-1)  ! Displacement magnitude
+
+   ! Call GPU kernel to perform cell boundary shift and particle reassignment
+   call shiftcellsgpu(Ndim,Nat_Cell_Max, Ntot_Cell, Nl_Cell, Sphere_Cell, List_Cell, Nat_Cell, W_RU, ivec, disp)
+
+
+End Subroutine Shift_Cells

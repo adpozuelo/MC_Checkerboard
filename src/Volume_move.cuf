@@ -1,0 +1,188 @@
+
+! ==============================================================================
+! SUBROUTINE: Volume_Move
+! ==============================================================================
+! DESCRIPTION:
+!   Performs a Monte Carlo volume change move for NpT (isothermal-isobaric)
+!   ensemble simulations. Proposes a random box volume change, rescales
+!   particle coordinates, potentially updates the cell decomposition if
+!   needed, and accepts/rejects based on Metropolis criterion including
+!   pressure-volume work term.
+!
+! ALGORITHM:
+!   1. Propose new box dimensions (isotropic or anisotropic scaling)
+!   2. Check if cell grid needs updating (if cells become too small/large)
+!   3. Calculate energy change with new box size
+!   4. Apply Metropolis acceptance with exp[-β(ΔE + PΔV - NkT*ln(V_new/V_old))]
+!   5. Accept: keep new configuration; Reject: restore old configuration
+!
+! SCALING MODES (iscale):
+!   0 = Isotropic (cubic): scale all dimensions equally
+!   1 = Tetragonal: scale x,y together, z independently  
+!   2 = Orthorhombic: scale x,y,z independently
+! ==============================================================================
+
+Subroutine Volume_Move
+
+   Use set_precision
+   Use rundata
+   Use configuration
+   Use potential
+   Use utils
+   Use properties
+   Use Cell
+   Use cuda_fortran  
+   Implicit None
+
+   Integer                         :: I, J, istate
+   Integer, Dimension(0:ndim-1)    :: Nl_aux, Nl_Cell_old      
+   Integer                         :: Indx_Cell, indx_atm_aux, indx_atm_aux2, Nat_Cell_ijk
+   Integer                         :: jmol, jmol2, n1, n2, n3
+   Real(wp)                            :: En_old, Vol_old, Vol_new, Arg, Prob, rnd
+   Real(wp)                            :: wv, rangeP_max
+   Real(wp), Dimension(0:ndim*ndim-1)  :: h_old
+   Real(wp), Dimension(0:ndim-1)       :: Box_old
+   Real(dkind), Dimension(0:ndim-1)       :: W_RU_old, W_RU_aux, W_aux, W_old
+   Logical :: overlap, update_cell
+ 
+   ! --------------------------------------------------------------------------
+   ! Save old configuration
+   ! --------------------------------------------------------------------------
+   En_old= En_tot
+   Vol_old = box(0)*box(1)*box(2)
+   Box_old =Box
+   W_RU_old = W_RU
+   W_old = W
+   Nl_Cell_old = Nl_Cell
+   
+   ! --------------------------------------------------------------------------
+   ! Propose new box dimensions based on scaling mode
+   ! --------------------------------------------------------------------------
+   Call Random_number(rnd)
+   IF(iscale.eq.0) Then
+     ! Isotropic scaling (cubic symmetry)
+     box(0)=box(0)+(rnd-0.5d00)*vmax(0)
+     box(1)=box(0)
+     box(2)=box(0)
+   ElseIF(iscale.eq.1) Then
+     ! Tetragonal: x=y, z independent
+     box(0)=box(0)+(rnd-0.5d00)*vmax(0)
+     box(1)=box(0)
+     Call Random_number(rnd)
+     box(2)=box(2)+(rnd-0.5d00)*vmax(2)
+   ElseIF(iscale.eq.2) Then
+     ! Orthorhombic: x, y, z all independent
+     box(0)=box(0)+(rnd-0.5d00)*vmax(0)
+     Call Random_number(rnd)
+     box(1)=box(1)+(rnd-0.5d00)*vmax(1)
+     Call Random_number(rnd)
+     box(2)=box(2)+(rnd-0.5d00)*vmax(2)
+   EndIf
+   H_old= H
+
+   ! Update box matrix (diagonal for orthorhombic)
+   H=0.d0
+   H(0)=Box(0)
+   H(4)=Box(1)
+   H(8)=Box(2)
+
+   ! --------------------------------------------------------------------------
+   ! Check if cell decomposition needs to be updated
+   ! --------------------------------------------------------------------------
+   Vol_new = box(0)*box(1)*box(2)
+   rangeP_max=maxval(rangeP)
+   wv = 1.010d0*rangeP_max
+   w_aux(:) = (/ wv, wv, wv /)
+   W_RU_aux = W_aux /box 
+   Nl_aux(:) = 1.d0 / W_RU_aux (:)
+   
+   ! Ensure even number of cells (required for checkerboard)
+   If (mod(Nl_aux(0),2)  == 1)  Nl_aux(0) = Nl_aux(0) - 1
+   If(Nl_aux(0) > 64) Nl_aux(0) = 64*((Nl_aux(0)/64))
+
+   If (mod(Nl_aux(1),2)  == 1)  Nl_aux(1) = Nl_aux(1) - 1
+   If(Nl_aux(1) > 64) Nl_aux(1) = 64*((Nl_aux(1)/64))
+
+   If (mod(Nl_aux(2),2)  == 1)  Nl_aux(2) = Nl_aux(2) - 1
+   If(Nl_aux(2) > 64) Nl_aux(2) = 64*((Nl_aux(2)/64))
+
+   if(Nl_aux(0)==2 .or. NL_aux(1) == 2 .or. Nl_aux(2)==2) Then
+       print*, 'your system is too small, sorry!'
+       stop
+   endif
+
+   update_cell=.false.
+   istate=1
+   n1=abs(Nl_aux(0)-Nl_Cell(0))
+   n2=abs(Nl_aux(1)-Nl_Cell(1))
+   n3=abs(Nl_aux(2)-Nl_Cell(2))
+
+   ! If cell count changed by ≥2, rebuild entire cell structure
+   If(n1.ge.2.or.n2.ge.2.or.n3.ge.2) Then
+       update_cell=.true.
+       W_RU =W_RU_old
+       Call Convert_CB_RU  ! Convert to regular coordinates with old grid
+       Call Update_checkerboard(Nl_aux)  ! Rebuild grid with new dimensions
+       call energyinitialize(Ndim, Nat_cell_max, Ntot_Cell, &
+                     &   h, Sphere_Cell, List_Cell, &
+                     &   Map_Cell, Nl_Cell, Nat_Cell, DR_Cell,W_RU)
+
+       istate=3
+   Else
+       ! Minor change: just rescale cell dimensions
+       W_RU(:)=1.0/dble(Nl_Cell(:))
+       W(:)=W_RU(:)*Box(:)
+       rangeP_max=maxval(rangeP)
+       if(rangeP_max.gt.W(0).or.rangeP_max.gt.W(1).or.rangeP_max.gt.W(2)) then
+             print*, 'error in MCvol'
+             print*, 'rangeP',rangeP
+             print*, 'W',W
+             stop
+       endif
+   EndIf 
+   ! --------------------------------------------------------------------------
+   ! Calculate energy with new box size
+   ! --------------------------------------------------------------------------
+   Call CB_system_energy_gpu(istate)
+
+   ! --------------------------------------------------------------------------
+   ! Metropolis acceptance criterion for NpT ensemble
+   ! ΔA = ΔE + PΔV - NkT*ln(V_new/V_old)
+   ! --------------------------------------------------------------------------
+   Arg= -beta*((En_tot-En_old)+pres*(Vol_new-Vol_old)-dble(Natoms)*log(Vol_new/Vol_old)/beta)
+   Prob = min (1.d0, exp(Arg))
+   Call Random_number(rnd)
+   
+   If(rnd < Prob ) Then
+        ! ACCEPT: keep new configuration
+        nvol_accept=nvol_accept+1 
+        if(update_cell) then
+             ! Finalize energy arrays with new cell structure
+             call energyinitialize(Ndim, Nat_cell_max, Ntot_Cell, &
+                     &   h, Sphere_Cell, List_Cell, &
+                     &   Map_Cell, Nl_Cell, Nat_Cell, DR_Cell,W_RU)
+         endif
+   Else
+        ! REJECT: restore old configuration
+       If(update_cell) Then  
+         ! Restore old cell structure
+         Call Convert_CB_RU  
+         h = h_old
+         Box = Box_old
+         Nl_Cell = Nl_Cell_old
+         Call Update_checkerboard(Nl_Cell)
+         call energyinitialize(Ndim, Nat_cell_max, Ntot_Cell, &
+                     &   h, Sphere_Cell, List_Cell, &
+                     &   Map_Cell, Nl_Cell, Nat_Cell, DR_Cell, W_RU)
+       Else
+         ! Simple restoration without cell rebuild
+         h = h_old
+         Box = Box_old
+         W_RU = W_RU_old
+         W = W_old
+         Nl_Cell = Nl_Cell_old
+       EndIf
+       En_tot=En_old
+   Endif
+
+End Subroutine Volume_Move

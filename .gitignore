@@ -1,0 +1,92 @@
+# Compiled binaries and object files
+*.o
+*.mod
+*.a
+*.so
+*.exe
+bin/
+obj/
+
+# Fortran module files
+*.smod
+
+# Simulation output files
+*.xyz
+*.err
+*-restart.d
+*-final
+coords-*-final
+coords.out-*.dat
+movie.xyz
+movie-quat.dat
+input-restart.d
+run-data-*.dat
+output_*.out
+
+# SLURM job scripts (often contain user-specific paths)
+*.slurm
+
+# Log files
+*.log
+*.out
+
+# Backup files
+*~
+*.bak
+*.backup
+*.old
+
+# Editor temporary files
+.*.swp
+*.swp
+.vscode/
+.idea/
+*.sublime-*
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Core dumps
+core
+core.*
+
+# Profiling and debugging
+*.prof
+*.gcda
+*.gcno
+gmon.out
+callgrind.out.*
+
+# Keep example input files (configuration and parameters)
+!T*/input.d
+!T*/coords-[0-9]*.dat
+
+# Block all output files from example directories
+T*/coords.out-*.dat
+T*/input-restart.d
+T*/coords-*-final
+T*/movie*
+T*/*.err
+T*/*.slurm
+T*/output_*.out
+T*/run-data-*.dat
+
+# Documentation
+!README.md
+!LICENSE
+!*.md
