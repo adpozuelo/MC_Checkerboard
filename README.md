@@ -202,7 +202,7 @@ If you use this code in your research, please cite:
 
 ## License
 
-*(Add license information - e.g., GPL, MIT, etc.)*
+GNU GENERAL PUBLIC LICENSE Version 3
 
 ---
 
