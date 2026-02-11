@@ -18,6 +18,13 @@
 ! LIMITATIONS:
 !   - Requires Nl_Cell > 2 in each direction (minimum 4x4x4 grid)
 !   - Box angles must be 90 degrees (Bangles ~ 0)
+!
+! AUTHORS:
+!   Eva González Noya      - eva.noya@iqf.csic.es
+!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
+!
+! DATE:
+!   February 2026
 ! ==============================================================================
 Subroutine Initialize_checkerboard
 

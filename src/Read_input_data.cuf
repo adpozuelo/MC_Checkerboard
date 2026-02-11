@@ -13,6 +13,13 @@
 !   Contains: MC parameters, temperature, pressure, potential model parameters,
 !   particle type information, patch geometries, torsional angles, and
 !   interaction matrix.
+!
+! AUTHORS:
+!   Eva González Noya      - eva.noya@iqf.csic.es
+!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
+!
+! DATE:
+!   February 2026
 ! ==============================================================================
 Subroutine Write_Input_File(istep)
 
@@ -40,6 +47,8 @@ Subroutine Write_Input_File(istep)
    write(21,*) "XXXXXXXXXXXXXX"
    write(21,*) "imovie"
    write(21,'(L2)') imovie  
+   write(21,*) "Trajectory format (plain, netcdf, both)"
+   write(21,'(A)') trim(traj_format)
 
    write(21,*) "Model  (KF or LJG)"
    write(21,*) "LJG"
@@ -162,6 +171,13 @@ End Subroutine Write_Input_File
 !   - Verifies interaction matrix symmetry
 !   - Ensures number of patches doesn't exceed Nrb_sites_max
 !   - Validates torsional angle count against Ntor_max
+!
+! AUTHORS:
+!   Eva González Noya      - eva.noya@iqf.csic.es
+!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
+!
+! DATE:
+!   February 2026
 ! ==============================================================================
 Subroutine Read_Input_Data
  
@@ -203,6 +219,9 @@ Subroutine Read_Input_Data
    read(20,*)
    read(20,*)  imovie !  logical variable to decide whether to store the movie
    print*, 'imovie=', imovie !  logical variable to decide whether to store the movie
+   read(20,*)  ! Comment line
+   read(20,*)  traj_format  ! Trajectory format: plain, netcdf, or both
+   print*, 'Trajectory format:', trim(traj_format)
    read(20,*)
    read(20,*)  model
    read(20,*)

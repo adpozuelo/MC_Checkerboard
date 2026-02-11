@@ -19,6 +19,7 @@ coords-*-final
 coords.out-*.dat
 movie.xyz
 movie-quat.dat
+trajectory.nc
 input-restart.d
 run-data-*.dat
 output_*.out
@@ -81,6 +82,7 @@ T*/coords.out-*.dat
 T*/input-restart.d
 T*/coords-*-final
 T*/movie*
+T*/trajectory.nc
 T*/*.err
 T*/*.slurm
 T*/output_*.out
@@ -90,3 +92,7 @@ T*/run-data-*.dat
 !README.md
 !LICENSE
 !*.md
+# Internal utilities (not for distribution)
+docs/
+scripts/
+T*/clean-outputs.sh

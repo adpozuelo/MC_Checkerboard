@@ -22,6 +22,13 @@
 !   - computeenergy_kernel: Calculates total system energy
 !   - shiftcells_kernel: Shifts cell boundaries and reassigns particles
 !
+! AUTHORS:
+!   Eva González Noya      - eva.noya@iqf.csic.es
+!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
+!
+! DATE:
+!   February 2026
+!
 ! DEVICE MEMORY:
 !   All particle data, cell structures, and potential parameters are
 !   stored in GPU global memory for fast kernel access.

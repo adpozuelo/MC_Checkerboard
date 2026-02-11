@@ -12,6 +12,13 @@
 !   The checkerboard decomposition allows conflict-free parallel MC moves.
 !   In 3D, there are 8 sets (2^3), each containing cells with the same parity
 !   pattern (even/odd) in x, y, z directions.
+!
+! AUTHORS:
+!   Eva González Noya      - eva.noya@iqf.csic.es
+!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
+!
+! DATE:
+!   February 2026
 ! ==============================================================================
 Subroutine MCsweep()
 

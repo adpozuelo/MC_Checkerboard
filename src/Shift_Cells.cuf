@@ -15,6 +15,13 @@
 !   Calls GPU kernel to efficiently reassign all particles to their new cells
 !   after the grid displacement. Updates Sphere_Cell array with new relative
 !   positions within cells.
+!
+! AUTHORS:
+!   Eva González Noya      - eva.noya@iqf.csic.es
+!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
+!
+! DATE:
+!   February 2026
 ! ==============================================================================
 Subroutine Shift_Cells(ivec,disp)
 

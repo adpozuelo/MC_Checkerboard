@@ -34,6 +34,7 @@ Program GPU_MC
  Use cell
  
  Use cuda_fortran, only: gpucount, choosegpu, limpio
+ Use netcdf_trajectory
 
  Implicit None
  Integer :: i, j, ll, Iend, Ieq, vec_shift(6,0:ndim-1), vec(0:ndim-1)
@@ -159,9 +160,17 @@ Program GPU_MC
  print*, 'Starting the main simulation loop'
  print*, ''
 
- ! Open trajectory output files
- open(133,file='movie.xyz',access='append')
- open(674,file='movie-quat.dat',access='append')
+ ! Open trajectory output files based on format selection
+ If (trim(traj_format) == 'plain' .or. trim(traj_format) == 'both') Then
+    open(133,file='movie.xyz',access='append')
+    open(674,file='movie-quat.dat',access='append')
+    print*, 'Plain trajectory output enabled (movie.xyz)'
+ EndIf
+ 
+ If (trim(traj_format) == 'netcdf' .or. trim(traj_format) == 'both') Then
+    Call netcdf_init_trajectory('trajectory.nc', Natoms)
+    print*, 'NetCDF trajectory output enabled (trajectory.nc)'
+ EndIf
 
  ! Initialize counters
  no_mc_real=0
@@ -277,8 +286,16 @@ write(*,'(i10,x,"En_tot",f18.8,x,2f12.8,x,i12,x,6f12.8,x,i10)') i,En_tot, &
       If( (i > Ieq) .AND. (mod(i,Nsave2)==0) ) Then
            Call Convert_CB_RU
            Call Convert_Real_Units
-           Call Write_movie(i)
-           Call Write_final_conf2
+           
+           ! Write in selected format(s)
+           If (trim(traj_format) == 'plain' .or. trim(traj_format) == 'both') Then
+              Call Write_movie(i)
+              Call Write_final_conf2
+           EndIf
+           
+           If (trim(traj_format) == 'netcdf' .or. trim(traj_format) == 'both') Then
+              Call netcdf_write_frame(i, Natoms, r, q, itype, h, beta)
+           EndIf
       EndIf
       
       ! Write restart files periodically
@@ -303,7 +320,16 @@ write(*,'(i10,x,"En_tot",f18.8,x,2f12.8,x,i12,x,6f12.8,x,i10)') i,En_tot, &
  print*, 'Final energy after MC moves',En_tot
  print*, ''
  call cpu_time(finish)
- close(133)
+ 
+ ! Close trajectory files based on format
+ If (trim(traj_format) == 'plain' .or. trim(traj_format) == 'both') Then
+    close(133)
+    print*, 'Plain trajectory file closed (movie.xyz)'
+ EndIf
+ 
+ If (trim(traj_format) == 'netcdf' .or. trim(traj_format) == 'both') Then
+    Call netcdf_close_trajectory()
+ EndIf
 
  En_tot =0.d0
  print*, ''

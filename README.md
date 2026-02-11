@@ -27,6 +27,7 @@ This code implements a GPU-parallelized Monte Carlo simulation for systems of pa
 - **Temperature Annealing**: Linear temperature ramping capability
 - **Efficient Neighbor Lists**: Cell-based neighbor lists with periodic boundary conditions
 - **Restart Capability**: Checkpoint and restart functionality for long simulations
+- **NetCDF Trajectory Output**: Efficient binary format with integrated quaternions and metadata (~35× smaller than text files)
 
 ---
 
@@ -40,6 +41,7 @@ This code implements a GPU-parallelized Monte Carlo simulation for systems of pa
 - NVIDIA HPC SDK (formerly PGI compiler suite) with CUDA Fortran support
 - CUDA Toolkit 10.0 or higher
 - Linux operating system (tested on CentOS/RHEL and Ubuntu)
+- NetCDF-Fortran library (optional, for netCDF trajectory output)
 
 ---
 
@@ -65,24 +67,35 @@ This code implements a GPU-parallelized Monte Carlo simulation for systems of pa
 #### I/O and Utilities
 - `Read_input_data.cuf` - Read input parameters and configurations
 - `Volume_move.cuf` - NPT volume change moves
+- `netcdf_trajectory.cuf` - NetCDF trajectory output module
 - Various output routines for trajectories and properties
 
 ---
 
 ## Compilation
 
+### Prerequisites for NetCDF Support
+
+If you want NetCDF trajectory output, load the NetCDF-Fortran module:
+
+```bash
+module load netCDF-Fortran  # or path to your netCDF installation
+```
+
 ### Using the provided Makefile
 
 ```bash
-mkdir bin
+mkdir -p bin
 cd src
 make
 ```
 
+The Makefile automatically includes NetCDF libraries. If netCDF is not in standard locations, you may need to adjust `FCOPTS` and `LKOPTS` in the Makefile.
+
 ### Manual Compilation
 
 ```bash
-nvfortran -O3 -Mcuda=cc70 -o ../bin/mc_gpu *.cuf
+nvfortran -O3 -Mcuda=cc70 -o ../bin/mc_gpu.exe *.cuf
 ```
 
 Adjust `-Mcuda=cc70` to match your GPU architecture:
@@ -111,11 +124,23 @@ The simulation requires two input files:
    - Box matrix (h tensor)
    - Particle positions and types
 
+### Trajectory Output Formats
+
+Configure output format in `input.d`:
+- **`plain`** - Text format (`movie.xyz`, `movie-quat.dat`)
+- **`netcdf`** - Binary NetCDF format (`trajectory.nc`) - **Recommended** (35× smaller files)
+- **`both`** - Generate both formats
+
+```
+Trajectory format (plain, netcdf, both)
+netcdf
+```
+
 ### Running a Simulation
 
 ```bash
 cd T0.154
-../bin/mc_gpu.exe
+../mc_gpu.exe
 ```
 
 ### Example Input Structure
@@ -124,11 +149,17 @@ See `T0.154/` directory for example input files.
 
 ### Output Files
 
-- `movie.xyz` - Trajectory in XYZ format
-- `movie-quat.dat` - Particle orientations (quaternions)
-- `input-restart.d` - Restart input file
-- `coords-[basename]-final` - Final configuration
-- Standard output - Energy, acceptance rates, timing
+**Trajectory Files** (format depends on `traj_format` selection):
+- `movie.xyz` - Trajectory in XYZ format (if `plain` or `both`)
+- `movie-quat.dat` - Particle orientations as quaternions (if `plain` or `both`)
+- `trajectory.nc` - NetCDF trajectory with coordinates, quaternions, cell data, and metadata (if `netcdf` or `both`)
+
+**Simulation Data**:
+- `run-data-[basename].dat` - Time series of properties (energy, pressure, box dimensions)
+- `coords.out-[basename].dat` - Final configuration
+- `input-restart.d` - Restart input file with current parameters
+
+**Standard Output**: Energy, acceptance rates, timing information
 
 ---
 
@@ -243,6 +274,13 @@ Computing resources provided by [computing facility].
 
 ## Version History
 
+- **v1.1** (February 2026) - NetCDF trajectory support
+  - Added `netcdf_trajectory.cuf` module for binary trajectory I/O
+  - Configurable trajectory format via `traj_format` parameter
+  - AMBER-compatible NetCDF structure with quaternions
+  - 35× file size reduction vs plain text
+  - Verification utilities included
+  
 - **v1.0** (February 2026) - Initial release
   - GPU-accelerated checkerboard Monte Carlo
   - LJG potential with patches

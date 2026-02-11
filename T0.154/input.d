@@ -7,6 +7,8 @@
  XXXXXXXXXXXXXX
  imovie
  T
+ Trajectory format (plain, netcdf, both)
+ netcdf
  Model  (K-F or LJG)
  LJG 
  Parametros modelo LJG       

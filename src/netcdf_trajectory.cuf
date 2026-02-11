@@ -1,0 +1,356 @@
+! ==============================================================================
+! MODULE: netcdf_trajectory
+! ==============================================================================
+! DESCRIPTION:
+!   Module for writing Monte Carlo trajectory data to netCDF format.
+!   Provides an alternative to the XYZ format with structured metadata and
+!   support for quaternions, cell information, and per-atom properties.
+!
+! FEATURES:
+!   - NetCDF trajectory output compatible with MD analysis tools
+!   - Stores coordinates, quaternions, cell parameters, and atom types
+!   - Optional velocities and per-atom energies/stresses
+!   - Unlimited frame dimension for long simulations
+!
+! AUTHORS:
+!   Eva González Noya      - eva.noya@iqf.csic.es
+!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
+!
+! DATE:
+!   February 2026
+! ==============================================================================
+
+Module netcdf_trajectory
+
+   Use set_precision
+   Use netcdf
+   
+   Implicit None
+   
+   Private
+   Public :: netcdf_init_trajectory, netcdf_write_frame, netcdf_close_trajectory
+   
+   ! NetCDF file ID and variable IDs
+   Integer :: ncid
+   Integer :: frame_dimid, atom_dimid, spatial_dimid, label_dimid, voigt_dimid
+   Integer :: cell_spatial_dimid, cell_angular_dimid
+   
+   Integer :: time_varid, cell_origin_varid, cell_lengths_varid, cell_angles_varid
+   Integer :: id_varid, type_varid, coordinates_varid
+   Integer :: velocities_varid, c_ener_varid, c_stress_varid
+   Integer :: c_quatw_varid, c_quati_varid, c_quatj_varid, c_quatk_varid
+   Integer :: spatial_varid, cell_spatial_varid, cell_angular_varid
+   
+   ! Current frame counter
+   Integer :: current_frame = 0
+   
+   ! Dimension sizes
+   Integer, Parameter :: spatial_dim = 3
+   Integer, Parameter :: label_dim = 3
+   Integer, Parameter :: voigt_dim = 6
+   
+Contains
+
+! ==============================================================================
+! SUBROUTINE: netcdf_init_trajectory
+! ==============================================================================
+! DESCRIPTION:
+!   Initialize netCDF trajectory file with all dimensions and variables.
+!   Call this once before starting trajectory writing.
+!
+! ARGUMENTS:
+!   filename  - Name of the netCDF file to create
+!   natoms    - Number of atoms in the system
+! ==============================================================================
+
+Subroutine netcdf_init_trajectory(filename, natoms)
+
+   Implicit None
+   Character(len=*), Intent(in) :: filename
+   Integer, Intent(in) :: natoms
+   Integer :: ierr
+   
+   ! Create netCDF file
+   ierr = nf90_create(trim(filename), NF90_CLOBBER, ncid)
+   If (ierr /= NF90_NOERR) Then
+      print*, 'ERROR creating netCDF file: ', trim(nf90_strerror(ierr))
+      stop
+   EndIf
+   
+   ! Define dimensions
+   ierr = nf90_def_dim(ncid, 'frame', NF90_UNLIMITED, frame_dimid)
+   ierr = nf90_def_dim(ncid, 'atom', natoms, atom_dimid)
+   ierr = nf90_def_dim(ncid, 'spatial', spatial_dim, spatial_dimid)
+   ierr = nf90_def_dim(ncid, 'label', label_dim, label_dimid)
+   ierr = nf90_def_dim(ncid, 'Voigt', voigt_dim, voigt_dimid)
+   ierr = nf90_def_dim(ncid, 'cell_spatial', spatial_dim, cell_spatial_dimid)
+   ierr = nf90_def_dim(ncid, 'cell_angular', spatial_dim, cell_angular_dimid)
+   
+   ! Define label variables (character arrays for dimension labels)
+   ierr = nf90_def_var(ncid, 'spatial', NF90_CHAR, [spatial_dimid], spatial_varid)
+   ierr = nf90_def_var(ncid, 'cell_spatial', NF90_CHAR, [cell_spatial_dimid], cell_spatial_varid)
+   ierr = nf90_def_var(ncid, 'cell_angular', NF90_CHAR, [label_dimid, cell_angular_dimid], &
+                       cell_angular_varid)
+   
+   ! Define time variable
+   ierr = nf90_def_var(ncid, 'time', NF90_FLOAT, [frame_dimid], time_varid)
+   ierr = nf90_put_att(ncid, time_varid, 'units', 'lj')
+   ierr = nf90_put_att(ncid, time_varid, 'scale_factor', 0.0025)
+   
+   ! Define cell variables
+   ierr = nf90_def_var(ncid, 'cell_origin', NF90_FLOAT, [cell_spatial_dimid, frame_dimid], &
+                       cell_origin_varid)
+   ierr = nf90_put_att(ncid, cell_origin_varid, 'units', 'lj')
+   
+   ierr = nf90_def_var(ncid, 'cell_lengths', NF90_FLOAT, [cell_spatial_dimid, frame_dimid], &
+                       cell_lengths_varid)
+   ierr = nf90_put_att(ncid, cell_lengths_varid, 'units', 'lj')
+   
+   ierr = nf90_def_var(ncid, 'cell_angles', NF90_FLOAT, [cell_angular_dimid, frame_dimid], &
+                       cell_angles_varid)
+   ierr = nf90_put_att(ncid, cell_angles_varid, 'units', 'degree')
+   
+   ! Define atom ID and type
+   ierr = nf90_def_var(ncid, 'id', NF90_INT, [atom_dimid, frame_dimid], id_varid)
+   ierr = nf90_def_var(ncid, 'type', NF90_INT, [atom_dimid, frame_dimid], type_varid)
+   
+   ! Define coordinates
+   ierr = nf90_def_var(ncid, 'coordinates', NF90_FLOAT, [spatial_dimid, atom_dimid, frame_dimid], &
+                       coordinates_varid)
+   ierr = nf90_put_att(ncid, coordinates_varid, 'units', 'lj')
+   
+   ! Define velocities (optional, will write zeros if not available)
+   ierr = nf90_def_var(ncid, 'velocities', NF90_FLOAT, [spatial_dimid, atom_dimid, frame_dimid], &
+                       velocities_varid)
+   ierr = nf90_put_att(ncid, velocities_varid, 'units', 'lj')
+   
+   ! Define per-atom energy
+   ierr = nf90_def_var(ncid, 'c_ener', NF90_FLOAT, [atom_dimid, frame_dimid], c_ener_varid)
+   
+   ! Define per-atom stress
+   ierr = nf90_def_var(ncid, 'c_stress', NF90_FLOAT, [voigt_dim, atom_dimid, frame_dimid], &
+                       c_stress_varid)
+   
+   ! Define quaternions
+   ierr = nf90_def_var(ncid, 'c_quatw', NF90_FLOAT, [atom_dimid, frame_dimid], c_quatw_varid)
+   ierr = nf90_def_var(ncid, 'c_quati', NF90_FLOAT, [atom_dimid, frame_dimid], c_quati_varid)
+   ierr = nf90_def_var(ncid, 'c_quatj', NF90_FLOAT, [atom_dimid, frame_dimid], c_quatj_varid)
+   ierr = nf90_def_var(ncid, 'c_quatk', NF90_FLOAT, [atom_dimid, frame_dimid], c_quatk_varid)
+   
+   ! Add global attributes
+   ierr = nf90_put_att(ncid, NF90_GLOBAL, 'Conventions', 'AMBER')
+   ierr = nf90_put_att(ncid, NF90_GLOBAL, 'ConventionVersion', '1.0')
+   ierr = nf90_put_att(ncid, NF90_GLOBAL, 'program', 'MC_GPU_ROT')
+   ierr = nf90_put_att(ncid, NF90_GLOBAL, 'programVersion', '1.0')
+   
+   ! End define mode
+   ierr = nf90_enddef(ncid)
+   
+   ! Write dimension labels
+   ierr = nf90_put_var(ncid, spatial_varid, ['x', 'y', 'z'])
+   ierr = nf90_put_var(ncid, cell_spatial_varid, ['a', 'b', 'c'])
+   
+   ! Write cell_angular labels (alpha, beta, gamma)
+   ierr = nf90_put_var(ncid, cell_angular_varid, &
+                       reshape(['a', 'b', 'c', 'l', 'e', 'a', 'p', 't', 'm'], [3, 3]))
+   
+   current_frame = 0
+   
+   print*, 'NetCDF trajectory file initialized: ', trim(filename)
+   
+End Subroutine netcdf_init_trajectory
+
+
+! ==============================================================================
+! SUBROUTINE: netcdf_write_frame
+! ==============================================================================
+! DESCRIPTION:
+!   Write a single frame to the netCDF trajectory file.
+!   Call this routine each time you want to save a snapshot.
+!
+! ARGUMENTS:
+!   istep     - Current simulation step
+!   natoms    - Number of atoms
+!   r         - Position array (3*natoms)
+!   q         - Quaternion array (4*natoms)
+!   itype     - Atom type array (natoms)
+!   h         - Cell matrix (9 elements)
+!   beta      - Inverse temperature
+!   velocities - Optional velocity array (3*natoms)
+!   energies   - Optional per-atom energy array (natoms)
+! ==============================================================================
+
+Subroutine netcdf_write_frame(istep, natoms, r, q, itype_arr, h, beta, &
+                              velocities, energies)
+
+   Use configuration, Only: Ndim
+   
+   Implicit None
+   Integer, Intent(in) :: istep, natoms
+   Real(wp), Intent(in) :: r(0:), q(0:), h(0:8), beta
+   Integer, Intent(in) :: itype_arr(0:)
+   Real(wp), Intent(in), Optional :: velocities(0:), energies(0:)
+   
+   Integer :: ierr, i, Indx, Indxi
+   Real(wp) :: time_value, temp
+   Real(wp) :: cell_origin(3), cell_lengths(3), cell_angles(3)
+   Integer, Allocatable :: atom_ids(:), atom_types(:)
+   Real(wp), Allocatable :: coords(:,:), vels(:,:), ener(:), stress(:,:)
+   Real(wp), Allocatable :: quatw(:), quati(:), quatj(:), quatk(:)
+   
+   current_frame = current_frame + 1
+   
+   ! Allocate temporary arrays
+   Allocate(atom_ids(natoms), atom_types(natoms))
+   Allocate(coords(3, natoms), vels(3, natoms))
+   Allocate(ener(natoms), stress(6, natoms))
+   Allocate(quatw(natoms), quati(natoms), quatj(natoms), quatk(natoms))
+   
+   ! Fill atom IDs and types
+   Do i = 1, natoms
+      atom_ids(i) = i
+      atom_types(i) = itype_arr(i-1)
+   EndDo
+   
+   ! Fill coordinates
+   Do i = 0, natoms-1
+      Indx = i * Ndim
+      coords(1, i+1) = r(Indx)
+      coords(2, i+1) = r(Indx+1)
+      coords(3, i+1) = r(Indx+2)
+   EndDo
+   
+   ! Fill quaternions
+   Do i = 0, natoms-1
+      Indxi = i * 4
+      quatw(i+1) = q(Indxi)      ! q0
+      quati(i+1) = q(Indxi+1)    ! q1
+      quatj(i+1) = q(Indxi+2)    ! q2
+      quatk(i+1) = q(Indxi+3)    ! q3
+   EndDo
+   
+   ! Fill velocities (zeros if not provided)
+   If (Present(velocities)) Then
+      Do i = 0, natoms-1
+         Indx = i * Ndim
+         vels(1, i+1) = velocities(Indx)
+         vels(2, i+1) = velocities(Indx+1)
+         vels(3, i+1) = velocities(Indx+2)
+      EndDo
+   Else
+      vels(:,:) = 0.0_wp
+   EndIf
+   
+   ! Fill energies (zeros if not provided)
+   If (Present(energies)) Then
+      Do i = 1, natoms
+         ener(i) = energies(i-1)
+      EndDo
+   Else
+      ener(:) = 0.0_wp
+   EndIf
+   
+   ! Fill stress (zeros - not available in current code)
+   stress(:,:) = 0.0_wp
+   
+   ! Calculate time
+   time_value = real(istep, wp)
+   
+   ! Calculate temperature
+   temp = 1.0_wp / beta
+   
+   ! Cell parameters
+   cell_origin(:) = 0.0_wp
+   cell_lengths(1) = h(0)
+   cell_lengths(2) = h(4)
+   cell_lengths(3) = h(8)
+   
+   ! Cell angles (assuming orthogonal box for now)
+   ! If you have a triclinic box, calculate angles from h matrix
+   cell_angles(1) = 90.0_wp  ! alpha
+   cell_angles(2) = 90.0_wp  ! beta
+   cell_angles(3) = 90.0_wp  ! gamma
+   
+   ! Write data to netCDF file
+   ierr = nf90_put_var(ncid, time_varid, time_value, start=[current_frame])
+   
+   ierr = nf90_put_var(ncid, cell_origin_varid, cell_origin, &
+                       start=[1, current_frame], count=[3, 1])
+   
+   ierr = nf90_put_var(ncid, cell_lengths_varid, cell_lengths, &
+                       start=[1, current_frame], count=[3, 1])
+   
+   ierr = nf90_put_var(ncid, cell_angles_varid, cell_angles, &
+                       start=[1, current_frame], count=[3, 1])
+   
+   ierr = nf90_put_var(ncid, id_varid, atom_ids, &
+                       start=[1, current_frame], count=[natoms, 1])
+   
+   ierr = nf90_put_var(ncid, type_varid, atom_types, &
+                       start=[1, current_frame], count=[natoms, 1])
+   
+   ierr = nf90_put_var(ncid, coordinates_varid, coords, &
+                       start=[1, 1, current_frame], count=[3, natoms, 1])
+   
+   ierr = nf90_put_var(ncid, velocities_varid, vels, &
+                       start=[1, 1, current_frame], count=[3, natoms, 1])
+   
+   ierr = nf90_put_var(ncid, c_ener_varid, ener, &
+                       start=[1, current_frame], count=[natoms, 1])
+   
+   ierr = nf90_put_var(ncid, c_stress_varid, stress, &
+                       start=[1, 1, current_frame], count=[6, natoms, 1])
+   
+   ierr = nf90_put_var(ncid, c_quatw_varid, quatw, &
+                       start=[1, current_frame], count=[natoms, 1])
+   
+   ierr = nf90_put_var(ncid, c_quati_varid, quati, &
+                       start=[1, current_frame], count=[natoms, 1])
+   
+   ierr = nf90_put_var(ncid, c_quatj_varid, quatj, &
+                       start=[1, current_frame], count=[natoms, 1])
+   
+   ierr = nf90_put_var(ncid, c_quatk_varid, quatk, &
+                       start=[1, current_frame], count=[natoms, 1])
+   
+   ! Sync to disk
+   ierr = nf90_sync(ncid)
+   
+   If (ierr /= NF90_NOERR) Then
+      print*, 'ERROR writing netCDF frame: ', trim(nf90_strerror(ierr))
+   EndIf
+   
+   ! Deallocate temporary arrays
+   Deallocate(atom_ids, atom_types, coords, vels, ener, stress)
+   Deallocate(quatw, quati, quatj, quatk)
+   
+End Subroutine netcdf_write_frame
+
+
+! ==============================================================================
+! SUBROUTINE: netcdf_close_trajectory
+! ==============================================================================
+! DESCRIPTION:
+!   Close the netCDF trajectory file.
+!   Call this at the end of the simulation.
+! ==============================================================================
+
+Subroutine netcdf_close_trajectory()
+
+   Implicit None
+   Integer :: ierr
+   
+   ierr = nf90_close(ncid)
+   
+   If (ierr /= NF90_NOERR) Then
+      print*, 'ERROR closing netCDF file: ', trim(nf90_strerror(ierr))
+   Else
+      print*, 'NetCDF trajectory file closed successfully'
+      print*, 'Total frames written: ', current_frame
+   EndIf
+   
+   current_frame = 0
+   
+End Subroutine netcdf_close_trajectory
+
+End Module netcdf_trajectory

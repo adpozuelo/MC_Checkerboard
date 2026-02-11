@@ -1,0 +1,124 @@
+! ==============================================================================
+! PROGRAMA DE PRUEBA PARA NETCDF_TRAJECTORY
+! ==============================================================================
+! Este programa prueba el módulo netcdf_trajectory de forma independiente
+! Compila con: nvfortran -O3 test_netcdf_trajectory.cuf netcdf_trajectory.cuf \
+!              -lnetcdff -lnetcdf -o test_netcdf
+! ==============================================================================
+
+Program test_netcdf_trajectory
+
+   Use set_precision
+   Use netcdf_trajectory
+   
+   Implicit None
+   
+   Integer, Parameter :: natoms_test = 10
+   Integer, Parameter :: nframes = 5
+   Integer :: i, j, Indx, Indxi
+   Real(wp), Allocatable :: r(:), q(:), h(:)
+   Integer, Allocatable :: itype(:)
+   Real(wp) :: beta
+   
+   print*, '=================================================='
+   print*, 'TEST: NetCDF Trajectory Module'
+   print*, '=================================================='
+   print*, ''
+   
+   ! Allocate arrays
+   Allocate(r(0:natoms_test*3-1))
+   Allocate(q(0:natoms_test*4-1))
+   Allocate(itype(0:natoms_test-1))
+   Allocate(h(0:8))
+   
+   ! Initialize test data
+   print*, 'Initializing test data...'
+   
+   ! Cell matrix (orthorhombic box 10x10x10)
+   h(:) = 0.0_wp
+   h(0) = 10.0_wp  ! a
+   h(4) = 10.0_wp  ! b
+   h(8) = 10.0_wp  ! c
+   
+   ! Temperature
+   beta = 1.0_wp / 1.0_wp  ! T = 1.0
+   
+   ! Atom types
+   Do i = 0, natoms_test-1
+      itype(i) = mod(i, 3)  ! Types 0, 1, 2
+   EndDo
+   
+   ! Initial positions (random in box)
+   Do i = 0, natoms_test-1
+      Indx = i * 3
+      r(Indx)   = real(i, wp) * 1.0_wp  ! x
+      r(Indx+1) = real(i, wp) * 0.5_wp  ! y
+      r(Indx+2) = real(i, wp) * 0.8_wp  ! z
+   EndDo
+   
+   ! Initial quaternions (identity rotation)
+   Do i = 0, natoms_test-1
+      Indxi = i * 4
+      q(Indxi)   = 1.0_wp  ! q0
+      q(Indxi+1) = 0.0_wp  ! q1
+      q(Indxi+2) = 0.0_wp  ! q2
+      q(Indxi+3) = 0.0_wp  ! q3
+   EndDo
+   
+   print*, 'Number of atoms: ', natoms_test
+   print*, 'Number of frames:', nframes
+   print*, ''
+   
+   ! Initialize NetCDF file
+   print*, 'Initializing NetCDF trajectory...'
+   Call netcdf_init_trajectory('test_trajectory.nc', natoms_test)
+   print*, ''
+   
+   ! Write several frames
+   print*, 'Writing frames...'
+   Do i = 1, nframes
+      
+      ! Modify positions slightly (simulate dynamics)
+      Do j = 0, natoms_test-1
+         Indx = j * 3
+         r(Indx)   = r(Indx)   + 0.1_wp * real(i, wp)
+         r(Indx+1) = r(Indx+1) + 0.05_wp * real(i, wp)
+         r(Indx+2) = r(Indx+2) + 0.08_wp * real(i, wp)
+      EndDo
+      
+      ! Modify quaternions slightly (simulate rotation)
+      Do j = 0, natoms_test-1
+         Indxi = j * 4
+         q(Indxi+1) = q(Indxi+1) + 0.01_wp * real(i, wp)
+         ! Renormalize (simplified)
+         q(Indxi) = sqrt(1.0_wp - q(Indxi+1)**2)
+      EndDo
+      
+      ! Write frame
+      Call netcdf_write_frame(i*100, natoms_test, r, q, itype, h, beta)
+      print*, '  Frame ', i, ' written (step ', i*100, ')'
+      
+   EndDo
+   print*, ''
+   
+   ! Close NetCDF file
+   print*, 'Closing NetCDF trajectory...'
+   Call netcdf_close_trajectory()
+   print*, ''
+   
+   print*, '=================================================='
+   print*, 'TEST COMPLETED SUCCESSFULLY'
+   print*, '=================================================='
+   print*, ''
+   print*, 'Output file: test_trajectory.nc'
+   print*, ''
+   print*, 'To view the file, use:'
+   print*, '  ncdump -h test_trajectory.nc     (show header)'
+   print*, '  ncdump test_trajectory.nc        (show all data)'
+   print*, '  ncview test_trajectory.nc        (visualize)'
+   print*, ''
+   
+   ! Deallocate
+   Deallocate(r, q, itype, h)
+   
+End Program test_netcdf_trajectory

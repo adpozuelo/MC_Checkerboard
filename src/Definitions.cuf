@@ -4,6 +4,13 @@
 ! DESCRIPTION:
 !   Defines precision parameters for floating-point arithmetic throughout
 !   the program. Sets working precision (wp) to single precision by default.
+!
+! AUTHORS:
+!   Eva González Noya      - eva.noya@iqf.csic.es
+!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
+!
+! DATE:
+!   February 2026
 ! ==============================================================================
 MODULE set_precision
       INTRINSIC KIND
@@ -20,6 +27,13 @@ END MODULE  set_precision
 !   Stores the configuration of the molecular system including particle
 !   positions, orientations (quaternions), simulation box dimensions, and
 !   particle type information.
+!
+! AUTHORS:
+!   Eva González Noya      - eva.noya@iqf.csic.es
+!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
+!
+! DATE:
+!   February 2026
 ! ==============================================================================
 MODULE  configuration
 
@@ -45,6 +59,13 @@ END MODULE configuration
 !   Contains runtime parameters for the Monte Carlo simulation including
 !   step counters, acceptance statistics, temperature control, maximum
 !   displacement parameters, and simulation flags.
+!
+! AUTHORS:
+!   Eva González Noya      - eva.noya@iqf.csic.es
+!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
+!
+! DATE:
+!   February 2026
 ! ==============================================================================
 MODULE rundata
    use set_precision
@@ -63,6 +84,7 @@ MODULE rundata
    Real(wp) :: vmax(0:2), pres                         ! Max volume change and pressure (NpT)
    Logical  :: imovie, displ_update, npt               ! Movie output, adaptive displacement, NpT flag
    Character*20 base                                   ! Base name for output files
+   Character*10 :: traj_format                         ! Trajectory format: 'plain', 'netcdf', or 'both'
 
 
 END MODULE rundata
@@ -76,6 +98,13 @@ END MODULE rundata
 !   Includes patch geometry (directions and reference vectors), interaction
 !   ranges, Lennard-Jones and angular potential parameters, and torsional
 !   angle specifications.
+!
+! AUTHORS:
+!   Eva González Noya      - eva.noya@iqf.csic.es
+!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
+!
+! DATE:
+!   February 2026
 ! ==============================================================================
 MODULE potential
    Use set_precision
@@ -107,6 +136,13 @@ END MODULE potential
 ! DESCRIPTION:
 !   Stores thermodynamic properties including instantaneous and averaged
 !   values of energy, density, volume, and box dimensions.
+!
+! AUTHORS:
+!   Eva González Noya      - eva.noya@iqf.csic.es
+!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
+!
+! DATE:
+!   February 2026
 ! ==============================================================================
 MODULE properties
    use set_precision
@@ -123,6 +159,13 @@ END MODULE properties
 ! ==============================================================================
 ! DESCRIPTION:
 !   Utility constants and parameters used throughout the program.
+!
+! AUTHORS:
+!   Eva González Noya      - eva.noya@iqf.csic.es
+!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
+!
+! DATE:
+!   February 2026
 ! ==============================================================================
 MODULE utils
    use set_precision
@@ -141,6 +184,13 @@ END MODULE utils
 !   which are grouped into checkerboard sets to enable simultaneous updates
 !   without conflicts. This module stores cell dimensions, particle assignments,
 !   neighbor lists, and checkerboard set information.
+!
+! AUTHORS:
+!   Eva González Noya      - eva.noya@iqf.csic.es
+!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
+!
+! DATE:
+!   February 2026
 ! ==============================================================================
 MODULE Cell 
 
