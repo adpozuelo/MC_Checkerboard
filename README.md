@@ -227,7 +227,9 @@ This scheme enables efficient GPU parallelization while maintaining detailed bal
 
 If you use this code in your research, please cite:
 
-*(Add publication reference here once available)*
+```
+Eva González Noya and Antonio Díaz Pozuelo, "GPU-Accelerated Monte Carlo for Patchy Particles: A high-performance GPU-accelerated Monte Carlo simulation code for patchy particle systems with anisotropic interactions in NVT and NpT ensembles.", CSIC-Madrid (2026)
+```
 
 ---
 
@@ -266,9 +268,9 @@ For questions or issues, contact the authors:
 
 ## Acknowledgments
 
-This work was supported by [funding agency/grant information].
+This work was supported by CSIC.
 
-Computing resources provided by [computing facility].
+Computing resources provided by CSIC.
 
 ---
 
