@@ -1,6 +1,8 @@
 FC = nvfortran
-FCOPTS = -O3 -cudalib=curand -I/usr/local/modules/x64_v4/software/netCDF-Fortran/4.6.1-NVHPC-25.3-CUDA-12.8.0/include
-LKOPTS = -cuda -cudalib=curand -L/usr/local/modules/x64_v4/software/netCDF-Fortran/4.6.1-NVHPC-25.3-CUDA-12.8.0/lib -lnetcdff -L/usr/local/modules/x64_v4/software/netCDF/4.9.2-NVHPC-25.3-CUDA-12.8.0/lib64 -lnetcdf
+FCINC = -I$(NETCDFINC) -I$(NVINCLUDE) $(if $(FFTWINC),-I$(FFTWINC)) 
+FCOPTS = -O3 -cudalib=curand $(FCINC)
+LKLIBS = -L$(NETCDFLIB) -L$(NVLIBS) $(if $(FFTWLIB),-L$(FFTWLIB))
+LKOPTS = -cuda -cudalib=curand  $(LKLIBS)-lnetcdff -lnetcdf
 
 EXE = -o ../bin/mc_gpu.exe
 OBJ = Definitions.o Read_input_data.o Subsweep_Energy_CUDA.o \
