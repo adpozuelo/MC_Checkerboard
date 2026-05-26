@@ -3,7 +3,7 @@ FC = nvfortran
 FCINC = -I$(NETCDFINC) -I$(NVINCLUDE) $(if $(FFTWINC),-I$(FFTWINC)) 
 FCOPTS = -O3 -cudalib=curand $(FCINC)
 LKLIBS = -L$(NETCDFLIB) -L$(NVLIBS) $(if $(FFTWLIB),-L$(FFTWLIB))
-LKOPTS = -cuda -cudalib=curand  $(LKLIBS)-lnetcdff -lnetcdf
+LKOPTS = -cuda -cudalib=curand  $(LKLIBS)-lnetcdff 
 
 EXE = -o ../bin/mc_gpu.exe
 OBJ = Definitions.o Read_input_data.o Subsweep_Energy_CUDA.o \
