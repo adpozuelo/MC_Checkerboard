@@ -6,10 +6,11 @@ A high-performance GPU-accelerated Monte Carlo simulation code for patchy partic
 
 - **Eva González Noya** - eva.noya@iqf.csic.es
 - **Antonio Díaz Pozuelo** - adiaz@iqf.csic.es
+- **Enrique Lomba** - enrique.lomba@csic.es
 
 Instituto de Química Física Blas Cabrera (IQF-CSIC)
 
-**Date:** February 2026
+**Date:** May 2026
 
 ---
 
