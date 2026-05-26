@@ -1,3 +1,4 @@
+PATH := $(NVBIN):$(PATH)
 FC = nvfortran
 FCINC = -I$(NETCDFINC) -I$(NVINCLUDE) $(if $(FFTWINC),-I$(FFTWINC)) 
 FCOPTS = -O3 -cudalib=curand $(FCINC)
