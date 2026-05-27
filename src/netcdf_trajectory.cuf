@@ -46,7 +46,7 @@ Module netcdf_trajectory
    
    ! Dimension sizes
    Integer, Parameter :: spatial_dim = 3
-   Integer, Parameter :: label_dim = 3
+   Integer, Parameter :: label_dim = 5
    Integer, Parameter :: voigt_dim = 6
    
 Contains
@@ -128,9 +128,12 @@ Subroutine netcdf_init_trajectory(filename, natoms)
    ierr = nf90_def_var(ncid, 'c_ener', NF90_FLOAT, [atom_dimid, frame_dimid], c_ener_varid)
    
    ! Define per-atom stress
-   ierr = nf90_def_var(ncid, 'c_stress', NF90_FLOAT, [voigt_dim, atom_dimid, frame_dimid], &
-                       c_stress_varid)
-   
+   !ierr = nf90_def_var(ncid, 'c_stress', NF90_FLOAT, [voigt_dim, atom_dimid, frame_dimid], &
+   !                    c_stress_varid)
+
+   ! CORRECT
+   ierr = nf90_def_var(ncid, 'c_stress', NF90_FLOAT, [voigt_dimid, atom_dimid, frame_dimid], &
+                    c_stress_varid)
    ! Define quaternions
    ierr = nf90_def_var(ncid, 'c_quatw', NF90_FLOAT, [atom_dimid, frame_dimid], c_quatw_varid)
    ierr = nf90_def_var(ncid, 'c_quati', NF90_FLOAT, [atom_dimid, frame_dimid], c_quati_varid)
@@ -151,9 +154,11 @@ Subroutine netcdf_init_trajectory(filename, natoms)
    ierr = nf90_put_var(ncid, cell_spatial_varid, ['a', 'b', 'c'])
    
    ! Write cell_angular labels (alpha, beta, gamma)
-   ierr = nf90_put_var(ncid, cell_angular_varid, &
-                       reshape(['a', 'b', 'c', 'l', 'e', 'a', 'p', 't', 'm'], [3, 3]))
-   
+   !ierr = nf90_put_var(ncid, cell_angular_varid, &
+   !                    reshape(['a', 'b', 'c', 'l', 'e', 'a', 'p', 't', 'm'], [3, 3]))
+   ! Write cell_angular labels (alpha, beta, gamma)
+   ! Note the space in 'beta ' to ensure all strings are length 5
+   ierr = nf90_put_var(ncid, cell_angular_varid, ['alpha', 'beta ', 'gamma'])
    current_frame = 0
    
    print*, 'NetCDF trajectory file initialized: ', trim(filename)
@@ -209,7 +214,7 @@ Subroutine netcdf_write_frame(istep, natoms, r, q, itype_arr, h, beta, &
    ! Fill atom IDs and types
    Do i = 1, natoms
       atom_ids(i) = i
-      atom_types(i) = itype_arr(i-1)
+      atom_types(i) = itype_arr(i-1)+1
    EndDo
    
    ! Fill coordinates
