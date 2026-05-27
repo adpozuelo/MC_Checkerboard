@@ -4,8 +4,6 @@
 *.a
 *.so
 *.exe
-bin/
-obj/
 
 # Fortran module files
 *.smod
