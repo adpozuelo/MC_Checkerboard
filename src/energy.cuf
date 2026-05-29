@@ -424,3 +424,30 @@ Subroutine ener(i1,i2,en,overlap)
    END IF  ! R12 < rangep
 
 End Subroutine ener
+
+Subroutine get_per_atom_energies(atom_ener)
+   Use configuration
+   Implicit None
+   Real(wp), Intent(out) :: atom_ener(0:Natoms-1)
+   Integer :: i, j
+   Real(wp) :: pair_en
+   Logical :: overlap
+   
+   ! Initialize to zero
+   atom_ener(:) = 0.0_wp
+   
+   ! Loop over all pairs to compute energy
+   Do i = 0, Natoms - 2
+      Do j = i + 1, Natoms - 1
+         ! Your existing routine in energy.cuf
+         Call ener(i, j, pair_en, overlap) 
+         if (overlap) then
+            print *, i,j, pair_en
+            stop
+         endif
+         ! Split the pair energy equally between the two atoms
+         atom_ener(i) = atom_ener(i) + 0.5_wp * pair_en
+         atom_ener(j) = atom_ener(j) + 0.5_wp * pair_en
+      EndDo
+   EndDo
+End Subroutine get_per_atom_energies

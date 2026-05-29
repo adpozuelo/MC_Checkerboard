@@ -46,6 +46,7 @@ MODULE  configuration
    Integer, Allocatable                :: itype(:)  ! Particle type for each atom
    Real(wp), Allocatable               :: r(:)      ! Particle positions (scaled coordinates)
    Real(wp), Allocatable               :: q(:)      ! Particle orientations (quaternions)
+   Real(wp), Allocatable               :: enp_atom(:)
    Real (wp), Dimension(0:ndim*ndim-1) :: h, hinv   ! Simulation box matrix and its inverse
    Real(wp), Dimension(0:ndim-1)       :: Box, Bangles ! Box dimensions and angles
 
@@ -83,7 +84,6 @@ MODULE rundata
    Real(wp) :: omax, hmax                              ! Max rotation angle and translation distance
    Real(wp) :: vmax(0:2), pres                         ! Max volume change and pressure (NpT)
    Logical  :: imovie, displ_update, npt               ! Movie output, adaptive displacement, NpT flag
-   Character*20 base                                   ! Base name for output files
    Character*10 :: traj_format                         ! Trajectory format: 'plain', 'netcdf', or 'both'
 
 

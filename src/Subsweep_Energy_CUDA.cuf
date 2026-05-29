@@ -1602,29 +1602,29 @@ end subroutine enerGPU
     else
       nogpus = ndev
     end if
-    if (nogpus == 1) then
-      ierror = cudaGetDeviceProperties(properties, 0)
-      print *, ""
-      print *, ""
-      print *, ""
-      print *, ""
-      print *, " %%%%%%%%%%%%%%%%%%%%%%"
-      print *, " GPU properties "
-      mem = properties%totalGlobalMem
-      write(*, '(A,I0)') " GPU global memory ", mem
-      shared_mem = properties%sharedMemPerBlock
-      write(*, '(A,I0)') " Shared memory  per block ", shared_mem
-      mpc = properties%multiProcessorCount
-      write(*, '(A,I0)') " Number of symmetric multiprocessors ", mpc
-      nthr = properties%maxThreadsPerBlock
-      write(*, '(A,I0)') " Maximum number of threads per block ", nthr
-      nreg = properties%regsPerBlock
-      write(*, '(A,I0)') " Maximum number of registers per block ", nreg
-      warps = properties%warpSize
-      write(*, '(A,I0)') " Warp size in threads ", warps
-      print *, " %%%%%%%%%%%%%%%%%%%%%%"
-      print *, ""
-    end if
+    ! if (nogpus == 1) then
+    !   ierror = cudaGetDeviceProperties(properties, 0)
+    !   print *, ""
+    !   print *, ""
+    !   print *, ""
+    !   print *, ""
+    !   print *, " %%%%%%%%%%%%%%%%%%%%%%"
+    !   print *, " GPU properties "
+    !   mem = properties%totalGlobalMem
+    !   write(*, '(A,I0)') " GPU global memory ", mem
+    !   shared_mem = properties%sharedMemPerBlock
+    !   write(*, '(A,I0)') " Shared memory  per block ", shared_mem
+    !   mpc = properties%multiProcessorCount
+    !   write(*, '(A,I0)') " Number of symmetric multiprocessors ", mpc
+    !   nthr = properties%maxThreadsPerBlock
+    !   write(*, '(A,I0)') " Maximum number of threads per block ", nthr
+    !   nreg = properties%regsPerBlock
+    !   write(*, '(A,I0)') " Maximum number of registers per block ", nreg
+    !   warps = properties%warpSize
+    !   write(*, '(A,I0)') " Warp size in threads ", warps
+    !   print *, " %%%%%%%%%%%%%%%%%%%%%%"
+    !   print *, ""
+    ! end if
   end subroutine gpucount
 
   subroutine choosegpu(gpuid)

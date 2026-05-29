@@ -50,13 +50,10 @@ Subroutine Initialize_checkerboard
     ! Determine cell width based on maximum interaction range
     ! --------------------------------------------------------------------------
     rangeP_max=maxval(rangeP)
-    print*, 'rangeP_max',rangeP_max,maxval(rangeP)
 
     wv = 1.10d0*rangeP_max  ! Cell width = 110% of interaction range
     w(:) = (/ wv, wv, wv /)
 
-    print*, 'Entering Initialize Checkerboard'
-    print*, 'w=',w
 
     ! --------------------------------------------------------------------------
     ! Verify box geometry (only orthogonal boxes supported)
@@ -64,15 +61,15 @@ Subroutine Initialize_checkerboard
     Call Get_edges_angles
    
     If(abs(bangles(0))>0.001) Then
-        print*, 'non cubic box not implemented yet'
+        print*, '*** Error: non cubic box not implemented yet'
         stop
     EndIf
     If(abs(bangles(1))>0.001) Then
-        print*, 'non cubic box not implemented yet'
+        print*, '*** Error: non cubic box not implemented yet'
         stop
     EndIf
     If(abs(bangles(2))>0.001) Then
-        print*, 'non cubic box not implemented yet'
+        print*, '*** Error: non cubic box not implemented yet'
         stop
     EndIf
 
@@ -81,7 +78,6 @@ Subroutine Initialize_checkerboard
     ! --------------------------------------------------------------------------
     W_RU(:) = w(:) / Box(:) 
 
-    print*, 'W_RU' ,W(:),W_RU(:)
 
     ! X-direction: ensure even number and round to nearest multiple of 64
     Nl_Cell(0) = 1. / W_RU(0)
@@ -97,9 +93,8 @@ Subroutine Initialize_checkerboard
     Nl_Cell(2) = 1. / W_RU(2)
     If (mod(Nl_Cell(2),2)  == 1)  Nl_Cell(2) = Nl_Cell(2) - 1
     If(Nl_Cell(2) > 64) Nl_cell(2) = 64*((Nl_cell(2)/64))
-    print*, 'Nl_Cell',NL_Cell
     if(Nl_Cell(0)==2 .or. NL_Cell(1) == 2 .or. Nl_Cell(2)==2) Then
-        print*, 'your system is too small, sorry!'
+        print*, '*** Fatal error: your system is too small, sorry!!!'
         stop
     endif
 
@@ -107,12 +102,11 @@ Subroutine Initialize_checkerboard
     W_RU(:) =  1.d0 / dble(Nl_Cell (:))
     W(:) = w_RU(:) * Box(:) 
     disp_max(:)=0.4*W_RU(:)  ! Max cell shift = 40% of cell width
-    print*, 'W_RU 2' ,W(:),W_RU(:),W_RU(:)/2.d0
  
     ! Ensure max translation displacement doesn't exceed half cell width
     if(hmax > W_RU(0)/2.0) then
           hmax= W_RU(0)/2.0
-          print*, 'adjusting hmax=',hmax
+          print*, ' *** Warning: adjusting hmax to ',hmax
      endif
 
     Ntot_Cell=Nl_Cell(0)*Nl_Cell(1)*Nl_Cell(2)
@@ -130,13 +124,10 @@ Subroutine Initialize_checkerboard
          CB_Set(I)=I
       Enddo
     ElseIf(ndim == 3) Then
-      print*, 'defining the CB sets'
       ! 3D case: 8 checkerboard sets based on even/odd parity in x,y,z
       ! Set 1: (even, even, even), Set 2: (even, even, odd), etc.
       Nset_cell=8
       Nsubset_cell=Ntot_Cell/Nset_cell
-      print*, 'Ntot_Cell=',Ntot_Cell
-      print*, 'Nsubset_Cell=',Nsubset_Cell
       Allocate(CB_Set(Nset_cell))
       Allocate(Indx_Set(Nset_cell,3))
       Allocate(Offset_CB(0:2))
@@ -173,14 +164,10 @@ Subroutine Initialize_checkerboard
     Endif
      
     Nat_cell_max=int(sqrt(2.d0)*W(0)*W(1)*W(2))+8 ! at close packing
-    print*, 'Nat_cell_max=',Nat_cell_max
 
 
-    print*, 'Before allocate Map_Cell'
     Allocate( Map_Cell(0:Nl_Cell(0)*Nl_Cell(1)*Nl_Cell(2)*26-1))
-    print*, 'Before allocate DR_Cell',Nl_Cell(0)*Nl_Cell(1)*Nl_Cell(2)*26
     Allocate( DR_Cell(0:Nl_Cell(0)*Nl_Cell(1)*Nl_Cell(2)*26*3-1))
-    print*, 'Nl_Cell(0)*Nl_Cell(1)*Nl_Cell(2)*26*3-1',Nl_Cell(0)*Nl_Cell(1)*Nl_Cell(2)*26*3-1
     Do IZ = 0, Nl_Cell(2)-1
         Do IY = 0, Nl_Cell(1)-1
            Do Ix = 0, Nl_Cell(0)-1
@@ -348,12 +335,9 @@ Subroutine Initialize_checkerboard
         EndDo
     EndDo
 
-   print*, 'here'
-    print*, 'Before allocate List_Cell',Nl_cell(0)*Nl_Cell(1)*Nl_Cell(2)*Nat_cell_max
     Allocate( List_Cell (0: Nl_cell(0)*Nl_Cell(1)*Nl_Cell(2)*Nat_cell_max*2-1) )
 
     Allocate( Nat_Cell (0:(Nl_cell(0)*Nl_Cell(1)*Nl_Cell(2))-1 ) )
-    print*, 'Before allocate Sphere_Cell'
     Allocate( Sphere_Cell (0:(Nl_cell(0)*Nl_Cell(1)*Nl_Cell(2)*Nat_Cell_max*(Ndim+4))-1 ) )
 
     Nat_Cell = 0
@@ -394,7 +378,7 @@ Subroutine Initialize_checkerboard
            print*, '*************************************************'
            print*, '*************************************************'
            print*, ''
-           print*, '     ERROR in Initialize_neighbor'
+           print*, '    ERROR in Initialize_neighbor'
            print*, '    Indx_Nat larger than Nat_cell_Max', Indx_Nat,Nat_Cell_Max
            print*, '    Total number of atoms', Natoms
            print*, '    Range of interactions', RangeP,W(:)
@@ -424,7 +408,6 @@ Subroutine Initialize_checkerboard
        List_Cell(Indice2 + 1 ) = itype(i)   ! y su tipo
 
     EndDo
-    print*, 'checkerboard initialized'
 
 
 End Subroutine Initialize_checkerboard
