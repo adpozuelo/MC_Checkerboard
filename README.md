@@ -6,10 +6,11 @@ A high-performance GPU-accelerated Monte Carlo simulation code for patchy partic
 
 - **Eva González Noya** - eva.noya@iqf.csic.es
 - **Antonio Díaz Pozuelo** - adiaz@iqf.csic.es
+- **Enrique Lomba** - enrique.lomba@csic.es
 
 Instituto de Química Física Blas Cabrera (IQF-CSIC)
 
-**Date:** February 2026
+**Date:** May 2026
 
 ---
 
@@ -119,15 +120,16 @@ The simulation requires two input files:
    - Particle type definitions
    - Patch geometries and interaction matrix
 
-2. **`coords-[basename]`** - Initial configuration
+2. **`data.atoms`** - Initial configuration (Lammps compatible `atom_style ellipsoid`
    - Number of particles
    - Box matrix (h tensor)
    - Particle positions and types
+   - Particle shape and quaternions
 
 ### Trajectory Output Formats
 
 Configure output format in `input.d`:
-- **`plain`** - Text format (`movie.xyz`, `movie-quat.dat`)
+- **`plain`** - Text format (`movie.xyz`, `trajectory.lammpstrj`)
 - **`netcdf`** - Binary NetCDF format (`trajectory.nc`) - **Recommended** (35× smaller files)
 - **`both`** - Generate both formats
 
