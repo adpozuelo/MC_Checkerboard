@@ -15,7 +15,6 @@
 !   - Adaptive displacement parameters
 !   - Temperature annealing capability
 !   - Trajectory output and restart files
-!   - Accurate periodic CPU & GPU execution timings 
 !
 ! AUTHORS:
 !   Eva González Noya      - eva.noya@iqf.csic.es
@@ -36,7 +35,6 @@ Program GPU_MC
  Use cell
  
  Use cuda_fortran, only: gpucount, choosegpu, limpio
- Use cudafor                            ! Required for cudaEvent structures
  Use netcdf_trajectory
 
  Implicit None
@@ -49,14 +47,6 @@ Program GPU_MC
  
  ! Array for NetCDF per-atom instantaneous energies
  Real(wp), Allocatable :: atom_energies_host(:)
-
- ! --------------------------------------------------------------------------
- ! CPU & GPU Timing Variables
- ! --------------------------------------------------------------------------
- Type(cudaEvent) :: startEvent, stopEvent
- Real(4)         :: gpu_time_ms, last_gpu_time_ms, diff_gpu_time_ms
- Real(wp)        :: cpu_time_now, last_cpu_time, diff_cpu_time
- Integer         :: istat
 
  ! --------------------------------------------------------------------------
  ! ANSI Color Codes & Date/Time Variables
@@ -88,12 +78,12 @@ Program GPU_MC
       dt_values(5), ':', dt_values(6), ':', dt_values(7), c_reset
  write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
 
+
  call gpucount(ngpus)
  write(*,"(A,i2,A)") c_cyan // ' *** GPU Devices Available: ' // c_reset, ngpus, ' ***'
  call Print_GPU_Properties()
 
  write(*,'(A)') c_blue // '========================================================================================' // c_reset
-
  write(*,*) 
 
  ! --------------------------------------------------------------------------
@@ -191,28 +181,20 @@ Program GPU_MC
  ! --------------------------------------------------------------------------
  ! MAIN MONTE CARLO LOOP
  ! --------------------------------------------------------------------------
- write(*,'(A)') c_blue // '=================================================================================================================================' // c_reset
- write(*,'(A)') c_cyan // '                                               MAIN MONTE CARLO LOOP STARTED                                                     ' // c_reset
- write(*,'(A)') c_blue // '=================================================================================================================================' // c_reset
+ write(*,'(A)') c_blue // '========================================================================================================' // c_reset
+ write(*,'(A)') c_cyan // '                                    MAIN MONTE CARLO LOOP STARTED                                       ' // c_reset
+ write(*,'(A)') c_blue // '========================================================================================================' // c_reset
 
  ! Formatted headers for NpT vs NVT
  If (NpT) Then
-    write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans      P_Rot    N_Trans       hmax*L         omax      P_Vol       vmax       N_Cell     CPU(s)     GPU(s)' // c_reset
-    write(*,'(A)') c_blue // '--------------------------------------------------------------------------------------------------------------------------------------------------' // c_reset
+    write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans      P_Rot    N_Trans       hmax*L         omax      P_Vol       vmax       N_Cell' // c_reset
+    write(*,'(A)') c_blue // '------------------------------------------------------------------------------------------------------------------------' // c_reset
  Else
-    write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans      P_Rot    N_Trans       hmax*L         omax       N_Cell     CPU(s)     GPU(s)' // c_reset
-    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------------------------------------------' // c_reset
+    write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans      P_Rot    N_Trans       hmax*L         omax       N_Cell' // c_reset
+    write(*,'(A)') c_blue // '--------------------------------------------------------------------------------------------------------' // c_reset
  EndIf
 
- ! --- Initialize Timers ---
- istat = cudaEventCreate(startEvent)
- istat = cudaEventCreate(stopEvent)
- last_gpu_time_ms = 0.0
- 
  call cpu_time(start)
- last_cpu_time = start
- istat = cudaEventRecord(startEvent, 0)
- 
  Do I = 1+istep_ini, istep_ini+istep_fin
 
       ! Perform MC sweep over all checkerboard sets
@@ -277,24 +259,13 @@ Program GPU_MC
                endif
            EndIf
 
-           ! --- Compute Periodic Timers ---
-           call cpu_time(cpu_time_now)
-           diff_cpu_time = cpu_time_now - last_cpu_time
-           last_cpu_time = cpu_time_now
-           
-           istat = cudaEventRecord(stopEvent, 0)
-           istat = cudaEventSynchronize(stopEvent)
-           istat = cudaEventElapsedTime(gpu_time_ms, startEvent, stopEvent)
-           diff_gpu_time_ms = gpu_time_ms - last_gpu_time_ms
-           last_gpu_time_ms = gpu_time_ms
-
-           ! --- Format terminal output based on ensemble ---
+           ! Format terminal output based on ensemble
            If (NpT) Then
-               write(*,'(i10, f18.8, 2f11.4, i11, 2f13.6, f11.4, f11.6, i13, 2f11.3)') &
-                  i, En_tot, prob_trans, prob_rot, ntrans, hmax*box(0), omax, prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               write(*,'(i10, f18.8, 2f11.4, i11, 2f13.6, f11.4, f11.6, i13)') &
+                  i, En_tot, prob_trans, prob_rot, ntrans, hmax*box(0), omax, prob_vol, vmax(0), Ntot_Cell
            Else
-               write(*,'(i10, f18.8, 2f11.4, i11, 2f13.6, i13, 2f11.3)') &
-                  i, En_tot, prob_trans, prob_rot, ntrans, hmax*box(0), omax, Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               write(*,'(i10, f18.8, 2f11.4, i11, 2f13.6, i13)') &
+                  i, En_tot, prob_trans, prob_rot, ntrans, hmax*box(0), omax, Ntot_Cell
            EndIf
         
            no_mc_real=0
@@ -341,25 +312,15 @@ Program GPU_MC
  ! --------------------------------------------------------------------------
  ! End of main loop
  ! --------------------------------------------------------------------------
- write(*,'(A)') c_blue // '=================================================================================================================================' // c_reset
- write(*,'(A)') c_cyan // '                                               MAIN MONTE CARLO LOOP FINISHED                                                    ' // c_reset
- write(*,'(A)') c_blue // '=================================================================================================================================' // c_reset
+ write(*,'(A)') c_blue // '========================================================================================================' // c_reset
+ write(*,'(A)') c_cyan // '                                    MAIN MONTE CARLO LOOP FINISHED                                      ' // c_reset
+ write(*,'(A)') c_blue // '========================================================================================================' // c_reset
  
- ! --- Compute Global Timers ---
  call cpu_time(finish)
- istat = cudaEventRecord(stopEvent, 0)
- istat = cudaEventSynchronize(stopEvent)
- istat = cudaEventElapsedTime(gpu_time_ms, startEvent, stopEvent)
-
  write(*,'(A,f18.8)') c_green // ' >>> Final energy after MC moves = ' // c_reset, En_tot
- write(*,'(A,f13.3,A)') '     Total CPU Time spent in main loop = ', finish-start, ' seconds.'
- write(*,'(A,f13.3,A)') '     Total GPU Time spent in main loop = ', gpu_time_ms / 1000.0, ' seconds.'
+ write(*,'(A,e13.6,A)') '     Time spent in the main loop = ', finish-start, ' seconds.'
  write(*,*)
  
- ! Clean up CUDA events
- istat = cudaEventDestroy(startEvent)
- istat = cudaEventDestroy(stopEvent)
-
  If (trim(traj_format) == 'plain' .or. trim(traj_format) == 'both') close(133)
  If (trim(traj_format) == 'netcdf' .or. trim(traj_format) == 'both') Call netcdf_close_trajectory()
 

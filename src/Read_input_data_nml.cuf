@@ -16,7 +16,6 @@ Subroutine Write_Input_File(istep)
 
    ! --- Write Namelist: Control_Params ---
    Write(21,*) "&Control_Params"
-   Write(21,*) "  base = '", trim(base), "',"
    Write(21,*) "  istep_ini = ", istep, ","
    Write(21,*) "  istep_fin = ", istep_fin, ","
    Write(21,*) "  Neq = 0,"
@@ -126,7 +125,6 @@ Subroutine Write_Input_File(istep)
    Close(21)
 End Subroutine Write_Input_File
 
-
 ! ==============================================================================
 ! SUBROUTINE: Read_Input_Data
 ! ==============================================================================
@@ -146,13 +144,20 @@ Subroutine Read_Input_Data
    real(wp), Allocatable :: Matrix(:,:)
    Character(len=3) :: model
    
+   ! --- ANSI Color Codes ---
+   Character(len=8), Parameter :: c_blue   = char(27)//'[1;34m'
+   Character(len=8), Parameter :: c_cyan   = char(27)//'[1;36m'
+   Character(len=8), Parameter :: c_green  = char(27)//'[1;32m'
+   Character(len=8), Parameter :: c_yellow = char(27)//'[1;33m'
+   Character(len=8), Parameter :: c_red    = char(27)//'[1;31m'
+   Character(len=8), Parameter :: c_reset  = char(27)//'[0m'
+
    ! --- NAMELIST DEFINITIONS ---
-   Namelist /Control_Params/ base, istep_ini, istep_fin, Neq, Nmove, Nsave, Nsave2, Nrestart, imovie, traj_format, Npart_types
+   Namelist /Control_Params/ istep_ini, istep_fin, Neq, Nmove, Nsave, Nsave2, Nrestart, imovie, traj_format, Npart_types
    Namelist /MC_Params/ hmax, omax, vmax, displ_update, temp0, temp1, npt, iscale, pres, seed
    Namelist /Potential_Params/ model, cosmax_KF, ctor_max_KF, delta_KF, Bool_tor, sigma_jon_aux, sigma_tor_jon, rangepp
 
    ! --- Set Safe Defaults ---
-   base = 'run'
    traj_format = 'netcdf'
    model = 'LJG'
    imovie = .false.
@@ -169,43 +174,54 @@ Subroutine Read_Input_Data
    Read(20, NML=MC_Params)
    Read(20, NML=Potential_Params)
 
-   ! --- Output Parsed Info ---
-   print*, 'Base Name: ', trim(base)
-   print*, 'Initial and final MC cycles',istep_ini,istep_fin
-   print*, 'Cycles for equilibration', Neq
-   print*, 'Frequency for averages', Nsave, Nsave2, Nrestart
-   print*, 'maximum translational displacement',hmax
-   print*, 'maximum orientational change',omax
-   print*, 'maximum displacement adjusted along the simulation?',displ_update
-   print*, 'seed to rng',seed
-   print*, 'temperature',temp0,temp1
+   ! --- Beautiful Output of Parsed Info ---
+   write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
+   write(*,'(A)') c_cyan // '                              SIMULATION PARAMETERS LOADED                              ' // c_reset
+   write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
    
+   write(*,'(A,I10,A,I10)') '  -> MC Cycles (Ini / Fin):   ', istep_ini, ' / ', istep_fin
+   write(*,'(A,I10)')       '  -> Equilibration Cycles:    ', Neq
+   write(*,'(A,I10,A,I10)') '  -> Output Freq (Log / Trj): ', Nsave, ' / ', Nsave2
+   write(*,'(A,I10)')       '  -> Restart File Freq:       ', Nrestart
+   write(*,'(A,I10)')       '  -> Random Seed:             ', seed
+   
+   write(*,'(A)') ''
+   write(*,'(A)') c_cyan // ' --- Thermodynamic State ---' // c_reset
+   write(*,'(A,F10.4,A,F10.4)') '  -> Temperature (Ini -> Fin):', temp0, ' -> ', temp1
    If(NpT) Then
-       print*, 'Performing NpT simulation at pressure',pres
-       print*, 'Maximum volume displacement',vmax
-   Endif
+       write(*,'(A)')        c_yellow // '  -> Ensemble:                NpT (Isobaric-Isothermal)' // c_reset
+       write(*,'(A,F10.4)')  '  -> Pressure:                ', pres
+       write(*,'(A,3F10.4)') '  -> Max Vol Displacement:    ', vmax(0), vmax(1), vmax(2)
+   Else
+       write(*,'(A)')        c_yellow // '  -> Ensemble:                NVT (Canonical)' // c_reset
+   EndIf
+
+   write(*,'(A)') ''
+   write(*,'(A)') c_cyan // ' --- Monte Carlo Moves ---' // c_reset
+   write(*,'(A,F10.4)') '  -> Max Trans Displacement:  ', hmax
+   write(*,'(A,F10.4)') '  -> Max Rot Displacement:    ', omax
+   write(*,'(A,L1)')    '  -> Auto-adjust Displacements: ', displ_update
    
-   print*, 'imovie=', imovie 
-   print*, 'Trajectory format:', trim(traj_format)
-   print*, 'Modelo ', trim(model)
+   write(*,'(A)') ''
+   write(*,'(A)') c_cyan // ' --- Output & Potential Model ---' // c_reset
+   write(*,'(A,A)')  '  -> Trajectory Format:       ', trim(traj_format)
+   write(*,'(A,A)')  '  -> Potential Model:         ', trim(model)
+   write(*,'(A,I5)') '  -> Number of Particle Types:', Npart_types
 
    if( trim(model) == 'K-F') then
-      print*, 'Model parameters'
-      print*, 'Opening angle',cosmax_KF,acos(cosmax_KF)*360./dospi
-      print*, 'Interaction range',delta_KF
+      write(*,'(A,F10.4)') '  -> Opening Angle (cosmax):  ', cosmax_KF
+      write(*,'(A,F10.4)') '  -> Interaction Range:       ', 1.0_wp + delta_KF
+      If(Bool_tor == 1) write(*,'(A,F10.4)') '  -> Torsional Angle:         ', ctor_max_KF
       rangeP=1.d0+delta_KF
-      print*, 'range_KF=',rangeP
-      print*, 'Torsional term =',Bool_tor
-      If(Bool_tor.eq.1) print*, 'Torsional angle=',ctor_max_KF
-
    elseif( trim(model) == 'LJG') then
       sigma_tor_jon = 2.d0*sigma_tor_jon*sigma_tor_jon
    else
-      print*, 'Model not yet implemented: ', trim(model)
+      write(*,'(A)') c_red // '  [ERROR] Model not yet implemented: ' // trim(model) // c_reset
       stop
    endif
+   write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
+   write(*,'(A)') ''
 
-   print*, 'Number of particle types',Npart_types
 
    ! --- Continue with Sequential Reading for Topologies ---
    Allocate( Nrb_sites(0:Npart_types)) 
@@ -217,10 +233,9 @@ Subroutine Read_Input_Data
    Read(20,*) (Nrb_sites(J),J=0,Npart_types-1)
 
    Do i = 0, Npart_types-1
-       print*, 'Particle type',i,'number of patches',Nrb_sites(i)
        If (Nrb_sites(i) > Nrb_sites_max) Then
-            print*, 'ERROR in particle type',i
-            print*, 'exceeds the maximum number of patches',Nrb_sites_max
+            write(*,'(A)') c_red // ' [FATAL ERROR] Particle topology violation!' // c_reset
+            write(*,'(A,I4,A,I4)') ' Particle type ', i, ' exceeds the maximum number of patches: ', Nrb_sites_max
             stop
        Endif
    EndDo
@@ -275,7 +290,8 @@ Subroutine Read_Input_Data
    EndDo
 
    If ( Maxval(Ntor_angle) > Ntor_max) Then
-        print*, 'Error: maximum number of torsional angles allowed:',Ntor_max
+        write(*,'(A)') c_red // ' [FATAL ERROR] Maximum number of torsional angles exceeded.' // c_reset
+        write(*,'(A,I4)') ' Allowed max (Ntor_max): ', Ntor_max
         stop
    EndIf
 
@@ -305,7 +321,7 @@ Subroutine Read_Input_Data
    Do I= 1, Npart_types*Nrb_sites_max
       Do J= 1, Npart_types*Nrb_sites_max
          If( matrix(i, j) .ne. matrix(j,i) ) Then
-             print*, 'error, vpot_matrix not symmetric'
+             write(*,'(A)') c_red // ' [FATAL ERROR] Vpot_Matrix is not symmetric!' // c_reset
              stop
          EndIf
       EndDo
@@ -345,7 +361,8 @@ Subroutine Read_Input_Data
               Read(20,'(F6.3)',advance='no') sigma_jon_ij
               sigma_LJ(indx+j) = sigma_jon_ij 
               rangep(indx+j) = rangepp * sigma_jon_ij
-              VL0(indx+j)=(sigma_jon_ij/rangep(indx+j))**12.d0-(sigma_jon_ij/rangep(indx+j))**6.0
+              VL0(indx+j)=(sigma_jon_ij/rangep(indx+j))**12.d0&
+              & -(sigma_jon_ij/rangep(indx+j))**6.0
               xopp = (1.d0+sqrt(1.d0+4.d00*VL0(indx+j)))/2.d0
               xop(indx+j) = sigma_jon_ij/(xopp**(1.d0/6.d0))
            EndDo
@@ -354,148 +371,145 @@ Subroutine Read_Input_Data
    EndIf
 
    close(20)
-
-End Subroutine Read_input_data
+   End Subroutine Read_Input_Data
 
 Subroutine Read_init_conf
 
    Use set_precision
    Use configuration
-   Use rundata, Only : base
    Implicit None
-   Integer :: i, Indx, J
-   Character(len=3) :: el
+   Integer :: i, Indx, id, ityp, eflag
+   Real(wp) :: den, x, y, z, sx, sy, sz, qw, qi, qj, qk
+   Real(wp) :: xlo, xhi, ylo, yhi, zlo, zhi
+   Character(len=256) :: line
+   Integer :: ios
 
-   print*, 'reading initial configuration'
-   Open(21,file='coords-'//base)
+   ! Open the LAMMPS data file
+   Open(21, file='data.atoms', status='old', action='read')
 
-   read(21,*) natoms
-   Do I=1,ndim
-      Indx=(I-1)*Ndim
-      read(21,*) (h(Indx+J),J=0,Ndim-1)
-   End Do
+   ! Initialize box matrix to zero
+   h(:) = 0.0_wp
 
-   Allocate(r(0:natoms*ndim-1))
-   Allocate(q(0:natoms*4-1))
+   ! Loop through the file to find keywords and headers
+   Do
+      Read(21, '(A)', iostat=ios) line
+      If (ios /= 0) Exit ! End of file reached
 
-   Allocate(itype(0:natoms-1))
+      ! Skip empty lines
+      If (len_trim(line) == 0) Cycle
 
-   print*, 'natoms',natoms
+      ! Parse number of atoms
+      ! (Checks for "atoms" but avoids matching lines like "1 atom types")
+      If (index(line, 'atoms') > 0 .and. index(line, 'types') == 0 .and. index(line, 'ellipsoids') == 0) Then
+         read(line, *) natoms
+         Allocate(r(0:natoms*ndim-1))
+         Allocate(q(0:natoms*4-1))
+         Allocate(itype(0:natoms-1))
+      End If
 
-   Do I=0,natoms-1
-        Indx=I*Ndim
-        read(21,*) el,(r(Indx+J),J=0,Ndim-1)
-        if(el.eq.'C1') then  ! change this when introducing LA
-            itype(i)=0
-        elseif(el.eq.'C2') then
-            itype(i)=1
-        elseif(el.eq.'C3') then
-            itype(i)=2
-        elseif(el.eq.'C4') then
-            itype(i)=3
-        elseif(el.eq.'C5') then
-            itype(i)=4
-        elseif(el.eq.'C6') then
-            itype(i)=5
-        elseif(el.eq.'C7') then
-            itype(i)=6
-        elseif(el.eq.'C8') then
-            itype(i)=7
-        elseif(el.eq.'C9') then
-            itype(i)=8
-        elseif(el.eq.'C10') then
-            itype(i)=9  
-        elseif(el.eq.'C11') then
-            itype(i)=10 
-        elseif(el.eq.'C12') then
-            itype(i)=11 
-        elseif(el.eq.'C13') then
-            itype(i)=12 
-        elseif(el.eq.'C14') then
-            itype(i)=13 
-        elseif(el.eq.'C15') then
-            itype(i)=14 
-        elseif(el.eq.'C16') then
-            itype(i)=15 
-        elseif(el.eq.'C17') then
-            itype(i)=16 
-        elseif(el.eq.'C18') then
-            itype(i)=17 
-        elseif(el.eq.'C19') then
-            itype(i)=18
-        elseif(el.eq.'C20') then
-            itype(i)=19 
-        elseif(el.eq.'C21') then
-            itype(i)=20 
-        elseif(el.eq.'C22') then
-            itype(i)=21 
-        elseif(el.eq.'C23') then
-            itype(i)=22 
-        elseif(el.eq.'C24') then
-            itype(i)=23 
-        elseif(el.eq.'C25') then
-            itype(i)=24 
-        elseif(el.eq.'C26') then
-            itype(i)=25 
-        elseif(el.eq.'C27') then
-            itype(i)=26 
-        elseif(el.eq.'C28') then
-            itype(i)=27 
-        elseif(el.eq.'C29') then
-            itype(i)=28
-        elseif(el.eq.'C30') then
-            itype(i)=29 
-        elseif(el.eq.'C31') then
-            itype(i)=30 
-        elseif(el.eq.'C32') then
-            itype(i)=31 
-        elseif(el.eq.'C33') then
-            itype(i)=32 
-        elseif(el.eq.'C34') then
-            itype(i)=33 
-        elseif(el.eq.'C35') then
-            itype(i)=34 
-        elseif(el.eq.'C36') then
-            itype(i)=35 
-        elseif(el.eq.'C37') then
-            itype(i)=36 
-        elseif(el.eq.'C38') then
-            itype(i)=37 
-        elseif(el.eq.'C39') then
-            itype(i)=38
-        elseif(el.eq.'C40') then
-            itype(i)=39 
-        else
-            print*, 'this type of particle is not implemented yet'
-            write(*,'(a3)') el
-            stop
-        endif
+      ! Parse orthogonal box dimensions
+      If (index(line, 'xlo xhi') > 0) Then
+         read(line, *) xlo, xhi
+         h(0) = xhi - xlo    ! h(0) is xx
+      End If
+      If (index(line, 'ylo yhi') > 0) Then
+         read(line, *) ylo, yhi
+         h(4) = yhi - ylo    ! h(4) is yy
+      End If
+      If (index(line, 'zlo zhi') > 0) Then
+         read(line, *) zlo, zhi
+         h(8) = zhi - zlo    ! h(8) is zz
+      End If
 
-   End Do
+      ! -----------------------------------------------------------
+      ! Parse Coordinates & Types (Atoms section)
+      ! -----------------------------------------------------------
+      If (trim(adjustl(line)) == 'Atoms') Then
+         Do i = 1, natoms
+            ! Fortran list-directed read (*) automatically skips blank lines
+            read(21, *) id, ityp, eflag, den, x, y, z
+            Indx = (id - 1) * ndim
+            
+            ! LAMMPS types are 1-based (1, 2, 3...)
+            ! Internal code is 0-based (0, 1, 2...)
+            itype(id - 1) = ityp - 1
+            
+            r(Indx)   = x
+            r(Indx+1) = y
+            r(Indx+2) = z
+         End Do
+      End If
 
-   Do I=0,natoms-1
-        Indx=I*4
-        read(21,*) (q(Indx+J),J=0,3)
+      ! -----------------------------------------------------------
+      ! Parse Quaternions (Ellipsoids section)
+      ! -----------------------------------------------------------
+      If (trim(adjustl(line)) == 'Ellipsoids') Then
+         Do i = 1, natoms
+            read(21, *) id, sx, sy, sz, qw, qi, qj, qk
+            Indx = (id - 1) * 4
+            
+            q(Indx)   = qw
+            q(Indx+1) = qi
+            q(Indx+2) = qj
+            q(Indx+3) = qk
+         End Do
+         ! Ellipsoids are typically the last section needed
+         Exit 
+      End If
+
    End Do
    
    Close (21)
-   print*, 'exit Read_init_conf'
 
 End Subroutine Read_init_conf
 
 
-Subroutine Get_edges_angles
 
+! ==============================================================================
+! SUBROUTINE: Print_GPU_Properties
+! ==============================================================================
+! DESCRIPTION: Queries and prints the underlying CUDA hardware.
+! ==============================================================================
+Subroutine Print_GPU_Properties()
+   Use cudafor
+   Implicit None
+   type(cudaDeviceProp) :: prop
+   integer :: ierr, dev
+   
+   Character(len=8), Parameter :: c_blue = char(27)//'[1;34m'
+   Character(len=8), Parameter :: c_cyan = char(27)//'[1;36m'
+   Character(len=8), Parameter :: c_reset = char(27)//'[0m'
+
+   ierr = cudaGetDevice(dev)
+   ierr = cudaGetDeviceProperties(prop, dev)
+   
+   print*, c_blue // '========================================================================================' // c_reset
+   print*, c_cyan // '                               HARDWARE ACCELERATION INFO                               ' // c_reset
+   print*, c_blue // '========================================================================================' // c_reset
+   print*, '  -> Device ID:               ', dev
+   print*, '  -> Device Name:             ', trim(prop%name)
+   print*, '  -> Compute Capability:      ', prop%major, '.', prop%minor
+   print*, '  -> Total Global Memory:     ', real(prop%totalGlobalMem) / (1024.0*1024.0*1024.0), ' GB'
+   print*, '  -> Multiprocessors (SMs):   ', prop%multiProcessorCount
+   print*, '  -> Max Threads per SM:      ', prop%maxThreadsPerMultiProcessor
+   print*, c_blue // '========================================================================================' // c_reset
+   print*, ''
+End Subroutine Print_GPU_Properties
+
+
+! ==============================================================================
+! SUBROUTINE: Get_edges_angles
+! ==============================================================================
+Subroutine Get_edges_angles
    Use set_precision
    Use configuration, Only : ndim, h, box, bangles
    Implicit None
    Integer   :: l, Indx
 
-   Box=0.
-   Bangles=0.
+   Box=0.0_wp
+   Bangles=0.0_wp
 
    do l=1,3
-
         Indx=(L-1)*Ndim
         Box(0) = Box(0)+h(Indx)**2
         Box(1) = Box(1)+h(Indx+1)**2
@@ -504,267 +518,111 @@ Subroutine Get_edges_angles
         Bangles(0) = Bangles(0)+h(Indx)*h(Indx+1)
         Bangles(1) = Bangles(1)+h(Indx)*h(Indx+2)
         Bangles(2) = Bangles(2)+h(Indx+1)*h(Indx+2)
-
    enddo
 
    Box(:) = sqrt(Box(:))
-   print*, 'Box', Box(:)
 
    Bangles(0) = Bangles(0)/Box(0)/Box(1)
    Bangles(1) = Bangles(1)/Box(0)/Box(2)
    Bangles(2) = Bangles(2)/Box(1)/Box(2)
-   print*, 'Angles', acos(Bangles(:))*180./acos(-1.0)
-
 End Subroutine Get_edges_angles
 
 
-Subroutine Write_final_conf2
-
+! ==============================================================================
+! SUBROUTINE: Write_final_conf2 (LAMMPS DUMP FORMAT)
+! ==============================================================================
+Subroutine Write_final_conf2(istep)
    Use set_precision
    Use configuration
-   Use potential        
-   Use rundata, Only : base
    Implicit None
-   Integer :: i, Indx, J, itypei, Indxi, Indxp, Num_tot
-   Real(wp)   :: q0, q1, q2, q3,  R11, R12, R13, R21, R22, R23
-   Real(wp)   :: R31, R32, R33, px_ref, py_ref, pz_ref, px, py, pz
-   Character(len=3) :: el
-   Character(len=5) :: el2
+   Integer, Intent(in) :: istep
+   Integer :: i, Indx, Indxq
+   Real(wp) :: xlo, xhi, ylo, yhi, zlo, zhi
 
-   write(674,*) natoms
-   Do I=1,ndim
-      Indx=(I-1)*Ndim
-      write(674,*) (h(Indx+J),J=0,Ndim-1)
-   End Do
+   ! Calculate box bounds assuming orthogonal
+   xlo = -h(0)/2.0_wp; xhi = h(0)/2.0_wp
+   ylo = -h(4)/2.0_wp; yhi = h(4)/2.0_wp
+   zlo = -h(8)/2.0_wp; zhi = h(8)/2.0_wp
 
-   Num_tot=0
-   Do I=0,natoms-1
-        Indx=I*Ndim
-        if(itype(i).eq.0) then  ! change this when introducing LA
-            el='C1'
-        elseif(itype(i).eq.1) then  
-            el='C2'
-        elseif(itype(i).eq.2) then  
-            el='C3'
-        elseif(itype(i).eq.3) then  
-            el='C4'
-        elseif(itype(i).eq.4) then  
-            el='C5'
-        elseif(itype(i).eq.5) then  
-            el='C6'
-        elseif(itype(i).eq.6) then  
-            el='C7'
-        elseif(itype(i).eq.7) then  
-            el='C8'
-        elseif(itype(i).eq.8) then  
-            el='C9'
-        elseif(itype(i).eq.9) then  
-            el='C10'
-        elseif(itype(i).eq.10) then  
-            el='C11'
-        elseif(itype(i).eq.11) then  
-            el='C12'
-        elseif(itype(i).eq.12) then  
-            el='C13'
-        elseif(itype(i).eq.13) then  
-            el='C14'
-        elseif(itype(i).eq.14) then  
-            el='C15'
-        elseif(itype(i).eq.15) then  
-            el='C16'
-        elseif(itype(i).eq.16) then  
-            el='C17'
-        elseif(itype(i).eq.17) then  
-            el='C18'
-        elseif(itype(i).eq.18) then  
-            el='C19'
-        elseif(itype(i).eq.19) then  
-            el='C20'
-        elseif(itype(i).eq.20) then  
-            el='C21'
-        elseif(itype(i).eq.21) then  
-            el='C22'
-        elseif(itype(i).eq.22) then  
-            el='C23'
-        elseif(itype(i).eq.23) then  
-            el='C24'
-        elseif(itype(i).eq.24) then  
-            el='C25'
-        elseif(itype(i).eq.25) then  
-            el='C26'
-        elseif(itype(i).eq.26) then  
-            el='C27'
-        elseif(itype(i).eq.27) then  
-            el='C28'
-        elseif(itype(i).eq.28) then  
-            el='C29'
-        elseif(itype(i).eq.29) then  
-            el='C30'
-        elseif(itype(i).eq.30) then  
-            el='C31'
-        elseif(itype(i).eq.31) then  
-            el='C32'
-        elseif(itype(i).eq.32) then  
-            el='C33'
-        elseif(itype(i).eq.33) then  
-            el='C34'
-        elseif(itype(i).eq.34) then  
-            el='C35'
-        elseif(itype(i).eq.35) then  
-            el='C36'
-        elseif(itype(i).eq.36) then  
-            el='C37'
-        elseif(itype(i).eq.37) then  
-            el='C38'
-        elseif(itype(i).eq.38) then  
-            el='C39'
-        elseif(itype(i).eq.39) then  
-            el='C40'
-        else
-            print*, 'this type of particle is not implemented yet'
-            stop
-        endif
-        write(674,'(A3,5x,3F20.8)') el,(r(Indx+J),J=0,Ndim-1)
-        itypei= itype(i)
-        Num_tot = Num_tot +1
-        Do J=0,Nrb_sites(itypei)-1
-            Num_tot = Num_tot +1
-        EndDo
-   EndDo
-   Do I=0,natoms-1
-        Indx=I*4
-        write(674,'(4F20.8)') (q(Indx+J),J=0,3)
-   End Do
+   write(674,'(A)') "ITEM: TIMESTEP"
+   write(674,'(I12)') istep
+   write(674,'(A)') "ITEM: NUMBER OF ATOMS"
+   write(674,'(I12)') natoms
+   write(674,'(A)') "ITEM: BOX BOUNDS pp pp pp"
+   write(674,'(2F15.6)') xlo, xhi
+   write(674,'(2F15.6)') ylo, yhi
+   write(674,'(2F15.6)') zlo, zhi
+   write(674,'(A)') "ITEM: ATOMS id type x y z quatw quati quatj quatk"
    
+   Do i=0, natoms-1
+        Indx = i*Ndim
+        Indxq = i*4
+        ! Add +1 to indices so LAMMPS starts counting at 1
+        write(674,'(I8,x,I4,x,3F16.8,x,4F16.8)') i+1, itype(i)+1, &
+             r(Indx), r(Indx+1), r(Indx+2), &
+             q(Indxq), q(Indxq+1), q(Indxq+2), q(Indxq+3)
+   End Do
 End Subroutine Write_final_conf2
 
 
+! ==============================================================================
+! SUBROUTINE: Write_final_conf (LAMMPS DATA FORMAT)
+! ==============================================================================
 Subroutine Write_final_conf
-
    Use set_precision
    Use configuration
-   Use potential        
-   Use rundata, Only : base
    Implicit None
-   Integer :: i, Indx, J, itypei, Indxi, Indxp, Num_tot
-   Real(wp)   :: q0, q1, q2, q3,  R11, R12, R13, R21, R22, R23
-   Real(wp)   :: R31, R32, R33, px_ref, py_ref, pz_ref, px, py, pz
-   Character(len=3) :: el
-   Character(len=5) :: el2
+   Integer :: i, Indx, Indxq
+   Real(wp) :: xlo, xhi, ylo, yhi, zlo, zhi
+   Character(len=256) :: filename
 
-   Open(21,file='coords.out-'//base)
-   write(21,*) natoms
-   Do I=1,ndim
-      Indx=(I-1)*Ndim
-      write(21,*) (h(Indx+J),J=0,Ndim-1)
+   filename = 'data.restart'
+   Open(21, file=filename, status='unknown')
+   
+   ! Calculate box bounds assuming orthogonal
+   xlo = -h(0)/2.0_wp; xhi = h(0)/2.0_wp
+   ylo = -h(4)/2.0_wp; yhi = h(4)/2.0_wp
+   zlo = -h(8)/2.0_wp; zhi = h(8)/2.0_wp
+
+   write(21,'(A)') "LAMMPS data file generated by GPU_MC restart"
+   write(21,*) 
+   write(21,'(I8,A)') natoms, " atoms"
+   write(21,'(I8,A)') natoms, " ellipsoids"
+   write(21,'(I8,A)') maxval(itype)+1, " atom types"
+   write(21,*) 
+   
+   write(21,'(2F15.6,A)') xlo, xhi, " xlo xhi"
+   write(21,'(2F15.6,A)') ylo, yhi, " ylo yhi"
+   write(21,'(2F15.6,A)') zlo, zhi, " zlo zhi"
+   write(21,*) 
+   
+   write(21,'(A)') "Atoms"
+   write(21,*) 
+   Do I=0, natoms-1
+      Indx = I * ndim
+      ! Format: id type ellipsoid-flag density x y z
+      write(21,'(I8,I8,I4,F10.4,3F16.8)') i+1, itype(i)+1, 1, 1.0_wp, &
+         r(Indx), r(Indx+1), r(Indx+2)
    End Do
-
-   Num_tot=0
-   Do I=0,natoms-1
-        Indx=I*Ndim
-        if(itype(i).eq.0) then  ! change this when introducing LA
-            el='C1'
-        elseif(itype(i).eq.1) then  
-            el='C2'
-        elseif(itype(i).eq.2) then  
-            el='C3'
-        elseif(itype(i).eq.3) then  
-            el='C4'
-        elseif(itype(i).eq.4) then  
-            el='C5'
-        elseif(itype(i).eq.5) then  
-            el='C6'
-        elseif(itype(i).eq.6) then  
-            el='C7'
-        elseif(itype(i).eq.7) then  
-            el='C8'
-        elseif(itype(i).eq.8) then  
-            el='C9'
-        elseif(itype(i).eq.9) then  
-            el='C10'
-        elseif(itype(i).eq.10) then  
-            el='C11'
-        elseif(itype(i).eq.11) then  
-            el='C12'
-        elseif(itype(i).eq.12) then  
-            el='C13'
-        elseif(itype(i).eq.13) then  
-            el='C14'
-        elseif(itype(i).eq.14) then  
-            el='C15'
-        elseif(itype(i).eq.15) then  
-            el='C16'
-        elseif(itype(i).eq.16) then  
-            el='C17'
-        elseif(itype(i).eq.17) then  
-            el='C18'
-        elseif(itype(i).eq.18) then  
-            el='C19'
-        elseif(itype(i).eq.19) then  
-            el='C20'
-        elseif(itype(i).eq.20) then  
-            el='C21'
-        elseif(itype(i).eq.21) then  
-            el='C22'
-        elseif(itype(i).eq.22) then  
-            el='C23'
-        elseif(itype(i).eq.23) then  
-            el='C24'
-        elseif(itype(i).eq.24) then  
-            el='C25'
-        elseif(itype(i).eq.25) then  
-            el='C26'
-        elseif(itype(i).eq.26) then  
-            el='C27'
-        elseif(itype(i).eq.27) then  
-            el='C28'
-        elseif(itype(i).eq.28) then  
-            el='C29'
-        elseif(itype(i).eq.29) then  
-            el='C30'
-        elseif(itype(i).eq.30) then  
-            el='C31'
-        elseif(itype(i).eq.31) then  
-            el='C32'
-        elseif(itype(i).eq.32) then  
-            el='C33'
-        elseif(itype(i).eq.33) then  
-            el='C34'
-        elseif(itype(i).eq.34) then  
-            el='C35'
-        elseif(itype(i).eq.35) then  
-            el='C36'
-        elseif(itype(i).eq.36) then  
-            el='C37'
-        elseif(itype(i).eq.37) then  
-            el='C38'
-        elseif(itype(i).eq.38) then  
-            el='C39'
-        elseif(itype(i).eq.39) then  
-            el='C40'
-        else
-            print*, 'this type of particle is not implemented yet'
-            stop
-        endif
-        write(21,'(A3,5x,3F20.8)') el,(r(Indx+J),J=0,Ndim-1)
-        itypei= itype(i)
-        Num_tot = Num_tot +1
-        Do J=0,Nrb_sites(itypei)-1
-            Num_tot = Num_tot +1
-        EndDo
-   EndDo
-   Do I=0,natoms-1
-        Indx=I*4
-        write(21,'(4F20.8)') (q(Indx+J),J=0,3)
+   
+   write(21,*) 
+   write(21,'(A)') "Ellipsoids"
+   write(21,*) 
+   Do I=0, natoms-1
+      Indxq = I * 4
+      ! Format: id shapex shapey shapez quatw quati quatj quatk
+      write(21,'(I8,3F10.4,4F16.8)') i+1, 1.0_wp, 1.0_wp, 1.0_wp, &
+         q(Indxq), q(Indxq+1), q(Indxq+2), q(Indxq+3)
    End Do
    
    Close (21)
-
 End Subroutine Write_final_conf
 
 
+! ==============================================================================
+! AUXILIARY AVERAGING AND ENERGY ROUTINES
+! ==============================================================================
 Subroutine System_energy(overlap)
-
    Use set_precision
    Use configuration
    Use properties, Only : en_tot
@@ -773,10 +631,13 @@ Subroutine System_energy(overlap)
    Integer :: i, j
    Real(wp) :: en, ener_part(0:natoms-1), en_tot1
    Logical :: overlap
+   Character(len=8), Parameter :: c_yellow = char(27)//'[1;33m'
+   Character(len=8), Parameter :: c_reset  = char(27)//'[0m'
 
    overlap=.false.
    en_tot=0.e0
    ener_part=0
+   
    Do I=0,Natoms-2
       Do J=i+1,Natoms-1
           call ener(I,J,en,overlap)
@@ -789,43 +650,25 @@ Subroutine System_energy(overlap)
           en_tot= en_tot + en
       End Do
    End Do
-   en_tot1=0.d0
-   Do i=0,Natoms-1
-       en_tot1=en_tot1+ener_part(i)
-   EndDo
-   en_tot1=en_tot1/dble(Natoms)/2.d0
-   print*, 'En_tot1 = ',En_tot1
+
    If(istep_fin.eq.0) then
-        print*, ''
-        print*, ''
-        call print_ener
-        print*, ''
-        print*, ''
-        print*, 'Printing configuration in pdb format and exiting'
-        print*, ''
-        print*, ''
+        print*, c_yellow // ' >>> Configuration evaluation only. Printing PDB and exiting.' // c_reset
         Call Convert_Real_Units
         Call Write_pdb(ener_part)
         stop
    Endif
-
 End Subroutine System_energy
 
 
 Subroutine Write_pdb(ener_part)        
-
    Use set_precision
    Use configuration
    Use potential        
-   Use rundata, Only : base
    Implicit None
-   Integer :: i, Indx, J, itypei, Indxi, Indxp, Num_tot
-   Real(wp)   :: q0, q1, q2, q3,  R11, R12, R13, R21, R22, R23
-   Real(wp)   :: R31, R32, R33, px_ref, py_ref, pz_ref, px, py, pz
+   Integer :: i, j, Indx
    Real(wp)   :: angle,alpha
    Real(wp)   :: ener_part(0:natoms-1)
    Character(len=3) :: el
-   Character(len=5) :: el2
 
    Open(21,file='coords.pdb')
    write(21,*) "MODEL    "
@@ -835,118 +678,31 @@ Subroutine Write_pdb(ener_part)
    alpha=1.0
    Do I=0,natoms-1
         Indx=I*Ndim
-        if(itype(i).eq.0) then  ! change this when introducing LA
-            el='C1'
-        elseif(itype(i).eq.1) then  
-            el='C2'
-        elseif(itype(i).eq.2) then  
-            el='C3'
-        elseif(itype(i).eq.3) then  
-            el='C4'
-        elseif(itype(i).eq.4) then  
-            el='C5'
-        elseif(itype(i).eq.5) then  
-            el='C6'
-        elseif(itype(i).eq.6) then  
-            el='C7'
-        elseif(itype(i).eq.7) then  
-            el='C8'
-        elseif(itype(i).eq.8) then  
-            el='C9'
-        elseif(itype(i).eq.9) then  
-            el='C10'
-        elseif(itype(i).eq.10) then  
-            el='C11'
-        elseif(itype(i).eq.11) then  
-            el='C12'
-        elseif(itype(i).eq.12) then  
-            el='C13'
-        elseif(itype(i).eq.13) then  
-            el='C14'
-        elseif(itype(i).eq.14) then  
-            el='C15'
-        elseif(itype(i).eq.15) then  
-            el='C16'
-        elseif(itype(i).eq.16) then  
-            el='C17'
-        elseif(itype(i).eq.17) then  
-            el='C18'
-        elseif(itype(i).eq.18) then  
-            el='C19'
-        elseif(itype(i).eq.19) then  
-            el='C20'
-        elseif(itype(i).eq.20) then  
-            el='C21'
-        elseif(itype(i).eq.21) then  
-            el='C22'
-        elseif(itype(i).eq.22) then  
-            el='C23'
-        elseif(itype(i).eq.23) then  
-            el='C24'
-        elseif(itype(i).eq.24) then  
-            el='C25'
-        elseif(itype(i).eq.25) then  
-            el='C26'
-        elseif(itype(i).eq.26) then  
-            el='C27'
-        elseif(itype(i).eq.27) then  
-            el='C28'
-        elseif(itype(i).eq.28) then  
-            el='C29'
-        elseif(itype(i).eq.29) then  
-            el='C30'
-        elseif(itype(i).eq.30) then  
-            el='C31'
-        elseif(itype(i).eq.31) then  
-            el='C32'
-        elseif(itype(i).eq.32) then  
-            el='C33'
-        elseif(itype(i).eq.33) then  
-            el='C34'
-        elseif(itype(i).eq.34) then  
-            el='C35'
-        elseif(itype(i).eq.35) then  
-            el='C36'
-        elseif(itype(i).eq.36) then  
-            el='C37'
-        elseif(itype(i).eq.37) then  
-            el='C38'
-        elseif(itype(i).eq.38) then  
-            el='C39'
-        elseif(itype(i).eq.39) then  
-            el='C40'
-        else
-            print*, 'this type of particle is not implemented yet'
-            stop
-        endif
-        write(21,'("ATOM",i7,x,a2,3x,"MOL",10x,3f8.3,2f8.4)') i+1,el,(r(Indx+J),J=0,Ndim-1),ener_part(i),ener_part(i)
+        write(el, '("C", I0)') itype(i) + 1
+        el = adjustl(el)
+        write(21,'("ATOM",i7,x,A3,2x,"MOL",10x,3f8.3,2f8.4)') i+1,el,(r(Indx+J),J=0,Ndim-1),ener_part(i),ener_part(i)
    EndDo
    write(21,*) "ENDMDL    "
-   
    Close (21)
-
 End Subroutine Write_pdb        
 
 
 Subroutine print_ener
-
    Use set_precision
    Use properties, Only : en_tot
    Use configuration, Only : natoms
    Implicit None
+   Character(len=8), Parameter :: c_green = char(27)//'[1;32m'
+   Character(len=8), Parameter :: c_reset = char(27)//'[0m'
 
    Print*, ''
+   Print*, c_green // '  -> Total energy of the initial configuration : ' // c_reset, en_tot
+   Print*, c_green // '  -> Total energy per particle                 : ' // c_reset, en_tot/natoms
    Print*, ''
-   Print*, 'Total energy of the initial configuration',en_tot
-   Print*, 'Total energy per particle',en_tot/natoms
-   Print*, ''
-   Print*, ''
-
 End Subroutine Print_ener
 
 
 Subroutine Initialize_variables
-
    Use set_precision
    Use properties
    Use configuration, Only : natoms
@@ -965,29 +721,23 @@ Subroutine Initialize_variables
    lx_av=0.0
    ly_av=0.0
    lz_av=0.0
-   open(40,file='run-data-'//base,access='append')
-
+   open(40,file='run-data',access='append')
 End Subroutine Initialize_variables
 
 
 Subroutine Accumulate_averages
-
    Use set_precision
    Use properties 
    Use rundata, Only: temp
    Use configuration
    Implicit None
-   Integer i
 
    if(ndim.eq.2) then
      vol=h(0)*h(3)-h(1)*h(2)
-     print*, 'so far the code is just ready for 3D'
-     stop
    else
-     vol=h(0)*(h(4)*h(8)-h(5)*h(7))-h(3)*(h(1)*h(8) &
-        & -h(2)*h(7))+h(6)*(h(1)*h(5)-h(2)*h(4))
-
+     vol=h(0)*(h(4)*h(8)-h(5)*h(7))-h(3)*(h(1)*h(8) -h(2)*h(7))+h(6)*(h(1)*h(5)-h(2)*h(4))
    endif
+   
    rho=natoms/vol
    rho_av=rho_av+natoms/vol
    en_av=en_av+en_tot
@@ -995,19 +745,18 @@ Subroutine Accumulate_averages
    ly_av=ly_av+box(1)
    lz_av=lz_av+box(2)
    write(40,'(7f18.5)') temp,rho,vol,box,en_tot/natoms
-
 End Subroutine Accumulate_averages
 
 
 Subroutine Calculate_averages
-
    Use set_precision
    Use properties
    Use rundata
    Use configuration, Only : natoms
    Implicit None
    Integer   :: Npoints
-   Real(wp)  :: prob_trans, prob_rot
+   Character(len=8), Parameter :: c_cyan = char(27)//'[1;36m'
+   Character(len=8), Parameter :: c_reset = char(27)//'[0m'
 
    Npoints=(istep_fin-istep_ini-Neq)/Nsave
 
@@ -1017,54 +766,40 @@ Subroutine Calculate_averages
    ly_av=ly_av/Npoints
    lz_av=lz_av/Npoints
 
-   print*, 'Average density = ',rho_av
-   print*, 'Average energy = ',en_av/natoms,en_av
-   print*, 'Average edge lx= ',lx_av
-   print*, 'Average edge ly= ',ly_av
-   print*, 'Average edge lz= ',lz_av
-
+   print*, c_cyan // ' --- THERMODYNAMIC AVERAGES ---' // c_reset
+   print*, '  Average density = ',rho_av
+   print*, '  Average energy  = ',en_av/natoms,en_av
+   print*, '  Average edge lx = ',lx_av
+   print*, '  Average edge ly = ',ly_av
+   print*, '  Average edge lz = ',lz_av
+   print*, ''
 End Subroutine Calculate_averages
 
 
 Subroutine Write_final_properties
-
    Use set_precision
    Use properties, Only : en_tot
    Use configuration, Only : natoms 
    Implicit None
    Logical :: overlap
+   Character(len=8), Parameter :: c_yellow = char(27)//'[1;33m'
+   Character(len=8), Parameter :: c_reset  = char(27)//'[0m'
 
-   print*, ''
-   print*, ''
-   print*, 'Final energy',en_tot,en_tot/dble(natoms)
+   print*, c_yellow // ' >>> Validating Final Configuration Energy on CPU...' // c_reset
    Call system_energy(overlap)
-   If (overlap) Then
-      print*, 'Overlap in final configuration'
-   EndIf
-   print*, 'New calculation of final energy',en_tot,en_tot/natoms
+   If (overlap) print*, ' [WARNING] Overlap found in final configuration!'
+   print*, '     CPU Final energy:', en_tot, en_tot/natoms
    print*, ''
-   print*, ''
-
 End Subroutine Write_final_properties
 
 
-
-
 Subroutine Get_Inverse_matrix
-
    Use set_precision
    Use configuration
    Real(wp) :: detH
 
-   If (ndim == 2) Then
-
-       print*, 'Two dimensional case not implemented yet'
-       stop
-
-   Elseif (ndim == 3) Then  
-
-       detH=h(0)*(h(4)*h(8)-h(5)*h(7))-h(3)*(h(1)*h(8) &
-     &  -h(2)*h(7))+h(6)*(h(1)*h(5)-h(2)*h(4))
+   If (ndim == 3) Then  
+       detH=h(0)*(h(4)*h(8)-h(5)*h(7))-h(3)*(h(1)*h(8) -h(2)*h(7))+h(6)*(h(1)*h(5)-h(2)*h(4))
 
        hinv(0)=(h(4)*h(8)-h(5)*h(7))/detH
        hinv(3)=-(h(3)*h(8)-h(6)*h(5))/detH
@@ -1075,27 +810,14 @@ Subroutine Get_Inverse_matrix
        hinv(2)=(h(1)*h(5)-h(4)*h(2))/detH
        hinv(5)=-(h(0)*h(5)-h(3)*h(2))/detH
        hinv(8)=(h(0)*h(4)-h(3)*h(1))/detH
-       print*, 'h'
-       print*, h(0),h(1),h(2)
-       print*, h(3),h(4),h(5)
-       print*, h(6),h(7),h(8)
-       print*, 'hinv'
-       print*, hinv(0),hinv(1),hinv(2)
-       print*, hinv(3),hinv(4),hinv(5)
-       print*, hinv(6),hinv(7),hinv(8)
-
    Else
-
-       print*, 'This dimension is not implemented yet', ndim
+       print*, 'Only 3D matrix inversion is supported.'
        stop
-
    Endif 
-
 End Subroutine Get_Inverse_matrix
 
 
 Subroutine Convert_Box_Units
-
    Use set_precision
    Use configuration
    Integer :: i,Indx
@@ -1113,12 +835,10 @@ Subroutine Convert_Box_Units
        r(Indx+1) = x1p(2)
        r(Indx+2) = x1p(3)
    EndDo
-
 End Subroutine Convert_Box_Units
 
 
 Subroutine Convert_Real_Units
-
    Use set_precision
    Use configuration
    Integer :: i, Indx
@@ -1137,17 +857,14 @@ Subroutine Convert_Real_Units
        r(Indx+1) = x1p(2)
        r(Indx+2) = x1p(3)
    EndDo
-
 End Subroutine Convert_Real_Units
 
 
-
 Subroutine Write_movie(istep)
-
    Use set_precision
    Use configuration
    Use potential
-   Use rundata, Only : base, beta
+   Use rundata, Only : beta
    Implicit None
    Integer :: i, Indx, J, itypei, Indxi, Indxp, Num_tot, istep
    Real(wp)   :: q0, q1, q2, q3,  R11, R12, R13, R21, R22, R23
@@ -1157,108 +874,20 @@ Subroutine Write_movie(istep)
 
    Num_tot=0
    Do I=0,natoms-1
-        Indx=I*Ndim
         itypei= itype(i)
-        Num_tot = Num_tot +1
-        Do J=0,Nrb_sites(itypei)-1
-            Num_tot = Num_tot +1
-        EndDo
+        Num_tot = Num_tot + 1 + Nrb_sites(itypei)
    EndDo
-
 
    write(133,*) Num_tot
    write(133,*) h(0),istep,1.0/beta
 
    Do I=0,natoms-1
         Indx=I*Ndim
-        if(itype(i).eq.0) then  ! change this when introducing LA
-            el='C1'
-        elseif(itype(i).eq.1) then
-            el='C2'
-        elseif(itype(i).eq.2) then
-            el='C3'
-        elseif(itype(i).eq.3) then
-            el='C4'
-        elseif(itype(i).eq.4) then
-            el='C5'
-        elseif(itype(i).eq.5) then
-            el='C6'
-        elseif(itype(i).eq.6) then
-            el='C7'
-        elseif(itype(i).eq.7) then
-            el='C8'
-        elseif(itype(i).eq.8) then
-            el='C9'
-        elseif(itype(i).eq.9) then
-            el='C10'
-        elseif(itype(i).eq.10) then
-            el='C11'
-        elseif(itype(i).eq.11) then
-            el='C12'
-        elseif(itype(i).eq.12) then
-            el='C13'
-        elseif(itype(i).eq.13) then
-            el='C14'
-        elseif(itype(i).eq.14) then
-            el='C15'
-        elseif(itype(i).eq.15) then
-            el='C16'
-        elseif(itype(i).eq.16) then
-            el='C17'
-        elseif(itype(i).eq.17) then
-            el='C18'
-        elseif(itype(i).eq.18) then
-            el='C19'
-        elseif(itype(i).eq.19) then
-            el='C20'
-        elseif(itype(i).eq.20) then
-            el='C21'
-        elseif(itype(i).eq.21) then
-            el='C22'
-        elseif(itype(i).eq.22) then
-            el='C23'
-        elseif(itype(i).eq.23) then
-            el='C24'
-        elseif(itype(i).eq.24) then
-            el='C25'
-        elseif(itype(i).eq.25) then
-            el='C26'
-        elseif(itype(i).eq.26) then
-            el='C27'
-        elseif(itype(i).eq.27) then
-            el='C28'
-        elseif(itype(i).eq.28) then
-            el='C29'
-        elseif(itype(i).eq.29) then
-            el='C30'
-        elseif(itype(i).eq.30) then
-            el='C31'
-        elseif(itype(i).eq.31) then
-            el='C32'
-        elseif(itype(i).eq.32) then
-            el='C33'
-        elseif(itype(i).eq.33) then
-            el='C34'
-        elseif(itype(i).eq.34) then
-            el='C35'
-        elseif(itype(i).eq.35) then
-            el='C36'
-        elseif(itype(i).eq.36) then
-            el='C37'
-        elseif(itype(i).eq.37) then
-            el='C38'
-        elseif(itype(i).eq.38) then
-            el='C39'
-        elseif(itype(i).eq.39) then
-            el='C40'
-        else
-            print*, 'this type of particle is not implemented yet'
-            stop
-        endif
+        write(el, '("C", I0)') itype(i) + 1
+        el = adjustl(el)
+        
         write(133,'(A3,5x,3F20.8,5x,i6)') el,(r(Indx+J),J=0,Ndim-1)
-
         itypei= itype(i)
-
         Indxi=I*4
 
         q0=q(Indxi)
@@ -1276,9 +905,7 @@ Subroutine Write_movie(istep)
         R33=q0*q0-q1*q1-q2*q2+q3*q3
 
         Do J=0,Nrb_sites(itypei)-1
-
             Indxp = Nrb_sites_max*Ndim*itypei + J*Ndim
-
             px_ref= PATCH( Indxp )
             py_ref= PATCH( Indxp + 1 )
             pz_ref= PATCH( Indxp + 2 )
@@ -1286,21 +913,9 @@ Subroutine Write_movie(istep)
             py = r( Indx +1 ) + 0.35 * ( R21*px_ref + R22*py_ref + R23*pz_ref )
             pz = r( Indx +2 ) + 0.35 * ( R31*px_ref + R32*py_ref + R33*pz_ref )
 
-            if((itypei+1.lt.10).and.(j+1.lt.10)) then
-                 write( el2, '(a1,I1,I1)') "P",itypei+1,J+1
-             elseif((itypei+1.ge.10).and.(j+1.lt.10)) then
-                 write( el2, '(a1,I2,I1)') "P",itypei+1,J+1
-             elseif((itypei+1.lt.10).and.(j+1.ge.10)) then
-                 write( el2, '(a1,I1,I2)') "P",itypei+1,J+1
-             elseif((itypei+1.ge.10).and.(j+1.ge.10)) then
-                 write( el2, '(a1,I2,I2)') "P",itypei+1,J+1
-             endif
-             el2= trim(el2)
-             write(133,'(a5,4x,3F20.8)') el2,px,py,pz
+            write( el2, '("P",I0,"_",I0)') itypei+1, J+1
+            el2= adjustl(el2)
+            write(133,'(A5,2x,3F20.8)') el2,px,py,pz
         EndDo
    End Do
-
 End Subroutine Write_movie
-
-
-                                                                                         

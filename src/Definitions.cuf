@@ -84,7 +84,6 @@ MODULE rundata
    Real(wp) :: omax, hmax                              ! Max rotation angle and translation distance
    Real(wp) :: vmax(0:2), pres                         ! Max volume change and pressure (NpT)
    Logical  :: imovie, displ_update, npt               ! Movie output, adaptive displacement, NpT flag
-   Character*20 base                                   ! Base name for output files
    Character*10 :: traj_format                         ! Trajectory format: 'plain', 'netcdf', or 'both'
 
 
