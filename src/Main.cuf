@@ -197,11 +197,21 @@ Program GPU_MC
 
  ! Formatted headers for NpT vs NVT
  If (NpT) Then
-    write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans      P_Rot    N_Trans       hmax*L         omax      P_Vol       vmax       N_Cell     CPU(s)     GPU(s)' // c_reset
-    write(*,'(A)') c_blue // '--------------------------------------------------------------------------------------------------------------------------------------------------' // c_reset
+    If (pure_LJ) Then
+       write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans    N_Trans       hmax*L      P_Vol       vmax       N_Cell     CPU(s)     GPU(s)' // c_reset
+       write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------------------------------------------' // c_reset
+    Else
+       write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans      P_Rot    N_Trans       hmax*L         omax      P_Vol       vmax       N_Cell     CPU(s)     GPU(s)' // c_reset
+       write(*,'(A)') c_blue // '--------------------------------------------------------------------------------------------------------------------------------------------------' // c_reset
+    EndIf
  Else
-    write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans      P_Rot    N_Trans       hmax*L         omax       N_Cell     CPU(s)     GPU(s)' // c_reset
-    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------------------------------------------' // c_reset
+    If (pure_LJ) Then
+       write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans    N_Trans       hmax*L       N_Cell     CPU(s)     GPU(s)' // c_reset
+       write(*,'(A)') c_blue // '------------------------------------------------------------------------------------------------------' // c_reset
+    Else
+       write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans      P_Rot    N_Trans       hmax*L         omax       N_Cell     CPU(s)     GPU(s)' // c_reset
+       write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------------------------------------------' // c_reset
+    EndIf
  EndIf
 
  ! --- Initialize Timers ---
@@ -217,7 +227,6 @@ Program GPU_MC
 
       ! Perform MC sweep over all checkerboard sets
       Call MCsweep()
-
       ! Randomly shift cell boundaries to avoid artifacts
       Call Random_number(rnd)
       disp(:) = rnd*disp_max(:)
@@ -248,13 +257,13 @@ Program GPU_MC
                if(hmax/hmaxo < 0.5d0) hmax=hmaxo*0.5
                W_RU_min=minval(W_RU)
                if(hmax > W_RU_min/2.d0 ) hmax =W_RU_min/2.d0
-               
-               omaxo=omax
-               omax=omax*dabs(prob_rot/0.4d00)
-               if(omax/omaxo.gt.1.5d00) omax=omaxo*1.5d00
-               if(omax/omaxo.lt.0.5d00) omax=omaxo*0.5d00
-               if(omax.gt.0.5d0) omax=0.5d0
-
+               if (.not. pure_LJ) then 
+                  omaxo=omax
+                  omax=omax*dabs(prob_rot/0.4d00)
+                  if(omax/omaxo.gt.1.5d00) omax=omaxo*1.5d00
+                  if(omax/omaxo.lt.0.5d00) omax=omaxo*0.5d00
+                  if(omax.gt.0.5d0) omax=0.5d0
+               endif
                vmaxo(0:2)=vmax(0:2)
                boxmin=minval(box)
                if(prob_vol.eq.0) then
@@ -290,11 +299,21 @@ Program GPU_MC
 
            ! --- Format terminal output based on ensemble ---
            If (NpT) Then
-               write(*,'(i10, f18.8, 2f11.4, i11, 2f13.6, f11.4, f11.6, i13, 2f11.3)') &
-                  i, En_tot, prob_trans, prob_rot, ntrans, hmax*box(0), omax, prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               If (pure_LJ) Then
+                   write(*,'(i10, f18.8, f11.4, i11, f13.6, f11.4, f11.6, i13, 2f11.3)') &
+                      i, En_tot, prob_trans, ntrans, hmax*box(0), prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               Else
+                   write(*,'(i10, f18.8, 2f11.4, i11, 2f13.6, f11.4, f11.6, i13, 2f11.3)') &
+                      i, En_tot, prob_trans, prob_rot, ntrans, hmax*box(0), omax, prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               EndIf
            Else
-               write(*,'(i10, f18.8, 2f11.4, i11, 2f13.6, i13, 2f11.3)') &
-                  i, En_tot, prob_trans, prob_rot, ntrans, hmax*box(0), omax, Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               If (pure_LJ) Then
+                   write(*,'(i10, f18.8, f11.4, i11, f13.6, i13, 2f11.3)') &
+                      i, En_tot, prob_trans, ntrans, hmax*box(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               Else
+                   write(*,'(i10, f18.8, 2f11.4, i11, 2f13.6, i13, 2f11.3)') &
+                      i, En_tot, prob_trans, prob_rot, ntrans, hmax*box(0), omax, Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               EndIf
            EndIf
         
            no_mc_real=0
@@ -310,10 +329,11 @@ Program GPU_MC
       ! Write trajectory snapshots
       If( (i > Ieq) .AND. (mod(i,Nsave2)==0) ) Then
            Call Convert_CB_RU
-           Call Convert_Real_Units
            
            ! Compute per-atom energies prior to NetCDF writing
            Call get_per_atom_energies(atom_energies_host)
+
+           Call Convert_Real_Units
 
            If (trim(traj_format) == 'plain' .or. trim(traj_format) == 'both') Then
               Call Write_movie(i)

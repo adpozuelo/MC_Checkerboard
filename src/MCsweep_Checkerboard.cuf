@@ -25,14 +25,17 @@ Subroutine MCsweep()
      Use set_precision
      Use potential
      Use Cell
-     Use rundata
+     Use rundata       ! Brings in pure_LJ
      Use utils
      Use configuration
      Use properties
      Use cuda_fortran, only: subsweepgpu
+     Implicit None     ! Added to catch variable typos
+     
      Integer    :: I, J
      Integer    :: Indx, Nat_aux
-     Integer, Dimension(0:Ndim-1)        :: Offset
+     Integer, Dimension(0:Ndim-1) :: Offset
+     Real(wp)   :: rnd ! Explicitly declared for the RNG
 
      ! Loop over all checkerboard sets
      Do I=1,Nset_Cell
@@ -49,7 +52,8 @@ Subroutine MCsweep()
         ! Call GPU kernel to perform MC moves for all cells in this set
         ! Each GPU thread handles one cell independently
         ! Performs Nmove trial moves (translations + rotations) per particle
-        Call subsweepgpu(bool_tor, seed, ntrans_ac, nrot_ac, Ndim, Nmove, &
+        ! >>> NEW: Added pure_LJ here <<<
+        Call subsweepgpu(pure_LJ, bool_tor, seed, ntrans_ac, nrot_ac, Ndim, Nmove, &
           & Nat_Cell_Max, Ntot_Cell, Nsubset_Cell,  &
           & Nrb_sites_max, Ntor_Max, Npart_types, & 
           & Nrb_sites, patch, ref_tor_vec, sigma_jon, sigma_tor_jon, sigma_LJ, rangeP, &
@@ -59,6 +63,7 @@ Subroutine MCsweep()
           & Map_Cell, Nl_Cell, Nat_Cell, DR_Cell, W_RU, Offset, En_tot)
 
      EndDo
+     
      ! Count number of non-empty cells for statistics
      Do I=0, Ntot_Cell-1
          If( Nat_Cell(i) > 0 ) Then
@@ -67,6 +72,7 @@ Subroutine MCsweep()
      EndDo
 
 End Subroutine MCsweep
+
 
 ! ==============================================================================
 ! SUBROUTINE: rng_shuffle
@@ -84,10 +90,8 @@ Subroutine rng_shuffle(N,vec)
      Integer, Intent(INOUT) :: vec(N,3)
      Integer                 :: aux(3)
      Real(wp)                :: rndp    
-     
 
      Do I=N,2,-1
-
           Call Random_number(rndp)
           J=Int(i*rndp)+1
           aux(:)=vec(J,:)
@@ -96,6 +100,7 @@ Subroutine rng_shuffle(N,vec)
      EndDo
 
 End Subroutine rng_shuffle
+
 ! ==============================================================================
 ! SUBROUTINE: shuffle_indx
 ! ==============================================================================
@@ -113,10 +118,8 @@ Subroutine shuffle_indx(N,indx,vec1,vec2)
      Integer, Intent(IN)     :: N
      Integer, Intent(INOUT)  :: indx(1:N)
      Real(wp)                :: rndp, vec1(1:N,1:ndim), Vec2(1:N,1:4), aux    
-     
 
      Do I=N,2,-1
-
           Call Random_number(rndp)
           J=Int(i*rndp)+1
           iaux1=indx(J)
@@ -154,7 +157,6 @@ Subroutine shuffle_indx(N,indx,vec1,vec2)
 
 End Subroutine shuffle_indx
 
-
 ! ==============================================================================
 ! SUBROUTINE: Convert_CB_RU
 ! ==============================================================================
@@ -163,11 +165,6 @@ End Subroutine shuffle_indx
 !   back to regular box units (0-1 scaled coordinates). Reconstructs global
 !   positions and orientations from the cell-relative data stored in
 !   Sphere_Cell array.
-!
-! PURPOSE:
-!   Required before output operations (trajectories, restart files) and
-!   before switching between cell decomposition schemes. Converts from
-!   GPU-friendly cell-based storage to standard configuration arrays.
 ! ==============================================================================
 Subroutine Convert_CB_RU
 
@@ -191,11 +188,11 @@ Subroutine Convert_CB_RU
            If(Nat_JCell == 0) CYCLE Nx  ! Skip empty cells
            Indice2 = Indice*Nat_cell_max*(Ndim+4)
            Indice3 = Indice*Nat_cell_max*2
+           
            ! Calculate cell center position
            Xcell = J1 * w_RU(0) + w_RU(0)/2.d0
            Ycell = J2 * w_RU(1) + w_RU(1)/2.d0
            Zcell = J3 * w_RU(2) + w_RU(2)/2.d0
-
 
            ! Reconstruct global positions for all particles in this cell
            Do J0=0,Nat_JCell-1
@@ -220,4 +217,3 @@ Subroutine Convert_CB_RU
    EndDo
 
 End Subroutine Convert_CB_RU
-

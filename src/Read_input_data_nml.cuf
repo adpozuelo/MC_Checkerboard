@@ -159,20 +159,26 @@ Subroutine Read_Input_Data
 
    ! --- Set Safe Defaults ---
    traj_format = 'netcdf'
-   model = 'LJG'
    imovie = .false.
    displ_update = .false.
    npt = .false.
    sigma_jon_aux = 0.0_wp
    sigma_tor_jon = 0.0_wp
    rangepp = 0.0_wp
-
+ 
    Open(20,file='input.d', status='old')
    
    ! --- Read Namelists ---
    Read(20, NML=Control_Params)
    Read(20, NML=MC_Params)
    Read(20, NML=Potential_Params)
+   
+   If(trim(model) == 'LJ') then
+      pure_LJ = .true.
+   else
+      pure_LJ = .false.
+   endif
+   
 
    ! --- Beautiful Output of Parsed Info ---
    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
@@ -215,6 +221,8 @@ Subroutine Read_Input_Data
       rangeP=1.d0+delta_KF
    elseif( trim(model) == 'LJG') then
       sigma_tor_jon = 2.d0*sigma_tor_jon*sigma_tor_jon
+   elseif (trim(model) == 'LJ') then
+      Print *, ' Testing plain LJ model'
    else
       write(*,'(A)') c_red // '  [ERROR] Model not yet implemented: ' // trim(model) // c_reset
       stop
@@ -626,7 +634,7 @@ Subroutine System_energy(overlap)
    Use set_precision
    Use configuration
    Use properties, Only : en_tot
-   Use rundata, Only: istep_fin
+   Use rundata, Only: istep_fin, pure_LJ
    Implicit None
    Integer :: i, j
    Real(wp) :: en, ener_part(0:natoms-1), en_tot1
@@ -637,9 +645,22 @@ Subroutine System_energy(overlap)
    overlap=.false.
    en_tot=0.e0
    ener_part=0
-   
-   Do I=0,Natoms-2
-      Do J=i+1,Natoms-1
+   if (pure_LJ) then
+      Do I=0,Natoms-2
+         Do J=i+1,Natoms-1
+          call ener_LJ(I,J,en,overlap)
+          ener_part(i)=ener_part(i)+en
+          ener_part(j)=ener_part(j)+en
+          if(overlap) Then
+               en_tot=9.e+33
+               Return
+          EndIf
+          en_tot= en_tot + en
+         End Do
+      End Do
+   else 
+      Do I=0,Natoms-2
+         Do J=i+1,Natoms-1
           call ener(I,J,en,overlap)
           ener_part(i)=ener_part(i)+en
           ener_part(j)=ener_part(j)+en
@@ -648,8 +669,9 @@ Subroutine System_energy(overlap)
                Return
           EndIf
           en_tot= en_tot + en
+         End Do
       End Do
-   End Do
+   End If
 
    If(istep_fin.eq.0) then
         print*, c_yellow // ' >>> Configuration evaluation only. Printing PDB and exiting.' // c_reset

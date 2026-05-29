@@ -24,6 +24,7 @@
 ! AUTHORS:
 !   Eva González Noya      - eva.noya@iqf.csic.es
 !   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
+!   Enrique Lomba          - enrique.lomba@csic.es
 !
 ! DATE:
 !   February 2026
@@ -427,6 +428,7 @@ End Subroutine ener
 
 Subroutine get_per_atom_energies(atom_ener)
    Use configuration
+   Use rundata
    Implicit None
    Real(wp), Intent(out) :: atom_ener(0:Natoms-1)
    Integer :: i, j
@@ -440,9 +442,13 @@ Subroutine get_per_atom_energies(atom_ener)
    Do i = 0, Natoms - 2
       Do j = i + 1, Natoms - 1
          ! Your existing routine in energy.cuf
-         Call ener(i, j, pair_en, overlap) 
+         if (pure_LJ) then
+            Call ener_LJ(i, j, pair_en, overlap)
+         else
+            Call ener(i, j, pair_en, overlap) 
+         endif
          if (overlap) then
-            print *, i,j, pair_en
+            print *,  " *** Fatal error: overlap of particles :", i, j
             stop
          endif
          ! Split the pair energy equally between the two atoms
@@ -451,3 +457,96 @@ Subroutine get_per_atom_energies(atom_ener)
       EndDo
    EndDo
 End Subroutine get_per_atom_energies
+
+
+! ==============================================================================
+! SUBROUTINE: ener_LJ
+! ==============================================================================
+! DESCRIPTION:
+!   Calculates the purely isotropic Lennard-Jones 12-6 pairwise interaction
+!   energy between two spherical particles (i1 and i2) of potentially
+!   different species. Includes a shift to zero at the cutoff range.
+!
+!   This routine bypasses all quaternion and patch geometries for maximum
+!   performance when simulating simple fluids.
+! ==============================================================================
+Subroutine ener_LJ(i1, i2, en, overlap)
+ 
+   Use set_precision
+   Use configuration
+   Use potential
+   Implicit None
+   
+   Integer, Intent(in)   :: i1, i2
+   Real(wp), Intent(out) :: en
+   Logical, Intent(out)  :: overlap
+   
+   Integer  :: itypei, itypej, Indx, Indxi, Indxj
+   Real(wp) :: X1, Y1, Z1, X2, Y2, Z2, DX, DY, DZ
+   Real(wp) :: DXP, DYP, DZP, RSQ, R12, R126, R1212
+   Real(wp) :: sigma_LJ_aux, rangep_aux, vl0_aux
+
+   ! --------------------------------------------------------------------------
+   ! Get particle positions and types
+   ! --------------------------------------------------------------------------
+   Indxi = I1 * Ndim
+   X1 = r(Indxi)
+   Y1 = r(Indxi+1)
+   Z1 = r(Indxi+2)
+   itypei = itype(I1)
+
+   Indxj = I2 * Ndim
+   X2 = r(Indxj)
+   Y2 = r(Indxj+1)
+   Z2 = r(Indxj+2)
+   itypej = itype(I2)
+
+   ! --------------------------------------------------------------------------
+   ! Calculate minimum image distance (periodic boundary conditions)
+   ! --------------------------------------------------------------------------
+   DX = X2 - X1
+   DY = Y2 - Y1
+   DZ = Z2 - Z1
+
+   ! Apply minimum image convention (scaled coordinates)
+   DX = DX - NINT(DX)  
+   DY = DY - NINT(DY)
+   DZ = DZ - NINT(DZ)
+
+   ! Convert to real space coordinates using the box matrix (h)
+   DXP = H(0)*DX + H(1)*DY + H(2)*DZ
+   DYP = H(3)*DX + H(4)*DY + H(5)*DZ
+   DZP = H(6)*DX + H(7)*DY + H(8)*DZ
+
+   RSQ = DXP**2.0_wp + DYP**2.0_wp + DZP**2.0_wp
+   R12 = SQRT(RSQ)
+
+   en = 0.0_wp
+   overlap = .false.
+ 
+   ! --------------------------------------------------------------------------
+   ! Get interaction parameters for this specific pair of particle types
+   ! --------------------------------------------------------------------------
+   Indx = itypei * Npart_types + itypej
+   sigma_LJ_aux = sigma_LJ(Indx)
+   rangep_aux   = rangep(Indx)
+   vl0_aux      = vl0(Indx)       ! Shift parameter calculated at cutoff
+
+   ! --------------------------------------------------------------------------
+   ! Evaluate Isotropic Lennard-Jones Potential
+   ! --------------------------------------------------------------------------
+   IF (R12 < 0.5_wp) THEN
+        en = 9.e+33_wp  ! Infinite energy (hard core overlap)
+        overlap = .true.
+        
+   ELSEIF (R12 < rangep_aux) THEN
+        ! Optimized computation of r^6 and r^12
+        R126  = (RSQ / (sigma_LJ_aux * sigma_LJ_aux))**3.d0
+        R1212 = R126 * R126
+        
+        ! Shifted LJ 12-6:  4*epsilon * [ (sigma/r)^12 - (sigma/r)^6 ] - Shift
+        ! Uses the exact same binary-compatible math structure as your patchy routine
+        en = -4.0_wp * ((R1212 - R126)/(R1212 * R126) + vl0_aux)
+   END IF
+
+End Subroutine ener_LJ

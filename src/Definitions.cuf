@@ -85,7 +85,7 @@ MODULE rundata
    Real(wp) :: vmax(0:2), pres                         ! Max volume change and pressure (NpT)
    Logical  :: imovie, displ_update, npt               ! Movie output, adaptive displacement, NpT flag
    Character*10 :: traj_format                         ! Trajectory format: 'plain', 'netcdf', or 'both'
-
+   Logical :: pure_LJ
 
 END MODULE rundata
 
