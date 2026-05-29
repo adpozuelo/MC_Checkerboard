@@ -9,7 +9,7 @@
 ! FEATURES:
 !   - NetCDF trajectory output compatible with MD analysis tools
 !   - Stores coordinates, quaternions, cell parameters, and atom types
-!   - Optional velocities and per-atom energies/stresses
+!   - Optional per-atom energies/stresses
 !   - Unlimited frame dimension for long simulations
 !
 ! AUTHORS:
@@ -37,7 +37,7 @@ Module netcdf_trajectory
    
    Integer :: time_varid, cell_origin_varid, cell_lengths_varid, cell_angles_varid
    Integer :: id_varid, type_varid, coordinates_varid
-   Integer :: velocities_varid, c_ener_varid, c_stress_varid
+   Integer :: c_ener_varid, c_stress_varid
    Integer :: c_quatw_varid, c_quati_varid, c_quatj_varid, c_quatk_varid
    Integer :: spatial_varid, cell_spatial_varid, cell_angular_varid
    
@@ -119,11 +119,6 @@ Subroutine netcdf_init_trajectory(filename, natoms)
                        coordinates_varid)
    ierr = nf90_put_att(ncid, coordinates_varid, 'units', 'lj')
    
-   ! Define velocities (optional, will write zeros if not available)
-   ierr = nf90_def_var(ncid, 'velocities', NF90_FLOAT, [spatial_dimid, atom_dimid, frame_dimid], &
-                       velocities_varid)
-   ierr = nf90_put_att(ncid, velocities_varid, 'units', 'lj')
-   
    ! Define per-atom energy
    ierr = nf90_def_var(ncid, 'c_ener', NF90_FLOAT, [atom_dimid, frame_dimid], c_ener_varid)
    
@@ -181,12 +176,11 @@ End Subroutine netcdf_init_trajectory
 !   itype     - Atom type array (natoms)
 !   h         - Cell matrix (9 elements)
 !   beta      - Inverse temperature
-!   velocities - Optional velocity array (3*natoms)
 !   energies   - Optional per-atom energy array (natoms)
 ! ==============================================================================
 
 Subroutine netcdf_write_frame(istep, natoms, r, q, itype_arr, h, beta, &
-                              velocities, energies)
+                              energies)
 
    Use configuration, Only: Ndim
    
@@ -194,7 +188,7 @@ Subroutine netcdf_write_frame(istep, natoms, r, q, itype_arr, h, beta, &
    Integer, Intent(in) :: istep, natoms
    Real(wp), Intent(in) :: r(0:), q(0:), h(0:8), beta
    Integer, Intent(in) :: itype_arr(0:)
-   Real(wp), Intent(in), Optional :: velocities(0:), energies(0:)
+   Real(wp), Intent(in), Optional :: energies(0:)
    
    Integer :: ierr, i, Indx, Indxi
    Real(wp) :: time_value, temp
@@ -233,18 +227,6 @@ Subroutine netcdf_write_frame(istep, natoms, r, q, itype_arr, h, beta, &
       quatj(i+1) = q(Indxi+2)    ! q2
       quatk(i+1) = q(Indxi+3)    ! q3
    EndDo
-   
-   ! Fill velocities (zeros if not provided)
-   If (Present(velocities)) Then
-      Do i = 0, natoms-1
-         Indx = i * Ndim
-         vels(1, i+1) = velocities(Indx)
-         vels(2, i+1) = velocities(Indx+1)
-         vels(3, i+1) = velocities(Indx+2)
-      EndDo
-   Else
-      vels(:,:) = 0.0_wp
-   EndIf
    
    ! Fill energies (zeros if not provided)
    If (Present(energies)) Then
@@ -295,9 +277,6 @@ Subroutine netcdf_write_frame(istep, natoms, r, q, itype_arr, h, beta, &
                        start=[1, current_frame], count=[natoms, 1])
    
    ierr = nf90_put_var(ncid, coordinates_varid, coords, &
-                       start=[1, 1, current_frame], count=[3, natoms, 1])
-   
-   ierr = nf90_put_var(ncid, velocities_varid, vels, &
                        start=[1, 1, current_frame], count=[3, natoms, 1])
    
    ierr = nf90_put_var(ncid, c_ener_varid, ener, &

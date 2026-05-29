@@ -46,6 +46,7 @@ MODULE  configuration
    Integer, Allocatable                :: itype(:)  ! Particle type for each atom
    Real(wp), Allocatable               :: r(:)      ! Particle positions (scaled coordinates)
    Real(wp), Allocatable               :: q(:)      ! Particle orientations (quaternions)
+   Real(wp), Allocatable               :: enp_atom(:)
    Real (wp), Dimension(0:ndim*ndim-1) :: h, hinv   ! Simulation box matrix and its inverse
    Real(wp), Dimension(0:ndim-1)       :: Box, Bangles ! Box dimensions and angles
 

@@ -44,7 +44,8 @@ Program GPU_MC
  Real(wp) :: rnd, disp(0:ndim-1), start, finish, omaxo, hmaxo, prob_vol, vmaxo(0:ndim-1)
  Real(wp) :: rnd_vec(ndim), prob_trans, prob_rot, En_tot_old, boxmin, W_RU_min
  Logical :: overlap
-
+ ! Add a new array to hold the per-atom energies
+ Real(wp), Allocatable :: atom_energies_host(:)
  ! --------------------------------------------------------------------------
  ! Check available GPU devices
  ! --------------------------------------------------------------------------
@@ -82,7 +83,8 @@ Program GPU_MC
  print*, 'Change to Box Units'
 
  Call Initialize_variables
-
+! Allocate the host array (0-indexed to match your C-style arrays)
+ Allocate(atom_energies_host(0:Natoms-1))
  print*, ''
  print*, 'variables initialized'
 
@@ -132,7 +134,6 @@ Program GPU_MC
  write(*,'("Time initial energy (checkerboard) =",e13.6,"   seconds.")') finish-start
  print*, ''
  print*, ''
-
  If (overlap) Then
 
     print*, 'Overlap in initial configuration'
@@ -284,9 +285,14 @@ write(*,'(i10,x,"En_tot",f18.8,x,2f12.8,x,i12,x,6f12.8,x,i10)') i,En_tot, &
       EndIf
       ! Write trajectory snapshots
       If( (i > Ieq) .AND. (mod(i,Nsave2)==0) ) Then
+           ! Transform from checkerbox units to box units
            Call Convert_CB_RU
+           atom_energies_host(:) = 0
+           ! >>> NEW: Compute instantaneous per-atom energies here <<<
+           ! Option A: Call a CPU routine to fill atom_energies_host
+           ! Option B: Call a modified GPU routine to fill it (to be inplemented)
+           Call get_per_atom_energies(atom_energies_host)
            Call Convert_Real_Units
-           
            ! Write in selected format(s)
            If (trim(traj_format) == 'plain' .or. trim(traj_format) == 'both') Then
               Call Write_movie(i)
@@ -294,7 +300,7 @@ write(*,'(i10,x,"En_tot",f18.8,x,2f12.8,x,i12,x,6f12.8,x,i10)') i,En_tot, &
            EndIf
            
            If (trim(traj_format) == 'netcdf' .or. trim(traj_format) == 'both') Then
-              Call netcdf_write_frame(i, Natoms, r, q, itype, h, beta)
+              Call netcdf_write_frame(i, Natoms, r, q, itype, h, beta, atom_energies_host)
            EndIf
       EndIf
       
@@ -364,5 +370,4 @@ write(*,'(i10,x,"En_tot",f18.8,x,2f12.8,x,i12,x,6f12.8,x,i10)') i,En_tot, &
  Call limpio
  
  print*, 'cleaning finished'
- stop
 End Program GPU_MC
