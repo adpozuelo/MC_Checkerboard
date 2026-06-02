@@ -1,42 +1,15 @@
 ! ==============================================================================
-! PROGRAM: GPU_MC
+! FILE: src/Main.cuf
 ! ==============================================================================
-! DESCRIPTION:
-!   GPU-accelerated Monte Carlo simulation for patchy particle systems in
-!   NVT or NpT ensemble.
-!   Uses checkerboard decomposition for parallel MC
-!   moves on GPU, with Lennard-Jones-Gauss potential including angular and
-!   torsional interactions.
-!
-! FEATURES:
-!   - GPU-parallelized energy calculations and MC moves
-!   - Checkerboard cell decomposition for conflict-free parallel updates
-!   - Translation, rotation, and volume (NpT) MC moves
-!   - Adaptive displacement parameters
-!   - Temperature annealing capability
-!   - Trajectory output and restart files
-!   - Accurate periodic CPU & GPU execution timings 
-!
-! AUTHORS:
-!   Eva González Noya      - eva.noya@iqf.csic.es
-!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
-!
-! DATE:
-!   February 2026
-! ==============================================================================
-
 Program GPU_MC
 
  Use set_precision
-
  Use configuration
  Use properties
-
  Use rundata
  Use cell
- 
  Use cuda_fortran, only: gpucount, choosegpu, limpio
- Use cudafor                            ! Required for cudaEvent structures
+ Use cudafor                            
  Use netcdf_trajectory
 
  Implicit None
@@ -47,36 +20,27 @@ Program GPU_MC
  Real(wp) :: rnd_vec(ndim), prob_trans, prob_rot, En_tot_old, boxmin, W_RU_min
  Logical :: overlap
  
- ! Array for NetCDF per-atom instantaneous energies
  Real(wp), Allocatable :: atom_energies_host(:)
 
- ! --------------------------------------------------------------------------
  ! CPU & GPU Timing Variables
- ! --------------------------------------------------------------------------
  Type(cudaEvent) :: startEvent, stopEvent
  Real(4)         :: gpu_time_ms, last_gpu_time_ms, diff_gpu_time_ms
  Real(wp)        :: cpu_time_now, last_cpu_time, diff_cpu_time
  Integer         :: istat
 
- ! --------------------------------------------------------------------------
- ! ANSI Color Codes & Date/Time Variables
- ! --------------------------------------------------------------------------
- Character(len=8) :: c_red, c_green, c_yellow, c_blue, c_cyan, c_reset
+ ! ANSI Color Codes
+ Character(len=8) :: c_red = char(27)//'[1;31m'
+ Character(len=8) :: c_green = char(27)//'[1;32m'
+ Character(len=8) :: c_yellow = char(27)//'[1;33m'
+ Character(len=8) :: c_blue = char(27)//'[1;34m'
+ Character(len=8) :: c_cyan = char(27)//'[1;36m'
+ Character(len=8) :: c_reset = char(27)//'[0m'
+
  Character(len=8)  :: dt_date
  Character(len=10) :: dt_time
  Character(len=5)  :: dt_zone
  Integer           :: dt_values(8)
 
- c_red    = char(27)//'[1;31m'
- c_green  = char(27)//'[1;32m'
- c_yellow = char(27)//'[1;33m'
- c_blue   = char(27)//'[1;34m'
- c_cyan   = char(27)//'[1;36m'
- c_reset  = char(27)//'[0m'
-
- ! --------------------------------------------------------------------------
- ! Initialization Banner
- ! --------------------------------------------------------------------------
  Call date_and_time(dt_date, dt_time, dt_zone, dt_values)
  
  write(*,'(A)') c_blue // '========================================================================================' // c_reset
@@ -90,15 +54,9 @@ Program GPU_MC
 
  call gpucount(ngpus)
  write(*,"(A,i2,A)") c_cyan // ' *** GPU Devices Available: ' // c_reset, ngpus, ' ***'
- call Print_GPU_Properties()
-
  write(*,'(A)') c_blue // '========================================================================================' // c_reset
-
  write(*,*) 
 
- ! --------------------------------------------------------------------------
- ! Read input parameters and initial configuration
- ! --------------------------------------------------------------------------
  write(*,'(A)') c_yellow // ' >>> Initializing System and Reading Data...' // c_reset
  Call Read_input_data
  Call Read_init_conf
@@ -111,9 +69,6 @@ Program GPU_MC
  write(*,'(A)') c_green // ' >>> Initialization complete.' // c_reset
  write(*,*) 
 
- ! --------------------------------------------------------------------------
- ! Calculate initial energy using CPU version (verification)
- ! --------------------------------------------------------------------------
  call cpu_time(start)
  write(*,'(A)') c_yellow // ' >>> Evaluating initial CPU energy for verification...' // c_reset
  Call system_energy(overlap) 
@@ -127,9 +82,6 @@ Program GPU_MC
 
  Call print_ener
 
- ! --------------------------------------------------------------------------
- ! Initialize checkerboard cell decomposition & GPU Energy
- ! --------------------------------------------------------------------------
  Call Initialize_checkerboard
  NCell_max=Ntot_Cell*10
 
@@ -148,9 +100,6 @@ Program GPU_MC
     stop
  EndIf
 
- ! --------------------------------------------------------------------------
- ! Setup main simulation loop parameters
- ! --------------------------------------------------------------------------
  Iend=istep_ini+istep_fin
  IEq=istep_ini+Neq
  
@@ -163,7 +112,6 @@ Program GPU_MC
 
  init=1
 
- ! Trajectory files setup
  If (trim(traj_format) == 'plain' .or. trim(traj_format) == 'both') Then
     open(133,file='movie.xyz',access='append')
     open(674,file='trajectory.lammpstrj',access='append')
@@ -173,12 +121,10 @@ Program GPU_MC
  EndIf
  write(*,'(A,A)') c_cyan // ' >>> Trajectory Format Enabled: ' // c_reset, trim(traj_format)
 
- ! Initialize counters
  no_mc_real=0
  ntrans_ac=0
  nrot_ac=0
 
- ! Setup temperature annealing schedule
  Njumps=(istep_fin-istep_ini)/Nsave
  DeltaT=((Temp1-Temp0)/dble(Njumps-1))
  Temp = Temp0
@@ -188,23 +134,29 @@ Program GPU_MC
  write(*,'(A,f12.8)')  '     DeltaT: ', DeltaT
  write(*,*) 
 
- ! --------------------------------------------------------------------------
- ! MAIN MONTE CARLO LOOP
- ! --------------------------------------------------------------------------
  write(*,'(A)') c_blue // '=================================================================================================================================' // c_reset
  write(*,'(A)') c_cyan // '                                               MAIN MONTE CARLO LOOP STARTED                                                     ' // c_reset
  write(*,'(A)') c_blue // '=================================================================================================================================' // c_reset
 
- ! Formatted headers for NpT vs NVT
+ ! Formatted headers dynamically switch based on LJ vs Patchy
  If (NpT) Then
-    write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans      P_Rot    N_Trans       hmax*L         omax      P_Vol       vmax       N_Cell     CPU(s)     GPU(s)' // c_reset
-    write(*,'(A)') c_blue // '--------------------------------------------------------------------------------------------------------------------------------------------------' // c_reset
+    If (pure_LJ) Then
+       write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans    N_Trans       hmax*L      P_Vol       vmax       N_Cell     CPU(s)     GPU(s)' // c_reset
+       write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------------------------------------------' // c_reset
+    Else
+       write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans      P_Rot    N_Trans       hmax*L         omax      P_Vol       vmax       N_Cell     CPU(s)     GPU(s)' // c_reset
+       write(*,'(A)') c_blue // '--------------------------------------------------------------------------------------------------------------------------------------------------' // c_reset
+    EndIf
  Else
-    write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans      P_Rot    N_Trans       hmax*L         omax       N_Cell     CPU(s)     GPU(s)' // c_reset
-    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------------------------------------------' // c_reset
+    If (pure_LJ) Then
+       write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans    N_Trans       hmax*L       N_Cell     CPU(s)     GPU(s)' // c_reset
+       write(*,'(A)') c_blue // '------------------------------------------------------------------------------------------------------' // c_reset
+    Else
+       write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans      P_Rot    N_Trans       hmax*L         omax       N_Cell     CPU(s)     GPU(s)' // c_reset
+       write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------------------------------------------' // c_reset
+    EndIf
  EndIf
 
- ! --- Initialize Timers ---
  istat = cudaEventCreate(startEvent)
  istat = cudaEventCreate(stopEvent)
  last_gpu_time_ms = 0.0
@@ -215,23 +167,19 @@ Program GPU_MC
  
  Do I = 1+istep_ini, istep_ini+istep_fin
 
-      ! Perform MC sweep over all checkerboard sets
       Call MCsweep()
 
-      ! Randomly shift cell boundaries to avoid artifacts
       Call Random_number(rnd)
       disp(:) = rnd*disp_max(:)
       Call Random_number(rnd)
       vec(:)  = vec_shift ( int(rnd*size(vec_shift,1))+1, :)
       Call Shift_Cells(vec,disp)
       
-      ! Volume move for NpT ensemble
       If(NpT) then
              Call Volume_move
              nvol=nvol+1
       EndIf
 
-      ! Accumulate averages and adjust parameters
       If( (i > Ieq) .AND. (mod(i,Nsave)==0) ) Then
            Call Accumulate_averages
            
@@ -249,11 +197,14 @@ Program GPU_MC
                W_RU_min=minval(W_RU)
                if(hmax > W_RU_min/2.d0 ) hmax =W_RU_min/2.d0
                
-               omaxo=omax
-               omax=omax*dabs(prob_rot/0.4d00)
-               if(omax/omaxo.gt.1.5d00) omax=omaxo*1.5d00
-               if(omax/omaxo.lt.0.5d00) omax=omaxo*0.5d00
-               if(omax.gt.0.5d0) omax=0.5d0
+               ! Skip rotational adjustment for purely spherical fluid
+               If (.not. pure_LJ) Then
+                   omaxo=omax
+                   omax=omax*dabs(prob_rot/0.4d00)
+                   if(omax/omaxo.gt.1.5d00) omax=omaxo*1.5d00
+                   if(omax/omaxo.lt.0.5d00) omax=omaxo*0.5d00
+                   if(omax.gt.0.5d0) omax=0.5d0
+               End If
 
                vmaxo(0:2)=vmax(0:2)
                boxmin=minval(box)
@@ -277,7 +228,6 @@ Program GPU_MC
                endif
            EndIf
 
-           ! --- Compute Periodic Timers ---
            call cpu_time(cpu_time_now)
            diff_cpu_time = cpu_time_now - last_cpu_time
            last_cpu_time = cpu_time_now
@@ -288,32 +238,37 @@ Program GPU_MC
            diff_gpu_time_ms = gpu_time_ms - last_gpu_time_ms
            last_gpu_time_ms = gpu_time_ms
 
-           ! --- Format terminal output based on ensemble ---
+           ! Format terminal output based on ensemble and pure_LJ
            If (NpT) Then
-               write(*,'(i10, f18.8, 2f11.4, i11, 2f13.6, f11.4, f11.6, i13, 2f11.3)') &
-                  i, En_tot, prob_trans, prob_rot, ntrans, hmax*box(0), omax, prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               If (pure_LJ) Then
+                   write(*,'(i10, f18.8, f11.4, i11, f13.6, f11.4, f11.6, i13, 2f11.3)') &
+                      i, En_tot, prob_trans, ntrans, hmax*box(0), prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               Else
+                   write(*,'(i10, f18.8, 2f11.4, i11, 2f13.6, f11.4, f11.6, i13, 2f11.3)') &
+                      i, En_tot, prob_trans, prob_rot, ntrans, hmax*box(0), omax, prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               EndIf
            Else
-               write(*,'(i10, f18.8, 2f11.4, i11, 2f13.6, i13, 2f11.3)') &
-                  i, En_tot, prob_trans, prob_rot, ntrans, hmax*box(0), omax, Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               If (pure_LJ) Then
+                   write(*,'(i10, f18.8, f11.4, i11, f13.6, i13, 2f11.3)') &
+                      i, En_tot, prob_trans, ntrans, hmax*box(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               Else
+                   write(*,'(i10, f18.8, 2f11.4, i11, 2f13.6, i13, 2f11.3)') &
+                      i, En_tot, prob_trans, prob_rot, ntrans, hmax*box(0), omax, Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               EndIf
            EndIf
         
-           no_mc_real=0
-           ntrans_ac=0
-           nrot_ac=0
-           nvol=0
-           nvol_accept=0
-
+           no_mc_real=0; ntrans_ac=0; nrot_ac=0; nvol=0; nvol_accept=0
            Temp=Temp+DeltaT
            beta=1.d0/Temp
       EndIf
       
-      ! Write trajectory snapshots
       If( (i > Ieq) .AND. (mod(i,Nsave2)==0) ) Then
            Call Convert_CB_RU
-           Call Convert_Real_Units
            
-           ! Compute per-atom energies prior to NetCDF writing
+           ! Compute per-atom energies BEFORE converting to real units!
            Call get_per_atom_energies(atom_energies_host)
+
+           Call Convert_Real_Units
 
            If (trim(traj_format) == 'plain' .or. trim(traj_format) == 'both') Then
               Call Write_movie(i)
@@ -325,7 +280,6 @@ Program GPU_MC
            EndIf
       EndIf
       
-      ! Write restart files periodically
       If(mod(i,Nrestart)==0) Then
            Call Convert_CB_RU
            Call Convert_Real_Units
@@ -338,14 +292,10 @@ Program GPU_MC
 
  End Do
  
- ! --------------------------------------------------------------------------
- ! End of main loop
- ! --------------------------------------------------------------------------
  write(*,'(A)') c_blue // '=================================================================================================================================' // c_reset
  write(*,'(A)') c_cyan // '                                               MAIN MONTE CARLO LOOP FINISHED                                                    ' // c_reset
  write(*,'(A)') c_blue // '=================================================================================================================================' // c_reset
  
- ! --- Compute Global Timers ---
  call cpu_time(finish)
  istat = cudaEventRecord(stopEvent, 0)
  istat = cudaEventSynchronize(stopEvent)
@@ -356,16 +306,12 @@ Program GPU_MC
  write(*,'(A,f13.3,A)') '     Total GPU Time spent in main loop = ', gpu_time_ms / 1000.0, ' seconds.'
  write(*,*)
  
- ! Clean up CUDA events
  istat = cudaEventDestroy(startEvent)
  istat = cudaEventDestroy(stopEvent)
 
  If (trim(traj_format) == 'plain' .or. trim(traj_format) == 'both') close(133)
  If (trim(traj_format) == 'netcdf' .or. trim(traj_format) == 'both') Call netcdf_close_trajectory()
 
- ! --------------------------------------------------------------------------
- ! Final energy calculation and output
- ! --------------------------------------------------------------------------
  overlap=.false.
  Call CB_system_energy_gpu(2)
  write(*,'(A,f18.8)') c_yellow // ' >>> Final energy evaluated with GPU = ' // c_reset, En_tot

@@ -1,43 +1,23 @@
 ! ==============================================================================
-! SUBROUTINE: MCsweep
-! ==============================================================================
-! DESCRIPTION:
-!   Performs one complete Monte Carlo sweep over all checkerboard sets.
-!   Each set contains non-overlapping cells that can be updated simultaneously
-!   on the GPU without conflicts. For each set, randomly selects one of the
-!   8 possible offset patterns and calls GPU kernel to perform translation
-!   and rotation moves for all particles in that set.
-!
-! PARALLEL STRATEGY:
-!   The checkerboard decomposition allows conflict-free parallel MC moves.
-!   In 3D, there are 8 sets (2^3), each containing cells with the same parity
-!   pattern (even/odd) in x, y, z directions.
-!
-! AUTHORS:
-!   Eva González Noya      - eva.noya@iqf.csic.es
-!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
-!
-! DATE:
-!   February 2026
+! FILE: src/MCsweep_Checkerboard.cuf
 ! ==============================================================================
 Subroutine MCsweep()
-
      Use set_precision
      Use potential
      Use Cell
-     Use rundata
+     Use rundata       
      Use utils
      Use configuration
      Use properties
      Use cuda_fortran, only: subsweepgpu
+     Implicit None     
+     
      Integer    :: I, J
      Integer    :: Indx, Nat_aux
-     Integer, Dimension(0:Ndim-1)        :: Offset
+     Integer, Dimension(0:Ndim-1) :: Offset
+     Real(wp)   :: rnd 
 
-     ! Loop over all checkerboard sets
      Do I=1,Nset_Cell
-
-        ! Randomly select one of the 8 offset patterns to reduce grid artifacts
         Call Random_number(rnd)
         Indx = int(rnd*8.0)+1
         if(Indx.gt.8) Indx=8
@@ -46,10 +26,7 @@ Subroutine MCsweep()
         Offset(1)=Indx_Set(Indx,2)
         Offset(2)=Indx_Set(Indx,3)
         
-        ! Call GPU kernel to perform MC moves for all cells in this set
-        ! Each GPU thread handles one cell independently
-        ! Performs Nmove trial moves (translations + rotations) per particle
-        Call subsweepgpu(bool_tor, seed, ntrans_ac, nrot_ac, Ndim, Nmove, &
+        Call subsweepgpu(pure_LJ, bool_tor, seed, ntrans_ac, nrot_ac, Ndim, Nmove, &
           & Nat_Cell_Max, Ntot_Cell, Nsubset_Cell,  &
           & Nrb_sites_max, Ntor_Max, Npart_types, & 
           & Nrb_sites, patch, ref_tor_vec, sigma_jon, sigma_tor_jon, sigma_LJ, rangeP, &
@@ -57,26 +34,14 @@ Subroutine MCsweep()
           & Ntor_angle, tor_angle, Vpot_Matrix, & 
           & h, beta, hmax, omax, Sphere_Cell, List_Cell, &
           & Map_Cell, Nl_Cell, Nat_Cell, DR_Cell, W_RU, Offset, En_tot)
-
      EndDo
-     ! Count number of non-empty cells for statistics
+     
      Do I=0, Ntot_Cell-1
-         If( Nat_Cell(i) > 0 ) Then
-             no_mc_real = no_mc_real +1 
-         EndIf
+         If( Nat_Cell(i) > 0 ) no_mc_real = no_mc_real +1 
      EndDo
-
 End Subroutine MCsweep
 
-! ==============================================================================
-! SUBROUTINE: rng_shuffle
-! ==============================================================================
-! DESCRIPTION:
-!   Fisher-Yates shuffle algorithm for randomizing an integer array.
-!   Used to randomize the order of cell processing to avoid systematic biases.
-! ==============================================================================
 Subroutine rng_shuffle(N,vec)
-
      Use set_precision
      Implicit None 
      Integer                 :: I, J
@@ -84,28 +49,14 @@ Subroutine rng_shuffle(N,vec)
      Integer, Intent(INOUT) :: vec(N,3)
      Integer                 :: aux(3)
      Real(wp)                :: rndp    
-     
-
      Do I=N,2,-1
-
           Call Random_number(rndp)
           J=Int(i*rndp)+1
-          aux(:)=vec(J,:)
-          vec(J,:)=vec(I,:)
-          vec(I,:)=aux(:)
+          aux(:)=vec(J,:); vec(J,:)=vec(I,:); vec(I,:)=aux(:)
      EndDo
-
 End Subroutine rng_shuffle
-! ==============================================================================
-! SUBROUTINE: shuffle_indx
-! ==============================================================================
-! DESCRIPTION:
-!   Simultaneously shuffles an index array and two associated data arrays
-!   (positions and quaternions). Maintains correspondence between indices
-!   and particle data during randomization.
-! ==============================================================================
-Subroutine shuffle_indx(N,indx,vec1,vec2)
 
+Subroutine shuffle_indx(N,indx,vec1,vec2)
      Use set_precision
      Use Configuration, Only  : ndim
      Implicit None 
@@ -113,64 +64,21 @@ Subroutine shuffle_indx(N,indx,vec1,vec2)
      Integer, Intent(IN)     :: N
      Integer, Intent(INOUT)  :: indx(1:N)
      Real(wp)                :: rndp, vec1(1:N,1:ndim), Vec2(1:N,1:4), aux    
-     
-
      Do I=N,2,-1
-
           Call Random_number(rndp)
           J=Int(i*rndp)+1
-          iaux1=indx(J)
-          indx(J)=indx(I)
-          indx(I)=iaux1
-
-          aux=vec1(J,1)
-          vec1(J,1)=vec1(I,1)
-          vec1(I,1)=aux
-
-          aux=vec1(J,2)
-          vec1(J,2)=vec1(I,2)
-          vec1(I,2)=aux
-
-          aux=vec1(J,3)
-          vec1(J,3)=vec1(I,3)
-          vec1(I,3)=aux
-
-          aux=vec2(J,1)
-          vec2(J,1)=vec2(I,1)
-          vec2(I,1)=aux
-
-          aux=vec2(J,2)
-          vec2(J,2)=vec2(I,2)
-          vec2(I,2)=aux
-
-          aux=vec2(J,3)
-          vec2(J,3)=vec2(I,3)
-          vec2(I,3)=aux
-
-          aux=vec2(J,4)
-          vec2(J,4)=vec2(I,4)
-          vec2(I,4)=aux
+          iaux1=indx(J); indx(J)=indx(I); indx(I)=iaux1
+          aux=vec1(J,1); vec1(J,1)=vec1(I,1); vec1(I,1)=aux
+          aux=vec1(J,2); vec1(J,2)=vec1(I,2); vec1(I,2)=aux
+          aux=vec1(J,3); vec1(J,3)=vec1(I,3); vec1(I,3)=aux
+          aux=vec2(J,1); vec2(J,1)=vec2(I,1); vec2(I,1)=aux
+          aux=vec2(J,2); vec2(J,2)=vec2(I,2); vec2(I,2)=aux
+          aux=vec2(J,3); vec2(J,3)=vec2(I,3); vec2(I,3)=aux
+          aux=vec2(J,4); vec2(J,4)=vec2(I,4); vec2(I,4)=aux
      EndDo
-
 End Subroutine shuffle_indx
 
-
-! ==============================================================================
-! SUBROUTINE: Convert_CB_RU
-! ==============================================================================
-! DESCRIPTION:
-!   Converts particle coordinates from checkerboard cell representation
-!   back to regular box units (0-1 scaled coordinates). Reconstructs global
-!   positions and orientations from the cell-relative data stored in
-!   Sphere_Cell array.
-!
-! PURPOSE:
-!   Required before output operations (trajectories, restart files) and
-!   before switching between cell decomposition schemes. Converts from
-!   GPU-friendly cell-based storage to standard configuration arrays.
-! ==============================================================================
 Subroutine Convert_CB_RU
-
    Use set_precision
    Use configuration
    Use cell            
@@ -181,32 +89,24 @@ Subroutine Convert_CB_RU
    Real(wp)     :: Xcell, Ycell, Zcell
 
    Ncount = 0
-   ! Loop over all cells in the grid
    Do J3 = 0, Nl_Cell(2)-1
      Do J2 = 0, Nl_Cell(1)-1
        Nx: Do J1 = 0, Nl_Cell(0)-1
-
            Indice = ICell (J1, J2, J3)
            Nat_JCell = Nat_Cell( Indice )
-           If(Nat_JCell == 0) CYCLE Nx  ! Skip empty cells
+           If(Nat_JCell == 0) CYCLE Nx  
            Indice2 = Indice*Nat_cell_max*(Ndim+4)
            Indice3 = Indice*Nat_cell_max*2
-           ! Calculate cell center position
            Xcell = J1 * w_RU(0) + w_RU(0)/2.d0
            Ycell = J2 * w_RU(1) + w_RU(1)/2.d0
            Zcell = J3 * w_RU(2) + w_RU(2)/2.d0
-
-
-           ! Reconstruct global positions for all particles in this cell
            Do J0=0,Nat_JCell-1
               indx= Indice2 + J0*(Ndim+4)
               indx3= Indice3 + J0*2
               Indx2 = List_Cell(indx3)* Ndim
-              ! Position = cell-relative position + cell center
               R(indx2) = Sphere_Cell(indx) + Xcell
               R(indx2+1) = Sphere_Cell(indx+1) + Ycell
               R(indx2+2) = Sphere_Cell(indx+2) + Zcell
-              ! Copy quaternion orientation
               IndxQ = List_Cell(indx3)* 4
               Q(IndxQ ) = Sphere_Cell(indx+3)
               Q(IndxQ+1 ) = Sphere_Cell(indx+4)
@@ -214,10 +114,8 @@ Subroutine Convert_CB_RU
               Q(IndxQ+3 ) = Sphere_Cell(indx+6)
               Ncount = Ncount + 1
            EndDo
-
        EndDo Nx
      EndDo
    EndDo
-
 End Subroutine Convert_CB_RU
 
