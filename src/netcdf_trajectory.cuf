@@ -17,7 +17,7 @@
 !   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
 !
 ! DATE:
-!   February 2026
+!   June 2026
 ! ==============================================================================
 
 Module netcdf_trajectory
