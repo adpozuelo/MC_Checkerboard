@@ -1,0 +1,405 @@
+
+module tools 
+   contains
+! ==============================================================================
+! SUBROUTINE: Print_GPU_Properties
+! ==============================================================================
+! DESCRIPTION: Queries and prints the underlying CUDA hardware.
+! ==============================================================================
+Subroutine Print_GPU_Properties()
+   Use cudafor
+   Implicit None
+   type(cudaDeviceProp) :: prop
+   integer :: ierr, dev
+   
+   Character(len=8), Parameter :: c_blue = char(27)//'[1;34m'
+   Character(len=8), Parameter :: c_cyan = char(27)//'[1;36m'
+   Character(len=8), Parameter :: c_reset = char(27)//'[0m'
+
+   ierr = cudaGetDevice(dev)
+   ierr = cudaGetDeviceProperties(prop, dev)
+   
+   print*, c_blue // '========================================================================================' // c_reset
+   print*, c_cyan // '                               HARDWARE ACCELERATION INFO                               ' // c_reset
+   print*, c_blue // '========================================================================================' // c_reset
+   print*, '  -> Device ID:               ', dev
+   print*, '  -> Device Name:             ', trim(prop%name)
+   print*, '  -> Compute Capability:      ', prop%major, '.', prop%minor
+   print*, '  -> Total Global Memory:     ', real(prop%totalGlobalMem) / (1024.0*1024.0*1024.0), ' GB'
+   print*, '  -> Multiprocessors (SMs):   ', prop%multiProcessorCount
+   print*, '  -> Max Threads per SM:      ', prop%maxThreadsPerMultiProcessor
+   print*, c_blue // '========================================================================================' // c_reset
+   print*, ''
+End Subroutine Print_GPU_Properties
+
+
+! ==============================================================================
+! SUBROUTINE: Get_edges_angles
+! ==============================================================================
+Subroutine Get_edges_angles
+   Use set_precision
+   Use configuration, Only : ndim, h, box, bangles
+   Implicit None
+   Integer   :: l, Indx
+
+   Box=0.0_wp
+   Bangles=0.0_wp
+
+   do l=1,3
+        Indx=(L-1)*Ndim
+        Box(0) = Box(0)+h(Indx)**2
+        Box(1) = Box(1)+h(Indx+1)**2
+        Box(2) = Box(2)+h(Indx+2)**2
+
+        Bangles(0) = Bangles(0)+h(Indx)*h(Indx+1)
+        Bangles(1) = Bangles(1)+h(Indx)*h(Indx+2)
+        Bangles(2) = Bangles(2)+h(Indx+1)*h(Indx+2)
+   enddo
+
+   Box(:) = sqrt(Box(:))
+
+   Bangles(0) = Bangles(0)/Box(0)/Box(1)
+   Bangles(1) = Bangles(1)/Box(0)/Box(2)
+   Bangles(2) = Bangles(2)/Box(1)/Box(2)
+End Subroutine Get_edges_angles
+
+! ==============================================================================
+! AUXILIARY AVERAGING AND ENERGY ROUTINES
+! ==============================================================================
+Subroutine System_energy(overlap)
+   Use set_precision
+   Use configuration
+   Use properties, Only : en_tot
+   Use rundata, Only: istep_fin, pure_LJ
+   Implicit None
+   Integer :: i, j
+   Real(wp) :: en, ener_part(0:natoms-1), en_tot1
+   Logical :: overlap
+   Character(len=8), Parameter :: c_yellow = char(27)//'[1;33m'
+   Character(len=8), Parameter :: c_reset  = char(27)//'[0m'
+
+   overlap=.false.
+   en_tot=0.e0
+   ener_part=0
+   if (pure_LJ) then
+      Do I=0,Natoms-2
+         Do J=i+1,Natoms-1
+          call ener_LJ(I,J,en,overlap)
+          ener_part(i)=ener_part(i)+en
+          ener_part(j)=ener_part(j)+en
+          if(overlap) Then
+               en_tot=9.e+33
+               Return
+          EndIf
+          en_tot= en_tot + en
+         End Do
+      End Do
+   else 
+      Do I=0,Natoms-2
+         Do J=i+1,Natoms-1
+          call ener(I,J,en,overlap)
+          ener_part(i)=ener_part(i)+en
+          ener_part(j)=ener_part(j)+en
+          if(overlap) Then
+               en_tot=9.e+33
+               Return
+          EndIf
+          en_tot= en_tot + en
+         End Do
+      End Do
+   End If
+
+   If(istep_fin.eq.0) then
+        print*, c_yellow // ' >>> Configuration evaluation only. Printing PDB and exiting.' // c_reset
+        Call Convert_Real_Units
+        Call Write_pdb(ener_part)
+        stop
+   Endif
+End Subroutine System_energy
+
+
+Subroutine Write_pdb(ener_part)        
+   Use set_precision
+   Use configuration
+   Use potential        
+   Implicit None
+   Integer :: i, j, Indx
+   Real(wp)   :: angle,alpha
+   Real(wp)   :: ener_part(0:natoms-1)
+   Character(len=3) :: el
+
+   Open(21,file='coords.pdb')
+   write(21,*) "MODEL    "
+   angle=90.0
+   write(21,'("CRYST1",6f9.3)') h(0),h(4),h(8),angle,angle,angle
+
+   alpha=1.0
+   Do I=0,natoms-1
+        Indx=I*Ndim
+        write(el, '("C", I0)') itype(i) + 1
+        el = adjustl(el)
+        write(21,'("ATOM",i7,x,A3,2x,"MOL",10x,3f8.3,2f8.4)') i+1,el,(r(Indx+J),J=0,Ndim-1),ener_part(i),ener_part(i)
+   EndDo
+   write(21,*) "ENDMDL    "
+   Close (21)
+End Subroutine Write_pdb        
+
+
+Subroutine print_ener
+   Use set_precision
+   Use properties, Only : en_tot
+   Use configuration, Only : natoms
+   Implicit None
+   Character(len=8), Parameter :: c_green = char(27)//'[1;32m'
+   Character(len=8), Parameter :: c_reset = char(27)//'[0m'
+
+   Print*, ''
+   Print*, c_green // '  -> Total energy of the initial configuration : ' // c_reset, en_tot
+   Print*, c_green // '  -> Total energy per particle                 : ' // c_reset, en_tot/natoms
+   Print*, ''
+End Subroutine Print_ener
+
+
+Subroutine Initialize_variables
+   Use set_precision
+   Use properties
+   Use configuration, Only : natoms
+   Use rundata
+   Implicit None
+
+   ntrans = 0 
+   nrot = 0 
+   ntrans_ac = 0 
+   nrot_ac = 0 
+   nvol = 0
+   nvol_accept = 0
+
+   rho_av=0.0
+   en_av=0.0
+   lx_av=0.0
+   ly_av=0.0
+   lz_av=0.0
+   open(40,file='run-data',access='append')
+End Subroutine Initialize_variables
+
+
+Subroutine Accumulate_averages
+   Use set_precision
+   Use properties 
+   Use rundata, Only: temp
+   Use configuration
+   Implicit None
+
+   if(ndim.eq.2) then
+     vol=h(0)*h(3)-h(1)*h(2)
+   else
+     vol=h(0)*(h(4)*h(8)-h(5)*h(7))-h(3)*(h(1)*h(8) -h(2)*h(7))+h(6)*(h(1)*h(5)-h(2)*h(4))
+   endif
+   
+   rho=natoms/vol
+   rho_av=rho_av+natoms/vol
+   en_av=en_av+en_tot
+   lx_av=lx_av+box(0)
+   ly_av=ly_av+box(1)
+   lz_av=lz_av+box(2)
+   write(40,'(7f18.5)') temp,rho,vol,box,en_tot/natoms
+End Subroutine Accumulate_averages
+
+
+Subroutine Calculate_averages
+   Use set_precision
+   Use properties
+   Use rundata
+   Use configuration, Only : natoms
+   Implicit None
+   Integer   :: Npoints
+   Character(len=8), Parameter :: c_cyan = char(27)//'[1;36m'
+   Character(len=8), Parameter :: c_reset = char(27)//'[0m'
+
+   Npoints=(istep_fin-istep_ini-Neq)/Nsave
+
+   rho_av=rho_av/Npoints
+   en_av=en_av/Npoints
+   lx_av=lx_av/Npoints
+   ly_av=ly_av/Npoints
+   lz_av=lz_av/Npoints
+
+   print*, c_cyan // ' --- THERMODYNAMIC AVERAGES ---' // c_reset
+   print*, '  Average density = ',rho_av
+   print*, '  Average energy  = ',en_av/natoms,en_av
+   print*, '  Average edge lx = ',lx_av
+   print*, '  Average edge ly = ',ly_av
+   print*, '  Average edge lz = ',lz_av
+   print*, ''
+End Subroutine Calculate_averages
+
+
+Subroutine Write_final_properties
+   Use set_precision
+   Use properties, Only : en_tot
+   Use configuration, Only : natoms 
+   Implicit None
+   Logical :: overlap
+   Character(len=8), Parameter :: c_yellow = char(27)//'[1;33m'
+   Character(len=8), Parameter :: c_reset  = char(27)//'[0m'
+
+   print*, c_yellow // ' >>> Validating Final Configuration Energy on CPU...' // c_reset
+   Call system_energy(overlap)
+   If (overlap) print*, ' [WARNING] Overlap found in final configuration!'
+   print*, '     CPU Final energy:', en_tot, en_tot/natoms
+   print*, ''
+End Subroutine Write_final_properties
+
+
+Subroutine Get_Inverse_matrix
+   Use set_precision
+   Use configuration
+   Real(wp) :: detH
+
+   If (ndim == 3) Then  
+       detH=h(0)*(h(4)*h(8)-h(5)*h(7))-h(3)*(h(1)*h(8) -h(2)*h(7))+h(6)*(h(1)*h(5)-h(2)*h(4))
+
+       hinv(0)=(h(4)*h(8)-h(5)*h(7))/detH
+       hinv(3)=-(h(3)*h(8)-h(6)*h(5))/detH
+       hinv(6)=(h(3)*h(7)-h(6)*h(4))/detH
+       hinv(1)=-(h(1)*h(8)-h(7)*h(2))/detH
+       hinv(4)=(h(0)*h(8)-h(6)*h(2))/detH
+       hinv(7)=-(h(0)*h(7)-h(6)*h(1))/detH
+       hinv(2)=(h(1)*h(5)-h(4)*h(2))/detH
+       hinv(5)=-(h(0)*h(5)-h(3)*h(2))/detH
+       hinv(8)=(h(0)*h(4)-h(3)*h(1))/detH
+   Else
+       print*, 'Only 3D matrix inversion is supported.'
+       stop
+   Endif 
+End Subroutine Get_Inverse_matrix
+
+
+Subroutine Convert_Box_Units
+   Use set_precision
+   Use configuration
+   Integer :: i,Indx
+   Real(wp), Dimension(ndim) :: x1, x1p  
+
+   Do i=0,Natoms-1
+       Indx=I*Ndim
+       x1(1) = r(Indx)
+       x1(2) = r(Indx+1)
+       x1(3) = r(Indx+2)
+       x1p(1) = hinv(0)*x1(1)+hinv(1)*x1(2)+hinv(2)*x1(3)
+       x1p(2) = hinv(3)*x1(1)+hinv(4)*x1(2)+hinv(5)*x1(3)
+       x1p(3) = hinv(6)*x1(1)+hinv(7)*x1(2)+hinv(8)*x1(3)
+       r(Indx) = x1p(1)
+       r(Indx+1) = x1p(2)
+       r(Indx+2) = x1p(3)
+   EndDo
+End Subroutine Convert_Box_Units
+
+
+Subroutine Convert_Real_Units
+   Use set_precision
+   Use configuration
+   Integer :: i, Indx
+   Real(wp), Dimension(ndim) :: x1, x1p  
+
+   Do i=0,Natoms-1
+       Indx = I*Ndim
+       x1(1) = r(Indx)
+       x1(2) = r(Indx+1)
+       x1(3) = r(Indx+2)
+       x1(:) = x1(:) - int( x1(:) )
+       x1p(1) = h(0)*x1(1)+h(1)*x1(2)+h(2)*x1(3)
+       x1p(2) = h(3)*x1(1)+h(4)*x1(2)+h(5)*x1(3)
+       x1p(3) = h(6)*x1(1)+h(7)*x1(2)+h(8)*x1(3)
+       r(Indx) = x1p(1)
+       r(Indx+1) = x1p(2)
+       r(Indx+2) = x1p(3)
+   EndDo
+End Subroutine Convert_Real_Units
+
+
+Subroutine Write_movie(istep)
+   Use set_precision
+   Use configuration
+   Use potential
+   Use rundata, Only : beta
+   Implicit None
+   Integer :: i, Indx, J, itypei, Indxi, Indxp, Num_tot, istep
+   Real(wp)   :: q0, q1, q2, q3,  R11, R12, R13, R21, R22, R23
+   Real(wp)   :: R31, R32, R33, px_ref, py_ref, pz_ref, px, py, pz
+   Character(len=3) :: el
+   Character(len=5) :: el2
+
+   Num_tot=0
+   Do I=0,natoms-1
+        itypei= itype(i)
+        Num_tot = Num_tot + 1 + Nrb_sites(itypei)
+   EndDo
+
+   write(133,*) Num_tot
+   write(133,*) h(0),istep,1.0/beta
+
+   Do I=0,natoms-1
+        Indx=I*Ndim
+        write(el, '("C", I0)') itype(i) + 1
+        el = adjustl(el)
+        
+        write(133,'(A3,5x,3F20.8,5x,i6)') el,(r(Indx+J),J=0,Ndim-1)
+        itypei= itype(i)
+        Indxi=I*4
+
+        q0=q(Indxi)
+        q1=q(Indxi+1)
+        q2=q(Indxi+2)
+        q3=q(Indxi+3)
+        R11=q0*q0+q1*q1-q2*q2-q3*q3
+        R12=2.0*(q1*q2-q0*q3)
+        R13=2.0*(q1*q3+q0*q2)
+        R21=2.0*(q1*q2+q0*q3)
+        R22=q0*q0-q1*q1+q2*q2-q3*q3
+        R23=2.0*(q2*q3-q0*q1)
+        R31=2.0*(q1*q3-q0*q2)
+        R32=2.0*(q2*q3+q0*q1)
+        R33=q0*q0-q1*q1-q2*q2+q3*q3
+
+        Do J=0,Nrb_sites(itypei)-1
+            Indxp = Nrb_sites_max*Ndim*itypei + J*Ndim
+            px_ref= PATCH( Indxp )
+            py_ref= PATCH( Indxp + 1 )
+            pz_ref= PATCH( Indxp + 2 )
+            px = r( Indx )    + 0.35 * ( R11*px_ref + R12*py_ref + R13*pz_ref )
+            py = r( Indx +1 ) + 0.35 * ( R21*px_ref + R22*py_ref + R23*pz_ref )
+            pz = r( Indx +2 ) + 0.35 * ( R31*px_ref + R32*py_ref + R33*pz_ref )
+
+            write( el2, '("P",I0,"_",I0)') itypei+1, J+1
+            el2= adjustl(el2)
+            write(133,'(A5,2x,3F20.8)') el2,px,py,pz
+        EndDo
+   End Do
+End Subroutine Write_movie
+
+ subroutine gpucount(nogpus)
+    use cudafor
+    implicit none
+    integer, intent(out) :: nogpus
+    integer :: ndev, ierror
+    ierror = cudaGetDeviceCount(ndev)
+    if (ierror /= 0) then; nogpus = 0; else; nogpus = ndev; end if
+  end subroutine gpucount
+
+  subroutine choosegpu(gpuid)
+    use cudafor
+    implicit none
+    integer, intent(in) :: gpuid
+    integer :: ierror, gpuid_dev, mpc, nthr, warps, nreg
+    integer(kind=8) :: mem, shared_mem
+    type(cudaDeviceProp) :: properties
+    
+    gpuid_dev = gpuid
+    ierror = cudaSetDevice(gpuid_dev)
+    if (ierror /= 0) then; print *, " Error in choosing the GPU"; stop 1; end if
+    ierror = cudaGetDeviceProperties(properties, gpuid_dev)
+  end subroutine choosegpu
+end module tools
+
+

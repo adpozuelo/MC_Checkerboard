@@ -35,7 +35,8 @@ Program GPU_MC
  Use rundata
  Use cell
  
- Use cuda_fortran, only: gpucount, choosegpu, limpio
+ Use cuda_fortran, only: limpio
+ Use tools
  Use cudafor                            ! Required for cudaEvent structures
  Use netcdf_trajectory
 

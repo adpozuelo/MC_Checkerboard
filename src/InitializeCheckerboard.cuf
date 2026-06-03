@@ -32,6 +32,7 @@ Subroutine Initialize_checkerboard
     Use configuration 
     Use potential , Only     : rangeP, Npart_types
     Use rundata  , Only     : hmax   
+    Use tools , Only : Get_edges_angles
     Use Cell      
     Implicit none
     Integer       ::   NCell, JCell, KCell, LCell, I, J, K, L, M, N, NxNy

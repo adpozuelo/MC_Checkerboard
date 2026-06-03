@@ -36,7 +36,8 @@ Subroutine CB_system_energy_GPU(state)
 
    call computeenergygpu(pure_LJ, bool_tor, state, Ndim, Nat_cell_max, Ntot_Cell, Npart_types, &
                      &   Nrb_sites_max, Ntor_max, Nrb_sites, patch, ref_tor_vec, &
-                     &   sigma_jon, sigma_tor_jon, sigma_LJ, rangeP, VL0, xop, &
+                     &   sigma_jon, sigma_tor_jon, sigma_LJ, epsilon_LJ, &
+                     &   rangeP, VL0, xop, &
                      &   Ntor_angle, tor_angle, Vpot_Matrix, &
                      &   h, Sphere_Cell, List_Cell, Map_Cell, Nl_Cell, Nat_Cell, DR_Cell, Ener_tot)
    En_tot = Ener_tot

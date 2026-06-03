@@ -85,6 +85,7 @@ MODULE rundata
    Real(wp) :: vmax(0:2), pres                         ! Max volume change and pressure (NpT)
    Logical  :: imovie, displ_update, npt               ! Movie output, adaptive displacement, NpT flag
    Character*10 :: traj_format                         ! Trajectory format: 'plain', 'netcdf', or 'both'
+   Character*32 :: model                               ! Model name: LJG, K-F, LJ
    Logical :: pure_LJ
 
 END MODULE rundata
@@ -124,7 +125,7 @@ MODULE potential
    real(wp), Allocatable :: Vpot_Matrix(:)             ! Potential energy matrix (patch-patch interactions)
    real(wp), Allocatable :: tor_angle(:)               ! Preferred torsional angles
    real(wp), Allocatable :: sigma_jon(:)               ! Angular interaction width per patch
-   real(wp), Allocatable :: sigma_LJ(:)                ! Lennard-Jones sigma parameters
+   real(wp), Allocatable :: sigma_LJ(:), epsilon_LJ(:) ! Lennard-Jones sigma, and epsilon  parameters
    real(wp), Allocatable :: xop(:), VL0(:), rangeP(:)  ! LJ potential parameters
 
 END MODULE potential

@@ -1,34 +1,6 @@
 ! ==============================================================================
 ! SUBROUTINE: ener
 ! ==============================================================================
-! DESCRIPTION:
-!   Calculates the pairwise interaction energy between two patchy particles
-!   (i1 and i2) including Lennard-Jones radial term, angular patch-patch
-!   interactions (Gaussian), and optional torsional constraints.
-!
-! POTENTIAL MODEL:
-!   V_total = V_LJ(r) + V_angular(r, θ1, θ2) + V_torsional(r, θ1, θ2, φ)
-!
-!   - V_LJ: Lennard-Jones 12-6 potential (radial repulsion/attraction)
-!   - V_angular: Gaussian angular modulation based on patch orientations
-!   - V_torsional: Dihedral angle constraints between reference vectors
-!
-! INTERACTION RANGES:
-!   r < 0.98*σ_LJ: Purely repulsive LJ core
-!   0.98*σ_LJ < r < range: Full anisotropic potential with patches
-!   r > range: No interaction (cutoff)
-!
-! OVERLAP DETECTION:
-!   Sets overlap=.true. if particles are too close (r < 0.5)
-!
-! AUTHORS:
-!   Eva González Noya      - eva.noya@iqf.csic.es
-!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
-!   Enrique Lomba          - enrique.lomba@csic.es
-!
-! DATE:
-!   February 2026
-! ==============================================================================
 Subroutine ener(i1,i2,en,overlap)
  
    Use set_precision
@@ -60,165 +32,98 @@ Subroutine ener(i1,i2,en,overlap)
    Real(wp) :: v12x, v12y, v12z, a , R126, R1212, VRAD, VANG, Vangtor, FX, FXI
    Real(wp) :: v12b2, cangle, torsion, ctor_max, cos_tor, Vangtor_max 
    Real(wp) :: Vang_max, Vtor_max, dtor, pi, dospi, sigma_ij
-   Real(wp) :: sigma_LJ_aux, xop_aux, vl0_aux, rangep_aux
+   Real(wp) :: sigma_LJ_aux, eps_LJ_aux, xop_aux, vl0_aux, rangep_aux
    Logical :: overlap
 
    pi = acos(-1.d0)
    dospi = 2.d0*pi
-   a = 1000.d0  ! Large number for soft repulsion
+   a = 1000.d0  
 
-   ! --------------------------------------------------------------------------
-   ! Get particle positions and orientations
-   ! --------------------------------------------------------------------------
    Indxi=I1*Ndim
-   X1=r(Indxi)
-   Y1=r(Indxi+1)
-   Z1=r(Indxi+2)
+   X1=r(Indxi); Y1=r(Indxi+1); Z1=r(Indxi+2)
 
    Indxi=I1*4
-   Q10=q(Indxi)    ! Quaternion components
-   Q11=q(Indxi+1)
-   Q12=q(Indxi+2)
-   Q13=q(Indxi+3)
+   Q10=q(Indxi); Q11=q(Indxi+1); Q12=q(Indxi+2); Q13=q(Indxi+3)
 
    itypei = itype(I1)
 
    Indxj = I2*Ndim
-   X2=r(Indxj)
-   Y2=r(Indxj+1)
-   Z2=r(Indxj+2)
+   X2=r(Indxj); Y2=r(Indxj+1); Z2=r(Indxj+2)
 
    Indxj = I2*4
-   Q20=q(Indxj)
-   Q21=q(Indxj+1)
-   Q22=q(Indxj+2)
-   Q23=q(Indxj+3)
+   Q20=q(Indxj); Q21=q(Indxj+1); Q22=q(Indxj+2); Q23=q(Indxj+3)
 
    itypej = itype(I2)
 
-   ! --------------------------------------------------------------------------
-   ! Calculate minimum image distance (periodic boundary conditions)
-   ! --------------------------------------------------------------------------
-   DX=X2-X1
-   DY=Y2-Y1
-   DZ=Z2-Z1
+   DX=X2-X1; DY=Y2-Y1; DZ=Z2-Z1
+   DX=DX-NINT(DX); DY=DY-NINT(DY); DZ=DZ-NINT(DZ)
 
-   DX=DX-NINT(DX)  ! Apply minimum image convention
-   DY=DY-NINT(DY)
-   DZ=DZ-NINT(DZ)
-
-   ! Convert to real space coordinates
    DXP=H(0)*DX+H(1)*DY+H(2)*DZ
    DYP=H(3)*DX+H(4)*DY+H(5)*DZ
    DZP=H(6)*DX+H(7)*DY+H(8)*DZ
 
-   RSQ=DXP**2.0+DYP**2.0+DZP**2.
+   RSQ=DXP**2.0+DYP**2.0+DZP**2.0
    R12=SQRT(RSQ)
 
    EN=0.0
    VTOR=0.d0
  
-   ! Get interaction parameters for this particle type pair
    Indx = itypei*Npart_types+itypej
    sigma_LJ_aux = sigma_LJ(Indx)
+   eps_LJ_aux   = epsilon_LJ(Indx)    ! <--- FETCH EPSILON
    xop_aux = xop(Indx)
    vl0_aux = vl0(Indx)
    rangep_aux = rangep(Indx)
 
-   ! --------------------------------------------------------------------------
-   ! Check for hard overlap
-   ! --------------------------------------------------------------------------
    IF(R12.lt.0.5) then
-        EN=9.e+33  ! Infinite energy (hard core)
+        EN=9.e+33  
         return
-
-   ! --------------------------------------------------------------------------
-   ! Purely repulsive LJ core (r < 0.98*σ)
-   ! --------------------------------------------------------------------------
    ELSEIF(R12.LT.0.9800000*sigma_LJ_aux) THEN
            R126=(RSQ/sigma_LJ_aux/sigma_LJ_aux)**3.d0
            R1212=R126*R126
-           EN=-4.d0*((r1212 - r126)/(r1212*r126) + VL0_aux)
+           ! <--- MULTIPLY BY EPSILON
+           EN=-4.d0*eps_LJ_aux*((r1212 - r126)/(r1212*r126) + VL0_aux)
 
-   ! --------------------------------------------------------------------------
-   ! Full anisotropic potential with patch interactions
-   ! --------------------------------------------------------------------------
    ELSEIF(R12.LT.RANGEP_AUX) THEN
 
        If(NRB_SITES(itypei).le.1.or.NRB_SITES(itypej).le.1) Then
            R126=(RSQ/sigma_LJ_aux/sigma_LJ_aux)**3.d0
            R1212=R126*R126
-           VRAD=-4.d0*((r1212 - r126)/(r1212*r126) + VL0_aux)
+           ! <--- MULTIPLY BY EPSILON
+           VRAD=-4.d0*eps_LJ_aux*((r1212 - r126)/(r1212*r126) + VL0_aux)
            En = VRAD 
            return
        Endif 
-        Q102=Q10*Q10
-        Q112=Q11*Q11
-        Q122=Q12*Q12
-        Q132=Q13*Q13
-        Q10Q11=Q10*Q11
-        Q10Q12=Q10*Q12
-        Q10Q13=Q10*Q13
-        Q11Q12=Q11*Q12
-        Q11Q13=Q11*Q13
-        Q12Q13=Q12*Q13
+       
+        Q102=Q10*Q10; Q112=Q11*Q11; Q122=Q12*Q12; Q132=Q13*Q13
+        Q10Q11=Q10*Q11; Q10Q12=Q10*Q12; Q10Q13=Q10*Q13
+        Q11Q12=Q11*Q12; Q11Q13=Q11*Q13; Q12Q13=Q12*Q13
 
-        R111=Q102+Q112-Q122-Q132
-        R112=2.d00*(Q11Q12-Q10Q13)
-        R113=2.d00*(Q11Q13+Q10Q12)
-        R121=2.d00*(Q11Q12+Q10Q13)
-        R122=Q102-Q112+Q122-Q132
-        R123=2.d00*(Q12Q13-Q10Q11)
-        R131=2.d00*(Q11Q13-Q10Q12)
-        R132=2.d00*(Q12Q13+Q10Q11)
-        R133=Q102-Q112-Q122+Q132
+        R111=Q102+Q112-Q122-Q132; R112=2.d00*(Q11Q12-Q10Q13); R113=2.d00*(Q11Q13+Q10Q12)
+        R121=2.d00*(Q11Q12+Q10Q13); R122=Q102-Q112+Q122-Q132; R123=2.d00*(Q12Q13-Q10Q11)
+        R131=2.d00*(Q11Q13-Q10Q12); R132=2.d00*(Q12Q13+Q10Q11); R133=Q102-Q112-Q122+Q132
 
+        Q202=Q20*Q20; Q212=Q21*Q21; Q222=Q22*Q22; Q232=Q23*Q23
+        Q20Q21=Q20*Q21; Q20Q22=Q20*Q22; Q20Q23=Q20*Q23
+        Q21Q22=Q21*Q22; Q21Q23=Q21*Q23; Q22Q23=Q22*Q23
 
-        Q202=Q20*Q20
-        Q212=Q21*Q21
-        Q222=Q22*Q22
-        Q232=Q23*Q23
-        Q20Q21=Q20*Q21
-        Q20Q22=Q20*Q22
-        Q20Q23=Q20*Q23
-        Q21Q22=Q21*Q22
-        Q21Q23=Q21*Q23
-        Q22Q23=Q22*Q23
+        R211=Q202+Q212-Q222-Q232; R212=2.d00*(Q21Q22-Q20Q23); R213=2.d00*(Q21Q23+Q20Q22)
+        R221=2.d00*(Q21Q22+Q20Q23); R222=Q202-Q212+Q222-Q232; R223=2.d00*(Q22Q23-Q20Q21)
+        R231=2.d00*(Q21Q23-Q20Q22); R232=2.d00*(Q22Q23+Q20Q21); R233=Q202-Q212-Q222+Q232
 
-        R211=Q202+Q212-Q222-Q232
-        R212=2.d00*(Q21Q22-Q20Q23)
-        R213=2.d00*(Q21Q23+Q20Q22)
-        R221=2.d00*(Q21Q22+Q20Q23)
-        R222=Q202-Q212+Q222-Q232
-        R223=2.d00*(Q22Q23-Q20Q21)
-        R231=2.d00*(Q21Q23-Q20Q22)
-        R232=2.d00*(Q22Q23+Q20Q21)
-        R233=Q202-Q212-Q222+Q232
-
-        CSM1M=-100.
-        CSM2M=-100.
-        I1MIN = -1
-        I2MIN = -1
-
+        CSM1M=-100.; CSM2M=-100.
+        I1MIN = -1; I2MIN = -1
 
         DO I=0 , NRB_SITES(itypei)-1
-
             Indx = Nrb_sites_max*Ndim*itypei + I*Ndim
-
-            PX=PATCH(Indx)
-            PY=PATCH(Indx+1)
-            PZ=PATCH(Indx+2)
+            PX=PATCH(Indx); PY=PATCH(Indx+1); PZ=PATCH(Indx+2)
 
             PXP = R111*PX+R112*PY+R113*PZ
             PYP = R121*PX+R122*PY+R123*PZ
             PZP = R131*PX+R132*PY+R133*PZ
 
-            PX1(I) = PXP
-            PY1(I) = PYP
-            PZ1(I) = PZP
-
+            PX1(I) = PXP; PY1(I) = PYP; PZ1(I) = PZP
             CSM1 = (PXP*DXP+ PYP*DYP + PZP*DZP) / R12
-
             COS1(I) = CSM1
 
             If (CSM1>CSM1M) Then
@@ -226,35 +131,22 @@ Subroutine ener(i1,i2,en,overlap)
                I1MIN = I
             End If
  
-            PX=ref_tor_vec(Indx)
-            PY=ref_tor_vec(Indx+1)
-            PZ=ref_tor_vec(Indx+2)
-
+            PX=ref_tor_vec(Indx); PY=ref_tor_vec(Indx+1); PZ=ref_tor_vec(Indx+2)
             PX1_ref(I) = R111*PX+R112*PY+R113*PZ
             PY1_ref(I) = R121*PX+R122*PY+R123*PZ
             PZ1_ref(I) = R131*PX+R132*PY+R133*PZ
-
         EndDo 
-       
 
         DO I=0 , NRB_SITES(itypej)-1
-
             Indx = Nrb_sites_max*Ndim*itypej + I*Ndim
-
-            PX=PATCH(Indx)
-            PY=PATCH(Indx+1)
-            PZ=PATCH(Indx+2)
+            PX=PATCH(Indx); PY=PATCH(Indx+1); PZ=PATCH(Indx+2)
 
             PXP = R211*PX+R212*PY+R213*PZ
             PYP = R221*PX+R222*PY+R223*PZ
             PZP = R231*PX+R232*PY+R233*PZ
 
-            PX2(I) = PXP
-            PY2(I) = PYP
-            PZ2(I) = PZP
-
+            PX2(I) = PXP; PY2(I) = PYP; PZ2(I) = PZP
             CSM2 = -(PXP*DXP+ PYP*DYP + PZP*DZP) / R12
-
             COS2(I) = CSM2
 
             If (CSM2>CSM2M) Then
@@ -262,14 +154,10 @@ Subroutine ener(i1,i2,en,overlap)
                I2MIN = I
             End If
 
-            PX=ref_tor_vec(Indx)
-            PY=ref_tor_vec(Indx+1)
-            PZ=ref_tor_vec(Indx+2)
-
+            PX=ref_tor_vec(Indx); PY=ref_tor_vec(Indx+1); PZ=ref_tor_vec(Indx+2)
             PX2_ref(I) = R211*PX+R212*PY+R213*PZ
             PY2_ref(I) = R221*PX+R222*PY+R223*PZ
             PZ2_ref(I) = R231*PX+R232*PY+R233*PZ
-
         EndDo 
 
         Vangtor_max = -1.d00
@@ -277,7 +165,6 @@ Subroutine ener(i1,i2,en,overlap)
         Utor_max = -1.d00
       
         Do J3 = 0, Nrb_sites(itypei) -1
- 
            v1x=pz1_ref(J3)*dyp-py1_ref(J3)*dzp
            v1y=px1_ref(J3)*dzp-pz1_ref(J3)*dxp
            v1z=py1_ref(J3)*dxp-px1_ref(J3)*dyp
@@ -289,26 +176,19 @@ Subroutine ener(i1,i2,en,overlap)
                    CSOMG1 = sign(1.0,CSOMG1)
                 Else
                    print*, 'error in csomg1',CSOMG1
-                   print*, 'itypei',itypei
-                   print*, 'j3=',j3
-                   print*, 'px_ref',px1(J3),py1(J3),pz1(J3)
                    stop
                 Endif
            Endif
            OMG1 = acos(CSOMG1)
 
            Do J4 = 0, Nrb_sites(itypej) -1
-
-              Indx2 = Itypei * Nrb_sites_max + J3 ! elijo fila
-              Indx3 = Indx2 * Nrb_sites_max * Npart_types  ! pongo el indice al inicio de la fila
-              Indx4 = Indx3 + itypej * Nrb_sites_max  ! me muevo en la fila hasta el atomo de tipo Itypej
+              Indx2 = Itypei * Nrb_sites_max + J3 
+              Indx3 = Indx2 * Nrb_sites_max * Npart_types  
+              Indx4 = Indx3 + itypej * Nrb_sites_max  
               factor_energy = Vpot_matrix( Indx4+ J4)
 
               if ( factor_energy > 1.d-07) Then
-
-                        
                   CSOMG2 = cos2(J4)
-
                   If(abs(CSOMG2) > 1.0) Then
                        If( abs(CSOMG2) - 1.0 < 1.d-4) Then
                           CSOMG2 = sign(1.0,CSOMG2)
@@ -317,31 +197,24 @@ Subroutine ener(i1,i2,en,overlap)
                           stop       
                        Endif      
                   Endif  
-
                   OMG2 = acos(CSOMG2)
-
                   IndxT1 = Nrb_sites_max*itypei + j3
                   IndxT2 = Nrb_sites_max*itypej + j4
-
                   sigma_ij=2.d0*sigma_jon(IndxT1)*sigma_jon(IndxT2)
 
                   VANG = dexp(-(OMG1**2.d0+OMG2**2.d0)/sigma_ij)
 
                   if (bool_tor .eq. 1 .and. (Nrb_sites(itypei).gt.1) .and. &
-               & (Nrb_sites(itypej).gt.1) .and. Ntor_angle( IndxT1) > 0 .and.  &
+               & (Nrb_sites(itypej).gt.1) .and. Ntor_angle( IndxT1) > 0 .and. &
                &         Ntor_angle( IndxT2 ) > 0 ) then
-
 
                      v2x=pz2_ref(J4)*dyp-py2_ref(J4)*dzp
                      v2y=px2_ref(J4)*dzp-pz2_ref(J4)*dxp
                      v2z=py2_ref(J4)*dxp-px2_ref(J4)*dyp
-
                      mod_v2=sqrt(v2x*v2x+v2y*v2y+v2z*v2z)
 
                      If(mod_v1.ne.0.0.and.mod_v2.ne.0.0) then
-
                          cangle=(v1x*v2x+v1y*v2y+v1z*v2z)/mod_v1/mod_v2
-
                          If(abs(cangle) > 1.0) Then
                               If( abs(cangle) - 1.0 < 1.d-4) Then
                                  cangle = sign(1.0,cangle)
@@ -351,28 +224,22 @@ Subroutine ener(i1,i2,en,overlap)
                               Endif
                          Endif
 
-                         v12x=v1y*v2z-v1z*v2y
-                         v12y=v1z*v2x-v1x*v2z
-                         v12z=v1x*v2y-v1y*v2x
+                         v12x=v1y*v2z-v1z*v2y; v12y=v1z*v2x-v1x*v2z; v12z=v1x*v2y-v1y*v2x
                          v12b2=(v12x*dxp+v12y*dyp+v12z*dzp)/r12/mod_v1/mod_v2
 
                          If(abs(v12b2) > 1.0) Then
                              If( abs(v12b2) - 1.0 < 1.d-4) Then
-                                   v12b2 = sign(1.0,v12b2)
+                                 v12b2 = sign(1.0,v12b2)
                              Else
                                    print*, 'error in v12b2',v12b2
                                    stop
                              Endif
                          Endif
-
                          torsion=atan2(v12b2,cangle)
-
                          Utor_max = -100.d0
-
                          IndxT1 = Nrb_sites_max*itypei + j3
 
                          Do K= 0, Ntor_angle( IndxT1 )-1
-
                                dtor = torsion-tor_angle(IndxT1*Ntor_max + K)
                                if(dtor.gt.pi) then
                                   dtor = dtor - dospi
@@ -382,33 +249,22 @@ Subroutine ener(i1,i2,en,overlap)
                                   print*, 'error in fdtor'
                                   stop
                                endif
-
                                Utor = dexp (-dtor**2.d0/sigma_tor_jon)
                                If (Utor  > Utor_max) Utor_max = Utor 
-
                          EndDo
-
                          Vangtor = factor_energy*Vang*Utor_max
                      Else
-  
-                     EndIf ! If(mod_v1.ne.0.0.and.mod_v2.ne.0.0) then
-
-                  Else ! if (bool_tor .eq. 0) : No hay torsion
-
+                     EndIf 
+                  Else 
                          Vangtor = factor_energy*Vang
-
                   EndIf
                          
                   If( Vangtor  > Vangtor_max) Then
-                      Vangtor_max = Vangtor
-                      Vang_max = Vang
-                      Vtor_max = Utor_max
+                      Vangtor_max = Vangtor; Vang_max = Vang; Vtor_max = Utor_max
                   EndIf
-
-
-              EndIf ! if ( factor_energy > 1.d-08) Then
-           EndDo ! Do J4 = 0, Nrb_sites(itypej) -1
-        EndDo ! Do J3 = 0, Nrb_sites(itypei) -1
+              EndIf 
+           EndDo 
+        EndDo 
 
         if(Vangtor_max.eq.-1.d00) then
            En= 0.0 
@@ -418,12 +274,12 @@ Subroutine ener(i1,i2,en,overlap)
            FXI=(1 - Tanh(a*(-xop_aux + r12)))/2.d00
            R126=(RSQ/sigma_LJ_aux/sigma_LJ_aux)**3.d0
            R1212=R126*R126
-           VRAD=-4.d0*((r1212 - r126)/(r1212*r126) + VL0_aux)
+           ! <--- MULTIPLY BY EPSILON
+           VRAD=-4.d0*eps_LJ_aux*((r1212 - r126)/(r1212*r126) + VL0_aux)
            En = VRAD * (FXI + VANGTOR * FX) 
         endif
 
-   END IF  ! R12 < rangep
-
+   END IF  
 End Subroutine ener
 
 Subroutine get_per_atom_energies(atom_ener)
@@ -435,13 +291,10 @@ Subroutine get_per_atom_energies(atom_ener)
    Real(wp) :: pair_en
    Logical :: overlap
    
-   ! Initialize to zero
    atom_ener(:) = 0.0_wp
    
-   ! Loop over all pairs to compute energy
    Do i = 0, Natoms - 2
       Do j = i + 1, Natoms - 1
-         ! Your existing routine in energy.cuf
          if (pure_LJ) then
             Call ener_LJ(i, j, pair_en, overlap)
          else
@@ -451,7 +304,6 @@ Subroutine get_per_atom_energies(atom_ener)
             print *,  " *** Fatal error: overlap of particles :", i, j
             stop
          endif
-         ! Split the pair energy equally between the two atoms
          atom_ener(i) = atom_ener(i) + 0.5_wp * pair_en
          atom_ener(j) = atom_ener(j) + 0.5_wp * pair_en
       EndDo
@@ -462,16 +314,7 @@ End Subroutine get_per_atom_energies
 ! ==============================================================================
 ! SUBROUTINE: ener_LJ
 ! ==============================================================================
-! DESCRIPTION:
-!   Calculates the purely isotropic Lennard-Jones 12-6 pairwise interaction
-!   energy between two spherical particles (i1 and i2) of potentially
-!   different species. Includes a shift to zero at the cutoff range.
-!
-!   This routine bypasses all quaternion and patch geometries for maximum
-!   performance when simulating simple fluids.
-! ==============================================================================
 Subroutine ener_LJ(i1, i2, en, overlap)
- 
    Use set_precision
    Use configuration
    Use potential
@@ -484,36 +327,21 @@ Subroutine ener_LJ(i1, i2, en, overlap)
    Integer  :: itypei, itypej, Indx, Indxi, Indxj
    Real(wp) :: X1, Y1, Z1, X2, Y2, Z2, DX, DY, DZ
    Real(wp) :: DXP, DYP, DZP, RSQ, R12, R126, R1212
-   Real(wp) :: sigma_LJ_aux, rangep_aux, vl0_aux
+   Real(wp) :: sigma_LJ_aux, eps_LJ_aux, rangep_aux, vl0_aux
 
-   ! --------------------------------------------------------------------------
-   ! Get particle positions and types
-   ! --------------------------------------------------------------------------
    Indxi = I1 * Ndim
-   X1 = r(Indxi)
-   Y1 = r(Indxi+1)
-   Z1 = r(Indxi+2)
+   X1 = r(Indxi); Y1 = r(Indxi+1); Z1 = r(Indxi+2)
    itypei = itype(I1)
 
    Indxj = I2 * Ndim
-   X2 = r(Indxj)
-   Y2 = r(Indxj+1)
-   Z2 = r(Indxj+2)
+   X2 = r(Indxj); Y2 = r(Indxj+1); Z2 = r(Indxj+2)
    itypej = itype(I2)
 
-   ! --------------------------------------------------------------------------
-   ! Calculate minimum image distance (periodic boundary conditions)
-   ! --------------------------------------------------------------------------
-   DX = X2 - X1
-   DY = Y2 - Y1
-   DZ = Z2 - Z1
-
-   ! Apply minimum image convention (scaled coordinates)
+   DX = X2 - X1; DY = Y2 - Y1; DZ = Z2 - Z1
    DX = DX - NINT(DX)  
    DY = DY - NINT(DY)
    DZ = DZ - NINT(DZ)
 
-   ! Convert to real space coordinates using the box matrix (h)
    DXP = H(0)*DX + H(1)*DY + H(2)*DZ
    DYP = H(3)*DX + H(4)*DY + H(5)*DZ
    DZP = H(6)*DX + H(7)*DY + H(8)*DZ
@@ -524,29 +352,19 @@ Subroutine ener_LJ(i1, i2, en, overlap)
    en = 0.0_wp
    overlap = .false.
  
-   ! --------------------------------------------------------------------------
-   ! Get interaction parameters for this specific pair of particle types
-   ! --------------------------------------------------------------------------
    Indx = itypei * Npart_types + itypej
    sigma_LJ_aux = sigma_LJ(Indx)
+   eps_LJ_aux   = epsilon_LJ(Indx)   ! <--- FETCH EPSILON
    rangep_aux   = rangep(Indx)
-   vl0_aux      = vl0(Indx)       ! Shift parameter calculated at cutoff
+   vl0_aux      = vl0(Indx)       
 
-   ! --------------------------------------------------------------------------
-   ! Evaluate Isotropic Lennard-Jones Potential
-   ! --------------------------------------------------------------------------
    IF (R12 < 0.5_wp) THEN
-        en = 9.e+33_wp  ! Infinite energy (hard core overlap)
+        en = 9.e+33_wp  
         overlap = .true.
-        
    ELSEIF (R12 < rangep_aux) THEN
-        ! Optimized computation of r^6 and r^12
         R126  = (RSQ / (sigma_LJ_aux * sigma_LJ_aux))**3.d0
         R1212 = R126 * R126
-        
-        ! Shifted LJ 12-6:  4*epsilon * [ (sigma/r)^12 - (sigma/r)^6 ] - Shift
-        ! Uses the exact same binary-compatible math structure as your patchy routine
-        en = -4.0_wp * ((R1212 - R126)/(R1212 * R126) + vl0_aux)
+        ! <--- MULTIPLY BY EPSILON
+        en = -4.0_wp * eps_LJ_aux * ((R1212 - R126)/(R1212 * R126) + vl0_aux)
    END IF
-
 End Subroutine ener_LJ

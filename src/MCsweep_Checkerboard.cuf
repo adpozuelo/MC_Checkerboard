@@ -56,8 +56,8 @@ Subroutine MCsweep()
         Call subsweepgpu(pure_LJ, bool_tor, seed, ntrans_ac, nrot_ac, Ndim, Nmove, &
           & Nat_Cell_Max, Ntot_Cell, Nsubset_Cell,  &
           & Nrb_sites_max, Ntor_Max, Npart_types, & 
-          & Nrb_sites, patch, ref_tor_vec, sigma_jon, sigma_tor_jon, sigma_LJ, rangeP, &
-          & VL0, xop, &
+          & Nrb_sites, patch, ref_tor_vec, sigma_jon, sigma_tor_jon, sigma_LJ,&
+          & epsilon_LJ, rangeP, VL0, xop, &
           & Ntor_angle, tor_angle, Vpot_Matrix, & 
           & h, beta, hmax, omax, Sphere_Cell, List_Cell, &
           & Map_Cell, Nl_Cell, Nat_Cell, DR_Cell, W_RU, Offset, En_tot)
