@@ -31,11 +31,11 @@ Program GPU_MC
 
  Use configuration
  Use properties
-
+ Use potential
  Use rundata
  Use cell
  
- Use cuda_fortran, only: limpio
+ Use cuda_fortran, only: limpio, compute_per_atom_energy_gpu
  Use tools
  Use cudafor                            ! Required for cudaEvent structures
  Use netcdf_trajectory
@@ -58,6 +58,9 @@ Program GPU_MC
  Real(4)         :: gpu_time_ms, last_gpu_time_ms, diff_gpu_time_ms
  Real(wp)        :: cpu_time_now, last_cpu_time, diff_cpu_time
  Integer         :: istat
+ ! Control input args
+ integer         :: devNum, argc
+ character(len=2) :: deviceNumber
 
  ! --------------------------------------------------------------------------
  ! ANSI Color Codes & Date/Time Variables
@@ -75,6 +78,22 @@ Program GPU_MC
  c_cyan   = char(27)//'[1;36m'
  c_reset  = char(27)//'[0m'
 
+ ! Command line arguments control
+ argc = command_argument_count()
+ if (argc < 1) then
+      write(*,"(A,'!!! Error: You must specify at least ONE argument: the name of the ')")c_red
+      write(*,"('    input file e.g.: mc_gpu.exe input_file.nml')")
+      write(*,"('    Second argument (optional) is the GPU device number to use, (default 0)',A)")c_reset
+      stop 
+ end if
+ ! Get input filename and optional GPU device number
+ call get_command_argument(1, input_filename)
+ if (argc ==2) then
+    call get_command_argument(2, deviceNumber)
+    read(deviceNumber,*) devNum
+ else
+    devNum = 0
+ end if
  ! --------------------------------------------------------------------------
  ! Initialization Banner
  ! --------------------------------------------------------------------------
@@ -90,7 +109,15 @@ Program GPU_MC
  write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
 
  call gpucount(ngpus)
+ if (devNum >0) Then
+   call choosegpu(devNum)
+ endif
  write(*,"(A,i2,A)") c_cyan // ' *** GPU Devices Available: ' // c_reset, ngpus, ' ***'
+ if (ngpus==0) Then
+    write(*,"(A)") c_red//' *** Fatal error: no gpu available' // c_reset
+    stop
+ endif
+ 
  call Print_GPU_Properties()
 
  write(*,'(A)') c_blue // '========================================================================================' // c_reset
@@ -332,7 +359,10 @@ Program GPU_MC
            Call Convert_CB_RU
            
            ! Compute per-atom energies prior to NetCDF writing
-           Call get_per_atom_energies(atom_energies_host)
+     ! Compute per-atom energies BEFORE converting to real units using the GPU!
+           Call compute_per_atom_energy_gpu(pure_LJ, bool_tor, ndim, Nat_cell_max, Ntot_Cell, Npart_types, &
+                                            Nrb_sites_max, Ntor_max, sigma_tor_jon, Natoms, atom_energies_host)
+     !      Call get_per_atom_energies(atom_energies_host)
 
            Call Convert_Real_Units
 

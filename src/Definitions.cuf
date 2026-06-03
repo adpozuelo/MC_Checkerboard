@@ -86,6 +86,7 @@ MODULE rundata
    Logical  :: imovie, displ_update, npt               ! Movie output, adaptive displacement, NpT flag
    Character*10 :: traj_format                         ! Trajectory format: 'plain', 'netcdf', or 'both'
    Character*32 :: model                               ! Model name: LJG, K-F, LJ
+   Character*64 :: input_filename                       ! Input file name
    Logical :: pure_LJ
 
 END MODULE rundata

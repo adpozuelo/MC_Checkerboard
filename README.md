@@ -113,7 +113,7 @@ Adjust `-Mcuda=cc70` to match your GPU architecture:
 
 The simulation requires two input files:
 
-1. **`input.d`** - Simulation parameters
+1. **`filename.nml`** - Simulation parameters (1st argument of mc_cpu.exe)
    - MC control (steps, moves, frequencies)
    - Temperature, pressure conditions
    - Potential model parameters
@@ -128,7 +128,7 @@ The simulation requires two input files:
 
 ### Trajectory Output Formats
 
-Configure output format in `input.d`:
+Configure output format in `next_input.nml`:
 - **`plain`** - Text format (`movie.xyz`, `trajectory.lammpstrj`)
 - **`netcdf`** - Binary NetCDF format (`trajectory.nc`) - **Recommended** (35× smaller files)
 - **`both`** - Generate both formats
@@ -159,7 +159,7 @@ See `T0.154/` directory for example input files.
 **Simulation Data**:
 - `run-data-[basename].dat` - Time series of properties (energy, pressure, box dimensions)
 - `coords.out-[basename].dat` - Final configuration
-- `input-restart.d` - Restart input file with current parameters
+- `input-restart.nml` - Restart input file with current parameters
 
 **Standard Output**: Energy, acceptance rates, timing information
 
@@ -218,7 +218,7 @@ This scheme enables efficient GPU parallelization while maintaining detailed bal
 ## Typical Workflow
 
 1. **Prepare initial configuration** with desired density and particle orientations
-2. **Configure input.d** with simulation parameters
+2. **Configure filename.nml** with simulation parameters
 3. **Equilibrate** at target temperature
 4. **Production run** with trajectory output
 5. **Analysis** of structural and thermodynamic properties

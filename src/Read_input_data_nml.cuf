@@ -12,7 +12,7 @@ Subroutine Write_Input_File(istep)
    Integer :: istep, istep_ini_new
    Integer :: J, Indx, Indx_tor, Indx_tor2, I, Indx2, K, Indx1, M
 
-   Open(21,file='input-restart.d')
+   Open(21,file='input-restart.nml',status='unknown')
 
    ! --- Write Namelist: Control_Params ---
    Write(21,*) "&Control_Params"
@@ -176,7 +176,7 @@ Subroutine Read_Input_Data
    imovie = .false.; displ_update = .false.; npt = .false.; pure_LJ = .false.
    sigma_jon_aux = 0.0_wp; sigma_tor_jon = 0.0_wp; rangepp = 0.0_wp
 
-   Open(20,file='input.d', status='old')
+   Open(20,file=input_filename, status='old')
    Read(20, NML=Control_Params)
    Read(20, NML=MC_Params)
    Read(20, NML=Potential_Params)
@@ -223,7 +223,7 @@ Subroutine Read_Input_Data
       Allocate( tor_angle(1) ); Allocate( Vpot_Matrix(1) ); Allocate( sigma_jon(1) )
       patch=0.d0; ref_tor_vec=0.d0; Ntor_angle=0; tor_angle=0.d0; Vpot_Matrix=0.d0; sigma_jon=0.d0
       
-      ! Fast forward input.d to the LJ matrix section
+      ! Fast forward input_filename to the LJ matrix section
       Do 
          Read(20, '(A)', IOSTAT=ios) line
          If (ios /= 0) Exit
