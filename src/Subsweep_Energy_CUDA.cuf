@@ -1364,428 +1364,323 @@ end subroutine enerGPU_LJ
     DR_Cell_dev = DR_Cell; Map_Cell_dev = Map_Cell; Nl_Cell_dev = Nl_Cell
     hdev = h; W_RU_dev = W_RU; List_Cell_dev = List_Cell; Sphere_Celldev= Sphere_Cell; Nat_Cell_dev = Nat_Cell
   end subroutine energyinitialize
-
   ! ==============================================================================
-  ! KERNEL: per_atom_enerGPU_LJ (Pure Isotropic LJ)
+  ! KERNEL: brute_per_atom_enerGPU_LJ (Pure Isotropic LJ - O(N^2) global coordinates)
   ! ==============================================================================
-  attributes(global) subroutine per_atom_enerGPU_LJ(Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, &
-                                         range, sigma_LJ, epsilon_LJ, VL0, h, Sphere_Cell, List_Cell, Map_Cell, Nl_Cell, &
-                                         Nat_Cell, DR_Cell, atom_energy)
-    integer, intent(in), value :: Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes
-    real(wp), intent(in), device :: range(0:Ntypes*Ntypes-1), sigma_LJ(0:Ntypes*Ntypes-1), epsilon_LJ(0:Ntypes*Ntypes-1)
-    real(wp), intent(in), device :: VL0(0:Ntypes*Ntypes-1), h(0:Ndim*Ndim-1)
-    real(wp), intent(in), device :: Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1)
-    integer, intent(in), device :: List_Cell(0:Ntot_Cell*Nat_Cell_Max*2-1), Map_Cell(0:Ntot_Cell*26-1)
-    integer, intent(in), device :: Nl_Cell(0:Ndim-1), Nat_Cell(0:Ntot_Cell-1)
-    real(wp), intent(in), device :: DR_Cell(0:Ntot_Cell*26*3-1)
+  attributes(global) subroutine brute_per_atom_enerGPU_LJ(Ndim, Natoms, Ntypes, &
+                                         range, sigma_LJ, epsilon_LJ, VL0, h, r_dev, itype_dev, atom_energy)
+    integer, intent(in), value :: Ndim, Natoms, Ntypes
+    real(wp), intent(in), device :: range(*), sigma_LJ(*), epsilon_LJ(*), VL0(*), h(0:8), r_dev(*)
+    integer, intent(in), device :: itype_dev(*)
     real(wp), intent(out), device :: atom_energy(*)
-    
-    integer :: imol, jmol, l, m, Indx_Cell2, Indx_Cell3, Nat_Cell_ijk, Nat_Cell_neigh
-    integer :: Nl0, Nl1, Nl2, ICell, imol2, jmol2, itypei, itypej, Indx
-    integer :: indx_atm_aux, indx_atm_aux2, indx_neigh_aux2, indx_neigh_auxp, jcell_x, jcell_y, jcell_z, Indx_Cell
-    integer :: id_m
-    real(wp) :: en_m
-    
-    real(wp) :: xi, yi, zi, DX, DY, DZ, dist, distr, H11, H12, H13, H21, H22, H23, H31, H32, H33, DXP, DYP, DZP
-    real(wp) :: dx_neigh, dy_neigh, dz_neigh, R126, R1212, Vrad, s_LJ_aux, eps_LJ_aux, VL0_aux, range_aux
 
-    Indx_Cell = (threadIdx%x + (blockIdx%x-1)*blockDim%x) - 1
-    Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2)
-    jcell_z = Indx_Cell/(Nl0*Nl1)
-    jcell_y = (Indx_Cell - Nl0*Nl1*jcell_z)/Nl0
-    if (jcell_y == 0 .and. jcell_z == 0) then; jcell_x = Indx_Cell; else; jcell_x = mod(Indx_Cell, jcell_y*Nl0 + jcell_z*Nl0*Nl1); end if
-    
-    if (jcell_x < Nl0 .and. jcell_y < Nl1 .and. jcell_z < Nl2) then
-        Nat_Cell_ijk = Nat_Cell(Indx_Cell)
-        if (Nat_Cell_ijk > 0) then
-          H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
-          indx_atm_aux  = Indx_Cell * Nat_Cell_Max * 7; indx_atm_aux2 = Indx_Cell * Nat_Cell_Max * 2
-          
-          do m=0, Nat_Cell_ijk-1
-            imol = indx_atm_aux + m*7; imol2 = indx_atm_aux2 + m*2
-            xi = Sphere_Cell(imol); yi = Sphere_Cell(imol + 1); zi = Sphere_Cell(imol + 2)
-            itypei = List_Cell(imol2 + 1)
-            id_m   = List_Cell(imol2)  ! Get the global atom index
-            en_m   = 0.0_wp            ! Reset local accumulator
-            
-            do l=0, Nat_Cell_ijk-1
-              if (l /= m) then
-                jmol = indx_atm_aux + l*7; jmol2 = indx_atm_aux2 + l*2
-                DX = Sphere_Cell(jmol) - xi; DY = Sphere_Cell(jmol + 1) - yi; DZ = Sphere_Cell(jmol + 2) - zi
-                itypej = List_Cell(jmol2 + 1); Indx = itypei*Ntypes + itypej
-                s_LJ_aux = sigma_LJ(Indx); eps_LJ_aux = epsilon_LJ(Indx); range_aux = range(Indx); VL0_aux = VL0(Indx)
-                
-                DXP = DX - nint(DX); DYP = DY - nint(DY); DZP = DZ - nint(DZ)
-                DX = H11*DXP + H12*DYP + H13*DZP; DY = H21*DXP + H22*DYP + H23*DZP; DZ = H31*DXP + H32*DYP + H33*DZP
-                dist = sqrtf(DX*DX + DY*DY + DZ*DZ)
-                
-                if (dist <= 0.5_wp) then
-                  atom_energy(id_m) = 9.0e99_wp; return
-                else if (dist < range_aux) then
-                  distr = dist/s_LJ_aux; R126 = distr*distr*distr*distr*distr*distr; R1212= R126*R126
-                  Vrad = -4.0_wp * eps_LJ_aux * ( (R1212 - R126)/(R1212*R126) + VL0_aux )
-                  en_m = en_m + 0.5_wp * Vrad
-                end if
-              end if
-            end do
-            
-            do ICell=0,25
-              Indx_Cell2 = Map_Cell(Indx_Cell*26 + ICell); Nat_Cell_neigh = Nat_Cell(Indx_Cell2)
-              Indx_Cell3 = Indx_Cell*26*3 + ICell*3
-              dx_neigh = DR_Cell(Indx_Cell3); dy_neigh = DR_Cell(Indx_Cell3+1); dz_neigh = DR_Cell(Indx_Cell3+2)
-              
-              if (Nat_Cell_neigh > 0) then
-                indx_neigh_aux2 = Indx_Cell2 * Nat_Cell_Max * 7; indx_neigh_auxp = Indx_Cell2 * Nat_Cell_Max * 2
-                do l=0, Nat_Cell_neigh-1
-                  jmol = indx_neigh_aux2 + l*7; jmol2 = indx_neigh_auxp + l*2
-                  DX = Sphere_Cell(jmol)   - xi + dx_neigh; DY = Sphere_Cell(jmol+1) - yi + dy_neigh; DZ = Sphere_Cell(jmol+2) - zi + dz_neigh
-                  itypej = List_Cell(jmol2 + 1); Indx   = itypei*Ntypes + itypej
-                  s_LJ_aux  = sigma_LJ(Indx); eps_LJ_aux= epsilon_LJ(Indx); range_aux = range(Indx); VL0_aux   = VL0(Indx)
-                  
-                  DXP = DX - nint(DX); DYP = DY - nint(DY); DZP = DZ - nint(DZ)
-                  DX = H11*DXP + H12*DYP + H13*DZP; DY = H21*DXP + H22*DYP + H23*DZP; DZ = H31*DXP + H32*DYP + H33*DZP
-                  dist = sqrtf(DX*DX + DY*DY + DZ*DZ)
-                  
-                  if (dist < 0.5_wp) then
-                    atom_energy(id_m) = 9.0e99_wp; return
-                  else if (dist < range_aux) then
-                    distr = dist/s_LJ_aux; R126 = distr*distr*distr*distr*distr*distr; R1212= R126*R126
-                    Vrad = -4.0_wp * eps_LJ_aux * ( (R1212 - R126)/(R1212*R126) + VL0_aux )
-                    en_m = en_m + 0.5_wp * Vrad
-                  end if
-                end do
-              end if
-            end do
-            atom_energy(id_m) = en_m
-          end do
-        end if
-      end if
-  end subroutine per_atom_enerGPU_LJ
+    integer :: i, j, itypei, itypej, Indx
+    real(wp) :: xi, yi, zi, XJ, YJ, ZJ, DX, DY, DZ, DXP, DYP, DZP, RSQ
+    real(wp) :: s_LJ_aux, eps_LJ_aux, range_aux, vl0_aux, R126, R1212, Vrad, en_i
 
+    i = (blockIdx%x - 1) * blockDim%x + threadIdx%x - 1
+    
+    if (i < Natoms) then
+        itypei = itype_dev(i)
+        xi = r_dev(i*Ndim); yi = r_dev(i*Ndim + 1); zi = r_dev(i*Ndim + 2)
+        en_i = 0.0_wp
+
+        do j = 0, Natoms - 1
+            if (i == j) cycle
+            
+            itypej = itype_dev(j)
+            XJ = r_dev(j*Ndim); YJ = r_dev(j*Ndim + 1); ZJ = r_dev(j*Ndim + 2)
+
+            Indx = itypei*Ntypes + itypej
+            s_LJ_aux = sigma_LJ(Indx)
+            eps_LJ_aux = epsilon_LJ(Indx)
+            range_aux = range(Indx)
+            vl0_aux = VL0(Indx)
+
+            DX = XJ - xi; DY = YJ - yi; DZ = ZJ - zi
+            DX = DX - anint(DX); DY = DY - anint(DY); DZ = DZ - anint(DZ)
+
+            DXP = h(0)*DX + h(1)*DY + h(2)*DZ
+            DYP = h(3)*DX + h(4)*DY + h(5)*DZ
+            DZP = h(6)*DX + h(7)*DY + h(8)*DZ
+
+            RSQ = DXP*DXP + DYP*DYP + DZP*DZP
+
+            if (RSQ <= 0.25_wp) then
+                atom_energy(i) = 9.0e+33_wp
+                return
+            else if (RSQ < 0.9604_wp * s_LJ_aux * s_LJ_aux) then
+                R126 = (RSQ / (s_LJ_aux * s_LJ_aux))**3
+                R1212 = R126 * R126
+                Vrad = -4.0_wp * eps_LJ_aux * ((R1212 - R126)/(R1212 * R126) + vl0_aux)
+                en_i = en_i + 0.5_wp * Vrad
+            else if (RSQ < range_aux*range_aux) then
+                R126 = (RSQ / (s_LJ_aux * s_LJ_aux))**3
+                R1212 = R126 * R126
+                Vrad = -4.0_wp * eps_LJ_aux * ((R1212 - R126)/(R1212 * R126) + vl0_aux)
+                en_i = en_i + 0.5_wp * Vrad
+            end if
+        end do
+        
+        atom_energy(i) = en_i
+    end if
+  end subroutine brute_per_atom_enerGPU_LJ
+! ==============================================================================
+  ! KERNEL: brute_per_atom_enerGPU (Patchy Potential - O(N^2) global coordinates)
   ! ==============================================================================
-  ! KERNEL: per_atom_enerGPU (Patchy Potential)
-  ! ==============================================================================
-  attributes(global) subroutine per_atom_enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Npatches_max, Ntor_max, Ntypes, &
+  attributes(global) subroutine brute_per_atom_enerGPU(bool_tor, Ndim, Natoms, Npatches_max, Ntor_max, Ntypes, &
                                         Npatches, Ntor_angle, tor_angle, patch, ref_tor, range, sigma_jon, sigma_tor, &
-                                        sigma_LJ, epsilon_LJ, VL0, XOP, Vpot_Matrix, h, Sphere_Cell, List_Cell, Map_Cell, Nl_Cell, &
-                                        Nat_Cell, DR_Cell, atom_energy)
-    integer, intent(in), value :: bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Npatches_max, Ntor_max, Ntypes
+                                        sigma_LJ, epsilon_LJ, VL0, XOP, Vpot_Matrix, h, r_dev, q_dev, itype_dev, atom_energy)
+    integer, intent(in), value :: bool_tor, Ndim, Natoms, Npatches_max, Ntor_max, Ntypes
     real(wp), intent(in), value :: sigma_tor
-    integer, intent(in), device :: Npatches(0:Ntypes-1), Ntor_angle(0:Ntypes*Npatches_max-1)
-    real(wp), intent(in), device :: tor_angle(0:Ntypes*Npatches_max*Ntor_max-1), patch(0:Ntypes*Npatches_max*Ndim-1), ref_tor(0:Ntypes*Npatches_max*Ndim-1)
-    real(wp), intent(in), device :: range(0:Ntypes*Ntypes-1), sigma_jon(0:Ntypes*Npatches_max-1)
-    real(wp), intent(in), device :: sigma_LJ(0:Ntypes*Ntypes-1), epsilon_LJ(0:Ntypes*Ntypes-1), VL0(0:Ntypes*Ntypes-1), XOP(0:Ntypes*Ntypes-1)
-    real(wp), intent(in), device :: Vpot_Matrix(0:Ntypes*Npatches_max*Ntypes*Npatches_max-1), h(0:Ndim*Ndim-1)
-    real(wp), intent(in), device :: Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1)
-    integer, intent(in), device :: List_Cell(0:Ntot_Cell*Nat_Cell_Max*2-1), Map_Cell(0:Ntot_Cell*26-1), Nl_Cell(0:Ndim-1), Nat_Cell(0:Ntot_Cell-1)
-    real(wp), intent(in), device :: DR_Cell(0:Ntot_Cell*26*3-1)
+    integer, intent(in), device :: Npatches(*), Ntor_angle(*), itype_dev(*)
+    real(wp), intent(in), device :: tor_angle(*), patch(*), ref_tor(*)
+    real(wp), intent(in), device :: range(*), sigma_jon(*)
+    real(wp), intent(in), device :: sigma_LJ(*), epsilon_LJ(*), VL0(*), XOP(*)
+    real(wp), intent(in), device :: Vpot_Matrix(*), h(0:8)
+    real(wp), intent(in), device :: r_dev(*), q_dev(*)
     real(wp), intent(out), device :: atom_energy(*)
-    
-    integer :: imol, jmol, kpatch, k, Indx_Cell2, Indx_Cell3, l, m, indx_atm_aux, Nat_Cell_ijk, Nat_Cell_neigh
-    integer :: Nl0, Nl1, Nl2, ICell, indx_neigh_aux2, imol2, jmol2, indx_atm_aux2, itypei, itypej, indx2, indx3, indx4, indx_neigh_auxp
-    integer :: j3, j4, IndxT1, IndxT2, Indx, jcell_x, jcell_y, jcell_z, Indx_Cell, id_m
-    real(wp) :: xi, yi, zi, en_m, DX, DY, DZ, dist, H11, H12, H13, H21, H22, H23, H31, H32, H33, DXP, DYP, DZP
-    real(wp) :: Q0i, Q1i, Q2i, Q3i, Q102, Q112, Q122, Q132, Q10Q11, Q10Q12, Q10Q13, Q11Q12, Q11Q13, Q12Q13, R111, R112, R113, R121, R122, R123, R131, R132, R133
-    real(wp) :: Q0j, Q1j, Q2j, Q3j, Q202, Q212, Q222, Q232, Q20Q21, Q20Q22, Q20Q23, Q21Q22, Q21Q23, Q22Q23, R211, R212, R213, R221, R222, R223, R231, R232, R233
-    real(wp) :: CSM1M, CSM2M, PX, PY, PZ, PX1, PY1, PZ1, PX2, PY2, PZ2, CSOMG1, CSOMG2, dx_neigh, dy_neigh, dz_neigh, factor_energy
+
+    integer :: i, j, itypei, itypej, Indx, k, j3, j4, IndxT1, IndxT2, Indx2, Indx3, Indx4
+    real(wp) :: xi, yi, zi, XJ, YJ, ZJ, DX, DY, DZ, DXP, DYP, DZP, RSQ, R12, en_i
+    real(wp) :: Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23
+    real(wp) :: Q102, Q112, Q122, Q132, Q10Q11, Q10Q12, Q10Q13, Q11Q12, Q11Q13, Q12Q13
+    real(wp) :: R111, R112, R113, R121, R122, R123, R131, R132, R133
+    real(wp) :: Q202, Q212, Q222, Q232, Q20Q21, Q20Q22, Q20Q23, Q21Q22, Q21Q23, Q22Q23
+    real(wp) :: R211, R212, R213, R221, R222, R223, R231, R232, R233
+    real(wp) :: CSM1M, CSM2M, PX, PY, PZ, PXP, PYP, PZP, PX1, PY1, PZ1, PX2, PY2, PZ2, CSOMG1, CSOMG2, factor_energy
     real(wp) :: PX1_ref(0:19), PX2_ref(0:19), PY1_ref(0:19), PY2_ref(0:19), PZ1_ref(0:19), PZ2_ref(0:19), COS1(0:19), COS2(0:19)
     real(wp) :: Vangtor_max, v1x, v1y, v1z, mod_v1, FX, FXI, Vangtor, Vang, Vrad, v2x, v2y, v2z, mod_v2, torsion, OMG1, OMG2
-    real(wp) :: v12x, v12y, v12z, v12b2, Utor_max, Utor, cangle, R126, R1212, dtor, sigma_jon_ij, s_LJ_aux, eps_LJ_aux, distr, XOP_aux, VL0_aux, range_aux
+    real(wp) :: v12x, v12y, v12z, v12b2, Utor_max, Utor, cangle, R126, R1212, dtor, sigma_jon_ij, s_LJ_aux, eps_LJ_aux, XOP_aux, VL0_aux, range_aux
     real(wp) :: a, pi, dospi
 
-    a = 1000.0_wp; pi = acosf(-1.0_wp); dospi = 2.0_wp*pi
-    Indx_Cell = (threadIdx%x + (blockIdx%x-1)*blockDim%x) - 1
-    Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2)
-    jcell_z = Indx_Cell/(Nl0*Nl1)
-    jcell_y = (Indx_Cell - Nl0*Nl1*jcell_z)/Nl0
-    if (jcell_y == 0 .and. jcell_z == 0) then; jcell_x = Indx_Cell; else; jcell_x = mod(Indx_Cell, jcell_y*Nl0 + jcell_z*Nl0*Nl1); end if
+    a = 1000.0_wp; pi = acos(-1.0_wp); dospi = 2.0_wp*pi
+    i = (blockIdx%x - 1) * blockDim%x + threadIdx%x - 1
     
-    if (jcell_x < Nl0 .and. jcell_y < Nl1 .and. jcell_z < Nl2) then
-        Nat_Cell_ijk = Nat_Cell(Indx_Cell)
-        if (Nat_Cell_ijk > 0) then
-          H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
-          indx_atm_aux  = Indx_Cell * Nat_Cell_Max * 7; indx_atm_aux2 = Indx_Cell * Nat_Cell_Max * 2
-          
-          do m=0, Nat_Cell_ijk-1
-            imol = indx_atm_aux + m*7; imol2 = indx_atm_aux2 + m*2
-            xi = Sphere_Cell(imol); yi = Sphere_Cell(imol + 1); zi = Sphere_Cell(imol + 2)
-            Q0i = Sphere_Cell(imol + 3); Q1i = Sphere_Cell(imol + 4); Q2i = Sphere_Cell(imol + 5); Q3i = Sphere_Cell(imol + 6)
-            itypei = List_Cell(imol2 + 1)
-            id_m   = List_Cell(imol2) ! Global ID
-            en_m   = 0.0_wp
-            
-            Q102=Q0i*Q0i; Q112=Q1i*Q1i; Q122=Q2i*Q2i; Q132=Q3i*Q3i; Q10Q11=Q0i*Q1i; Q10Q12=Q0i*Q2i; Q10Q13=Q0i*Q3i; Q11Q12=Q1i*Q2i; Q11Q13=Q1i*Q3i; Q12Q13=Q2i*Q3i
-            R111 = Q102+Q112-Q122-Q132; R112 = 2.0_wp*(Q11Q12-Q10Q13); R113 = 2.0_wp*(Q11Q13+Q10Q12)
-            R121 = 2.0_wp*(Q11Q12+Q10Q13); R122 = Q102-Q112+Q122-Q132; R123 = 2.0_wp*(Q12Q13-Q10Q11)
-            R131 = 2.0_wp*(Q11Q13-Q10Q12); R132 = 2.0_wp*(Q12Q13+Q10Q11); R133 = Q102-Q112-Q122+Q132
-            
-            do l=0, Nat_Cell_ijk-1
-              if (l /= m) then
-                jmol = indx_atm_aux + l*7; jmol2 = indx_atm_aux2 + l*2
-                DX = Sphere_Cell(jmol) - xi; DY = Sphere_Cell(jmol + 1) - yi; DZ = Sphere_Cell(jmol + 2) - zi
-                itypej = List_Cell(jmol2 + 1); Indx = itypei*Ntypes + itypej
-                s_LJ_aux = sigma_LJ(Indx); eps_LJ_aux = epsilon_LJ(Indx); range_aux = range(Indx); VL0_aux = VL0(Indx); XOP_aux = XOP(Indx)
-                DXP = DX - nint(DX); DYP = DY - nint(DY); DZP = DZ - nint(DZ)
-                DX = H11*DXP + H12*DYP + H13*DZP; DY = H21*DXP + H22*DYP + H23*DZP; DZ = H31*DXP + H32*DYP + H33*DZP
-                dist = sqrtf(DX*DX + DY*DY + DZ*DZ)
-                
-                if (dist <= 0.5_wp) then
-                  atom_energy(id_m) = 9.0e99_wp; return
-                else if (dist < 0.98_wp*s_LJ_aux) then
-                  distr = dist/s_LJ_aux; R126 = distr*distr*distr*distr*distr*distr; R1212= R126*R126
-                  Vrad = -4.0_wp * eps_LJ_aux * ( (R1212 - R126)/(R1212*R126) + VL0_aux )
-                  en_m = en_m + 0.5_wp * Vrad
-                else if (dist < range_aux) then
-                  if (Npatches(itypei) == 1 .and. Npatches(itypej) == 1) then
-                    distr = dist/s_LJ_aux; R126 = distr*distr*distr*distr*distr*distr; R1212= R126*R126
-                    Vrad = -4.0_wp * eps_LJ_aux * ( (R1212 - R126)/(R1212*R126) + VL0_aux )
-                    en_m = en_m + 0.5_wp * Vrad
-                  else
-                    Q0j = Sphere_Cell(jmol + 3); Q1j = Sphere_Cell(jmol + 4); Q2j = Sphere_Cell(jmol + 5); Q3j = Sphere_Cell(jmol + 6)
-                    Q202=Q0j*Q0j; Q212=Q1j*Q1j; Q222=Q2j*Q2j; Q232=Q3j*Q3j; Q20Q21=Q0j*Q1j; Q20Q22=Q0j*Q2j; Q20Q23=Q0j*Q3j; Q21Q22=Q1j*Q2j; Q21Q23=Q1j*Q3j; Q22Q23=Q2j*Q3j
-                    R211 = Q202+Q212-Q222-Q232; R212 = 2.0_wp*(Q21Q22-Q20Q23); R213 = 2.0_wp*(Q21Q23+Q20Q22); R221 = 2.0_wp*(Q21Q22+Q20Q23); R222 = Q202-Q212+Q222-Q232
-                    R223 = 2.0_wp*(Q22Q23-Q20Q21); R231 = 2.0_wp*(Q21Q23-Q20Q22); R232 = 2.0_wp*(Q22Q23+Q20Q21); R233 = Q202-Q212-Q222+Q232
+    if (i < Natoms) then
+        itypei = itype_dev(i)
+        xi = r_dev(i*Ndim); yi = r_dev(i*Ndim+1); zi = r_dev(i*Ndim+2)
+        Q10=q_dev(i*4); Q11=q_dev(i*4+1); Q12=q_dev(i*4+2); Q13=q_dev(i*4+3)
+        en_i = 0.0_wp
+
+        Q102=Q10*Q10; Q112=Q11*Q11; Q122=Q12*Q12; Q132=Q13*Q13
+        Q10Q11=Q10*Q11; Q10Q12=Q10*Q12; Q10Q13=Q10*Q13
+        Q11Q12=Q11*Q12; Q11Q13=Q11*Q13; Q12Q13=Q12*Q13
+        R111=Q102+Q112-Q122-Q132; R112=2.0_wp*(Q11Q12-Q10Q13); R113=2.0_wp*(Q11Q13+Q10Q12)
+        R121=2.0_wp*(Q11Q12+Q10Q13); R122=Q102-Q112+Q122-Q132; R123=2.0_wp*(Q12Q13-Q10Q11)
+        R131=2.0_wp*(Q11Q13-Q10Q12); R132=2.0_wp*(Q12Q13+Q10Q11); R133=Q102-Q112-Q122+Q132
+
+        do j = 0, Natoms - 1
+            if (i == j) cycle
+            itypej = itype_dev(j)
+            XJ = r_dev(j*Ndim); YJ = r_dev(j*Ndim+1); ZJ = r_dev(j*Ndim+2)
+            Q20=q_dev(j*4); Q21=q_dev(j*4+1); Q22=q_dev(j*4+2); Q23=q_dev(j*4+3)
+
+            Indx = itypei*Ntypes + itypej
+            s_LJ_aux = sigma_LJ(Indx); eps_LJ_aux = epsilon_LJ(Indx)
+            range_aux = range(Indx); VL0_aux = VL0(Indx); XOP_aux = XOP(Indx)
+
+            DX = XJ - xi; DY = YJ - yi; DZ = ZJ - zi
+            DX = DX - anint(DX); DY = DY - anint(DY); DZ = DZ - anint(DZ)
+
+            DXP = h(0)*DX + h(1)*DY + h(2)*DZ
+            DYP = h(3)*DX + h(4)*DY + h(5)*DZ
+            DZP = h(6)*DX + h(7)*DY + h(8)*DZ
+
+            RSQ = DXP*DXP + DYP*DYP + DZP*DZP
+            R12 = sqrt(RSQ)
+
+            if (RSQ <= 0.25_wp) then
+                atom_energy(i) = 9.0e+33_wp
+                return
+            else if (R12 < 0.98_wp * s_LJ_aux) then
+                R126 = (RSQ / (s_LJ_aux * s_LJ_aux))**3
+                R1212 = R126 * R126
+                Vrad = -4.0_wp * eps_LJ_aux * ((R1212 - R126)/(R1212 * R126) + VL0_aux)
+                en_i = en_i + 0.5_wp * Vrad
+            else if (R12 < range_aux) then
+                if (Npatches(itypei) <= 1 .or. Npatches(itypej) <= 1) then
+                    R126 = (RSQ / (s_LJ_aux * s_LJ_aux))**3
+                    R1212 = R126 * R126
+                    Vrad = -4.0_wp * eps_LJ_aux * ((R1212 - R126)/(R1212 * R126) + VL0_aux)
+                    en_i = en_i + 0.5_wp * Vrad
+                else
+                    Q202=Q20*Q20; Q212=Q21*Q21; Q222=Q22*Q22; Q232=Q23*Q23
+                    Q20Q21=Q20*Q21; Q20Q22=Q20*Q22; Q20Q23=Q20*Q23
+                    Q21Q22=Q21*Q22; Q21Q23=Q21*Q23; Q22Q23=Q22*Q23
+                    R211=Q202+Q212-Q222-Q232; R212=2.0_wp*(Q21Q22-Q20Q23); R213=2.0_wp*(Q21Q23+Q20Q22)
+                    R221=2.0_wp*(Q21Q22+Q20Q23); R222=Q202-Q212+Q222-Q232; R223=2.0_wp*(Q22Q23-Q20Q21)
+                    R231=2.0_wp*(Q21Q23-Q20Q22); R232=2.0_wp*(Q22Q23+Q20Q21); R233=Q202-Q212-Q222+Q232
+
                     CSM1M = -100.0_wp; CSM2M = -100.0_wp
-                    
+
                     do k=0, Npatches(itypei)-1
-                      kpatch = Npatches_max*Ndim*itypei + k*Ndim; PX = patch(kpatch); PY=patch(kpatch+1); PZ=patch(kpatch+2)
-                      PX1 = R111*PX + R112*PY + R113*PZ; PY1 = R121*PX + R122*PY + R123*PZ; PZ1 = R131*PX + R132*PY + R133*PZ
-                      CSOMG1 = (PX1*DX + PY1*DY + PZ1*DZ)/dist; COS1(k) = CSOMG1
-                      if (CSOMG1 > CSM1M) CSM1M = CSOMG1
-                      PX = ref_tor(kpatch); PY = ref_tor(kpatch+1); PZ = ref_tor(kpatch+2)
-                      PX1_ref(k) = R111*PX + R112*PY + R113*PZ; PY1_ref(k) = R121*PX + R122*PY + R123*PZ; PZ1_ref(k) = R131*PX + R132*PY + R133*PZ
+                        Indx2 = Npatches_max*Ndim*itypei + k*Ndim
+                        PX = patch(Indx2); PY = patch(Indx2+1); PZ = patch(Indx2+2)
+                        PXP = R111*PX+R112*PY+R113*PZ; PYP = R121*PX+R122*PY+R123*PZ; PZP = R131*PX+R132*PY+R133*PZ
+                        PX1 = PXP; PY1 = PYP; PZ1 = PZP
+                        CSOMG1 = (PXP*DXP + PYP*DYP + PZP*DZP)/R12
+                        COS1(k) = CSOMG1
+                        if (CSOMG1 > CSM1M) CSM1M = CSOMG1
+                        PX = ref_tor(Indx2); PY = ref_tor(Indx2+1); PZ = ref_tor(Indx2+2)
+                        PX1_ref(k) = R111*PX+R112*PY+R113*PZ; PY1_ref(k) = R121*PX+R122*PY+R123*PZ; PZ1_ref(k) = R131*PX+R132*PY+R133*PZ
                     end do
-                    
+
                     do k=0, Npatches(itypej)-1
-                      kpatch = Npatches_max*Ndim*itypej + k*Ndim; PX = patch(kpatch); PY=patch(kpatch+1); PZ=patch(kpatch+2)
-                      PX2 = R211*PX + R212*PY + R213*PZ; PY2 = R221*PX + R222*PY + R223*PZ; PZ2 = R231*PX + R232*PY + R233*PZ
-                      CSOMG2 = -(PX2*DX + PY2*DY + PZ2*DZ)/dist; COS2(k) = CSOMG2
-                      if (CSOMG2 > CSM2M) CSM2M = CSOMG2
-                      PX = ref_tor(kpatch); PY=ref_tor(kpatch+1); PZ=ref_tor(kpatch+2)
-                      PX2_ref(k) = R211*PX + R212*PY + R213*PZ; PY2_ref(k) = R221*PX + R222*PY + R223*PZ; PZ2_ref(k) = R231*PX + R232*PY + R233*PZ
+                        Indx2 = Npatches_max*Ndim*itypej + k*Ndim
+                        PX = patch(Indx2); PY = patch(Indx2+1); PZ = patch(Indx2+2)
+                        PXP = R211*PX+R212*PY+R213*PZ; PYP = R221*PX+R222*PY+R223*PZ; PZP = R231*PX+R232*PY+R233*PZ
+                        PX2 = PXP; PY2 = PYP; PZ2 = PZP
+                        CSOMG2 = -(PXP*DXP + PYP*DYP + PZP*DZP)/R12
+                        COS2(k) = CSOMG2
+                        if (CSOMG2 > CSM2M) CSM2M = CSOMG2
+                        PX = ref_tor(Indx2); PY = ref_tor(Indx2+1); PZ = ref_tor(Indx2+2)
+                        PX2_ref(k) = R211*PX+R212*PY+R213*PZ; PY2_ref(k) = R221*PX+R222*PY+R223*PZ; PZ2_ref(k) = R231*PX+R232*PY+R233*PZ
                     end do
-                    
+
                     Vangtor_max = -1.0_wp
                     do j3=0, Npatches(itypei)-1
-                      v1x = PZ1_ref(j3)*DY - PY1_ref(j3)*DZ; v1y = PX1_ref(j3)*DZ - PZ1_ref(j3)*DX; v1z = PY1_ref(j3)*DX - PX1_ref(j3)*DY
-                      mod_v1 = sqrtf(v1x*v1x + v1y*v1y + v1z*v1z); CSOMG1 = COS1(j3)
-                      if (fabsf(CSOMG1) > 1.0_wp) then
-                        if (fabsf(CSOMG1) - 1.0_wp < 1.0e-4_wp) CSOMG1 = copysignf(1.0_wp, CSOMG1)
-                      end if
-                      OMG1 = acosf(CSOMG1)
-                      
-                      do j4=0, Npatches(itypej)-1
-                        Indx2 = itypei*Npatches_max + j3; Indx3 = Indx2 * Npatches_max * Ntypes; Indx4 = Indx3 + itypej * Npatches_max
-                        factor_energy = Vpot_Matrix(Indx4 + j4)
-                        if (factor_energy > 1.0e-6_wp) then
-                          CSOMG2 = COS2(j4)
-                          if (fabsf(CSOMG2) > 1.0_wp) then
-                            if (fabsf(CSOMG2) - 1.0_wp < 1.0e-4_wp) CSOMG2 = copysignf(1.0_wp, CSOMG2)
-                          end if
-                          OMG2 = acosf(CSOMG2)
-                          IndxT1 = Npatches_max*itypei + j3; IndxT2 = Npatches_max*itypej + j4
-                          sigma_jon_ij = 2.0_wp*sigma_jon(IndxT1)*sigma_jon(IndxT2)
-                          Vang = __expf( -(OMG1*OMG1 + OMG2*OMG2)/sigma_jon_ij )
-                          if (bool_tor == 1 .and. Npatches(itypei) > 1 .and. Npatches(itypej) > 1 .and. Ntor_angle(IndxT1) > 0 .and. Ntor_angle(IndxT2) > 0) then
-                            v2x = PZ2_ref(j4)*DY - PY2_ref(j4)*DZ; v2y = PX2_ref(j4)*DZ - PZ2_ref(j4)*DX; v2z = PY2_ref(j4)*DX - PX2_ref(j4)*DY
-                            mod_v2 = sqrtf(v2x*v2x + v2y*v2y + v2z*v2z)
-                            if (mod_v1 /= 0.0_wp .and. mod_v2 /= 0.0_wp) then
-                              cangle= (v1x*v2x + v1y*v2y + v1z*v2z)/mod_v1/mod_v2
-                              if (fabsf(cangle) > 1.0_wp) then
-                                if (fabsf(cangle) - 1.0_wp < 1.0e-4_wp) cangle = copysignf(1.0_wp, cangle)
-                              end if
-                              v12x = v1y*v2z - v1z*v2y; v12y = v1z*v2x - v1x*v2z; v12z = v1x*v2y - v1y*v2x
-                              v12b2 = (v12x*DX + v12y*DY + v12z*DZ)/dist/mod_v1/mod_v2
-                              if (fabsf(v12b2) > 1.0_wp) then
-                                if (fabsf(v12b2) - 1.0_wp < 1.0e-4_wp) v12b2 = copysignf(1.0_wp, v12b2)
-                              end if
-                              torsion = atan2(v12b2, cangle); IndxT1 = Npatches_max*itypei + j3; Utor_max = -100.0_wp
-                              do k=0, Ntor_angle(IndxT1)-1
-                                dtor = torsion - tor_angle(IndxT1*Ntor_max + k)
-                                if (dtor > pi) then; dtor = dtor - dospi; else if (dtor < -pi) then; dtor = dtor + dospi; end if
-                                Utor = __expf( -dtor*dtor/sigma_tor ); if (Utor > Utor_max) Utor_max = Utor
-                              end do
-                              Vangtor = factor_energy*Vang*Utor_max
-                            end if
-                          else
-                            Vangtor = factor_energy*Vang
-                          end if
-                          if (Vangtor > Vangtor_max) Vangtor_max = Vangtor
+                        v1x = PZ1_ref(j3)*DYP - PY1_ref(j3)*DZP
+                        v1y = PX1_ref(j3)*DZP - PZ1_ref(j3)*DXP
+                        v1z = PY1_ref(j3)*DXP - PX1_ref(j3)*DYP
+                        mod_v1 = sqrt(v1x*v1x + v1y*v1y + v1z*v1z)
+                        CSOMG1 = COS1(j3)
+                        if (abs(CSOMG1) > 1.0_wp) then
+                            if (abs(CSOMG1) - 1.0_wp < 1.0e-4_wp) CSOMG1 = sign(1.0_wp, CSOMG1)
                         end if
-                      end do
-                    end do
-                    if (Vangtor_max == -1.0_wp) then
-                      en_m = en_m + 0.0_wp
-                    else
-                      Vangtor = Vangtor_max
-                      FX  = (1.0_wp + tanhf( a*(-XOP_aux + dist) ))/2.0_wp; FXI = (1.0_wp - tanhf( a*(-XOP_aux + dist) ))/2.0_wp
-                      distr = dist/s_LJ_aux; R126 = distr*distr*distr*distr*distr*distr; R1212= R126*R126
-                      Vrad = -4.0_wp * eps_LJ_aux * ( (R1212 - R126)/(R1212*R126) + VL0_aux )
-                      en_m = en_m + 0.5_wp * Vrad * ( FXI + Vangtor * FX )
-                    end if
-                  end if
-                end if
-              end if
-            end do
-            
-            do ICell=0,25
-              Indx_Cell2 = Map_Cell(Indx_Cell*26 + ICell); Nat_Cell_neigh = Nat_Cell(Indx_Cell2)
-              Indx_Cell3 = Indx_Cell*26*3 + ICell*3
-              dx_neigh = DR_Cell(Indx_Cell3); dy_neigh = DR_Cell(Indx_Cell3+1); dz_neigh = DR_Cell(Indx_Cell3+2)
-              
-              if (Nat_Cell_neigh > 0) then
-                indx_neigh_aux2 = Indx_Cell2 * Nat_Cell_Max * 7; indx_neigh_auxp = Indx_Cell2 * Nat_Cell_Max * 2
-                do l=0, Nat_Cell_neigh-1
-                  jmol = indx_neigh_aux2 + l*7; jmol2 = indx_neigh_auxp + l*2
-                  DX = Sphere_Cell(jmol)   - xi + dx_neigh; DY = Sphere_Cell(jmol+1) - yi + dy_neigh; DZ = Sphere_Cell(jmol+2) - zi + dz_neigh
-                  itypej = List_Cell(jmol2 + 1); Indx   = itypei*Ntypes + itypej
-                  s_LJ_aux  = sigma_LJ(Indx); eps_LJ_aux= epsilon_LJ(Indx); range_aux = range(Indx); VL0_aux   = VL0(Indx); XOP_aux   = XOP(Indx)
-                  
-                  DXP = DX - nint(DX); DYP = DY - nint(DY); DZP = DZ - nint(DZ)
-                  DX = H11*DXP + H12*DYP + H13*DZP; DY = H21*DXP + H22*DYP + H23*DZP; DZ = H31*DXP + H32*DYP + H33*DZP
-                  dist = sqrtf(DX*DX + DY*DY + DZ*DZ)
-                  
-                  if (dist < 0.5_wp) then
-                    atom_energy(id_m) = 9.0e99_wp; return
-                  else if (dist < 0.98_wp*s_LJ_aux) then
-                    distr = dist/s_LJ_aux; R126 = distr*distr*distr*distr*distr*distr; R1212= R126*R126
-                    Vrad = -4.0_wp * eps_LJ_aux * ( (R1212 - R126)/(R1212*R126) + VL0_aux ); en_m = en_m + 0.5_wp * Vrad
-                  else if (dist < range_aux) then
-                    if (Npatches(itypei) == 1 .or. Npatches(itypej) == 1) then
-                      distr = dist/s_LJ_aux; R126 = distr*distr*distr*distr*distr*distr; R1212= R126*R126
-                      Vrad = -4.0_wp * eps_LJ_aux * ( (R1212 - R126)/(R1212*R126) + VL0_aux ); en_m = en_m + 0.5_wp * Vrad
-                    else
-                      Q0j = Sphere_Cell(jmol + 3); Q1j = Sphere_Cell(jmol + 4); Q2j = Sphere_Cell(jmol + 5); Q3j = Sphere_Cell(jmol + 6)
-                      Q202=Q0j*Q0j; Q212=Q1j*Q1j; Q222=Q2j*Q2j; Q232=Q3j*Q3j; Q20Q21=Q0j*Q1j; Q20Q22=Q0j*Q2j; Q20Q23=Q0j*Q3j; Q21Q22=Q1j*Q2j; Q21Q23=Q1j*Q3j; Q22Q23=Q2j*Q3j
-                      R211 = Q202+Q212-Q222-Q232; R212 = 2.0_wp*(Q21Q22-Q20Q23); R213 = 2.0_wp*(Q21Q23+Q20Q22); R221 = 2.0_wp*(Q21Q22+Q20Q23); R222 = Q202-Q212+Q222-Q232
-                      R223 = 2.0_wp*(Q22Q23-Q20Q21); R231 = 2.0_wp*(Q21Q23-Q20Q22); R232 = 2.0_wp*(Q22Q23+Q20Q21); R233 = Q202-Q212-Q222+Q232
-                      CSM1M = -100.0_wp; CSM2M = -100.0_wp
-                      
-                      do k=0, Npatches(itypei)-1
-                        kpatch = Npatches_max*Ndim*itypei + k*Ndim; PX = patch(kpatch); PY=patch(kpatch+1); PZ=patch(kpatch+2)
-                        PX1 = R111*PX + R112*PY + R113*PZ; PY1 = R121*PX + R122*PY + R123*PZ; PZ1 = R131*PX + R132*PY + R133*PZ
-                        CSOMG1 = (PX1*DX + PY1*DY + PZ1*DZ)/dist; COS1(k) = CSOMG1
-                        if (CSOMG1 > CSM1M) CSM1M = CSOMG1
-                        PX = ref_tor(kpatch); PY=ref_tor(kpatch+1); PZ=ref_tor(kpatch+2)
-                        PX1_ref(k) = R111*PX + R112*PY + R113*PZ; PY1_ref(k) = R121*PX + R122*PY + R123*PZ; PZ1_ref(k) = R131*PX + R132*PY + R133*PZ
-                      end do
-                      
-                      do k=0, Npatches(itypej)-1
-                        kpatch = Npatches_max*Ndim*itypej + k*Ndim; PX = patch(kpatch); PY=patch(kpatch+1); PZ=patch(kpatch+2)
-                        PX2 = R211*PX + R212*PY + R213*PZ; PY2 = R221*PX + R222*PY + R223*PZ; PZ2 = R231*PX + R232*PY + R233*PZ
-                        CSOMG2 = -(PX2*DX + PY2*DY + PZ2*DZ)/dist; COS2(k) = CSOMG2
-                        if (CSOMG2 > CSM2M) CSM2M = CSOMG2
-                        PX = ref_tor(kpatch); PY=ref_tor(kpatch+1); PZ=ref_tor(kpatch+2)
-                        PX2_ref(k) = R211*PX + R212*PY + R213*PZ; PY2_ref(k) = R221*PX + R222*PY + R223*PZ; PZ2_ref(k) = R231*PX + R232*PY + R233*PZ
-                      end do
-                      
-                      Vangtor_max = -1.0_wp
-                      do j3=0, Npatches(itypei)-1
-                        v1x = PZ1_ref(j3)*DY - PY1_ref(j3)*DZ; v1y = PX1_ref(j3)*DZ - PZ1_ref(j3)*DX; v1z = PY1_ref(j3)*DX - PX1_ref(j3)*DY
-                        mod_v1 = sqrtf(v1x*v1x + v1y*v1y + v1z*v1z); CSOMG1 = COS1(j3)
-                        if (fabsf(CSOMG1) > 1.0_wp) then
-                          if (fabsf(CSOMG1) - 1.0_wp < 1.0e-4_wp) CSOMG1 = copysignf(1.0_wp, CSOMG1)
-                        end if
-                        OMG1 = acosf(CSOMG1)
-                        
+                        OMG1 = acos(CSOMG1)
+
                         do j4=0, Npatches(itypej)-1
-                          Indx2 = itypei*Npatches_max + j3; Indx3 = Indx2 * Npatches_max * Ntypes; Indx4 = Indx3 + itypej * Npatches_max
-                          factor_energy = Vpot_Matrix(Indx4 + j4)
-                          if (factor_energy > 1.0e-6_wp) then
-                            CSOMG2 = COS2(j4)
-                            if (fabsf(CSOMG2) > 1.0_wp) then
-                              if (fabsf(CSOMG2) - 1.0_wp < 1.0e-4_wp) CSOMG2 = copysignf(1.0_wp, CSOMG2)
-                            end if
-                            OMG2 = acosf(CSOMG2)
-                            IndxT1 = Npatches_max*itypei + j3; IndxT2 = Npatches_max*itypej + j4
-                            sigma_jon_ij = 2.0_wp*sigma_jon(IndxT1)*sigma_jon(IndxT2)
-                            Vang = __expf( -(OMG1*OMG1 + OMG2*OMG2)/sigma_jon_ij )
-                            
-                            if (bool_tor == 1 .and. Npatches(itypei) > 1 .and. Npatches(itypej) > 1 .and. Ntor_angle(IndxT1) > 0 .and. Ntor_angle(IndxT2) > 0) then
-                              v2x = PZ2_ref(j4)*DY - PY2_ref(j4)*DZ; v2y = PX2_ref(j4)*DZ - PZ2_ref(j4)*DX; v2z = PY2_ref(j4)*DX - PX2_ref(j4)*DY
-                              mod_v2 = sqrtf(v2x*v2x + v2y*v2y + v2z*v2z)
-                              if (mod_v1 /= 0.0_wp .and. mod_v2 /= 0.0_wp) then
-                                cangle= (v1x*v2x + v1y*v2y + v1z*v2z)/mod_v1/mod_v2
-                                if (fabsf(cangle) > 1.0_wp) then
-                                  if (fabsf(cangle) - 1.0_wp < 1.0e-4_wp) cangle = copysignf(1.0_wp, cangle)
+                            Indx2 = itypei*Npatches_max + j3
+                            Indx3 = Indx2 * Npatches_max * Ntypes
+                            Indx4 = Indx3 + itypej * Npatches_max
+                            factor_energy = Vpot_Matrix(Indx4 + j4)
+
+                            if (factor_energy > 1.0e-7_wp) then
+                                CSOMG2 = COS2(j4)
+                                if (abs(CSOMG2) > 1.0_wp) then
+                                    if (abs(CSOMG2) - 1.0_wp < 1.0e-4_wp) CSOMG2 = sign(1.0_wp, CSOMG2)
                                 end if
-                                v12x = v1y*v2z - v1z*v2y; v12y = v1z*v2x - v1x*v2z; v12z = v1x*v2y - v1y*v2x
-                                v12b2 = (v12x*DX + v12y*DY + v12z*DZ)/dist/mod_v1/mod_v2
-                                if (fabsf(v12b2) > 1.0_wp) then
-                                  if (fabsf(v12b2) - 1.0_wp < 1.0e-4_wp) v12b2 = copysignf(1.0_wp, v12b2)
+                                OMG2 = acos(CSOMG2)
+                                IndxT1 = Npatches_max*itypei + j3
+                                IndxT2 = Npatches_max*itypej + j4
+                                sigma_jon_ij = 2.0_wp * sigma_jon(IndxT1) * sigma_jon(IndxT2)
+                                Vang = exp(-(OMG1*OMG1 + OMG2*OMG2)/sigma_jon_ij)
+
+                                if (bool_tor == 1 .and. Npatches(itypei) > 1 .and. Npatches(itypej) > 1 .and. Ntor_angle(IndxT1) > 0 .and. Ntor_angle(IndxT2) > 0) then
+                                    v2x = PZ2_ref(j4)*DYP - PY2_ref(j4)*DZP
+                                    v2y = PX2_ref(j4)*DZP - PZ2_ref(j4)*DXP
+                                    v2z = PY2_ref(j4)*DXP - PX2_ref(j4)*DYP
+                                    mod_v2 = sqrt(v2x*v2x + v2y*v2y + v2z*v2z)
+
+                                    if (mod_v1 /= 0.0_wp .and. mod_v2 /= 0.0_wp) then
+                                        cangle = (v1x*v2x + v1y*v2y + v1z*v2z)/(mod_v1*mod_v2)
+                                        if (abs(cangle) > 1.0_wp) then
+                                            if (abs(cangle) - 1.0_wp < 1.0e-4_wp) cangle = sign(1.0_wp, cangle)
+                                        end if
+                                        v12x = v1y*v2z - v1z*v2y
+                                        v12y = v1z*v2x - v1x*v2z
+                                        v12z = v1x*v2y - v1y*v2x
+                                        v12b2 = (v12x*DXP + v12y*DYP + v12z*DZP)/(R12*mod_v1*mod_v2)
+                                        if (abs(v12b2) > 1.0_wp) then
+                                            if (abs(v12b2) - 1.0_wp < 1.0e-4_wp) v12b2 = sign(1.0_wp, v12b2)
+                                        end if
+                                        torsion = atan2(v12b2, cangle)
+                                        Utor_max = -100.0_wp
+
+                                        do k=0, Ntor_angle(IndxT1)-1
+                                            dtor = torsion - tor_angle(IndxT1*Ntor_max + k)
+                                            if (dtor > pi) then
+                                                dtor = dtor - dospi
+                                            else if (dtor < -pi) then
+                                                dtor = dtor + dospi
+                                            end if
+                                            Utor = exp(-dtor*dtor/sigma_tor)
+                                            if (Utor > Utor_max) Utor_max = Utor
+                                        end do
+                                        Vangtor = factor_energy * Vang * Utor_max
+                                    else
+                                        Vangtor = factor_energy * Vang
+                                    end if
+                                else
+                                    Vangtor = factor_energy * Vang
                                 end if
-                                torsion = atan2(v12b2, cangle); IndxT1 = Npatches_max*itypei + j3; Utor_max = -100.0_wp
-                                do k=0, Ntor_angle(IndxT1)-1
-                                  dtor = torsion - tor_angle(IndxT1*Ntor_max + k)
-                                  if (dtor > pi) then; dtor = dtor - dospi; else if (dtor < -pi) then; dtor = dtor + dospi; end if
-                                  Utor = __expf( -dtor*dtor/sigma_tor ); if (Utor > Utor_max) Utor_max = Utor
-                                end do
-                                Vangtor = factor_energy*Vang*Utor_max
-                              end if
-                            else
-                              Vangtor = factor_energy*Vang
+                                if (Vangtor > Vangtor_max) Vangtor_max = Vangtor
                             end if
-                            if (Vangtor > Vangtor_max) Vangtor_max = Vangtor
-                          end if
                         end do
-                      end do
-                      if (Vangtor_max == -1.0_wp) then
-                        en_m = en_m + 0.0_wp
-                      else
-                        FX  = (1.0_wp + tanhf( a*(-XOP_aux + dist) ))/2.0_wp; FXI = (1.0_wp - tanhf( a*(-XOP_aux + dist) ))/2.0_wp
-                        distr = dist/s_LJ_aux; R126 = distr*distr*distr*distr*distr*distr; R1212= R126*R126
-                        Vrad = -4.0_wp * eps_LJ_aux * ( (R1212 - R126)/(R1212*R126) + VL0_aux )
-                        en_m = en_m + 0.5_wp * Vrad * ( FXI + Vangtor_max * FX )
-                      end if
+                    end do
+
+                    if (Vangtor_max == -1.0_wp) then
+                        en_i = en_i + 0.0_wp
+                    else
+                        Vangtor = Vangtor_max
+                        FX = (1.0_wp + tanh(a*(-XOP_aux + R12)))/2.0_wp
+                        FXI = (1.0_wp - tanh(a*(-XOP_aux + R12)))/2.0_wp
+                        R126 = (RSQ / (s_LJ_aux * s_LJ_aux))**3
+                        R1212 = R126 * R126
+                        Vrad = -4.0_wp * eps_LJ_aux * ((R1212 - R126)/(R1212 * R126) + VL0_aux)
+                        en_i = en_i + 0.5_wp * Vrad * (FXI + Vangtor * FX)
                     end if
-                  end if
-                end do
-              end if
-            end do
-            atom_energy(id_m) = en_m
-          end do
-        end if
-      end if
-  end subroutine per_atom_enerGPU
+                end if
+            end if
+        end do
+        
+        atom_energy(i) = en_i
+    end if
+  end subroutine brute_per_atom_enerGPU
 
-
+  !
   ! ==============================================================================
   ! HOST WRAPPER: compute_per_atom_energy_gpu
   ! ==============================================================================
   subroutine compute_per_atom_energy_gpu(pure_LJ, bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, Npatches_max, Ntor_max, &
-                                         sigma_tor_jon, Natoms, atom_energies_host)
+                                         sigma_tor_jon, Natoms_in, atom_energies_host)
+    ! We explicitly pull the global coordinates (r, q, itype) inside the wrapper 
+    ! so you don't even have to change your Main.cuf signature!
+    use configuration, only : r, q, itype
     logical, intent(in) :: pure_LJ
-    integer, intent(in) :: bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, Npatches_max, Ntor_max, Natoms
+    integer, intent(in) :: bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, Npatches_max, Ntor_max, Natoms_in
     real(wp), intent(in) :: sigma_tor_jon
-    real(wp), intent(out) :: atom_energies_host(0:Natoms-1)
+    real(wp), intent(out) :: atom_energies_host(0:Natoms_in-1)
 
-    real(wp), device, allocatable :: atom_ener_dev(:)
-    integer :: nblock, Ntot_jobs, ierror
+    real(wp), device, allocatable :: atom_ener_dev(:), r_dev(:), q_dev(:)
+    integer, device, allocatable :: itype_dev(:)
+    integer :: nblock, ierror
 
-    allocate(atom_ener_dev(0:Natoms-1))
+    allocate(atom_ener_dev(0:Natoms_in-1))
+    allocate(r_dev(0:Natoms_in*Ndim-1))
+    allocate(itype_dev(0:Natoms_in-1))
 
-    nblock = Ntot_Cell/NTHREAD
-    if (nblock == 0) nblock = 1
-    Ntot_jobs = nblock*NTHREAD
-    if (Ntot_jobs < Ntot_Cell) then
-      nblock = nblock + 1
-    end if
+    ! Safely copy CPU global state directly to GPU memory
+    r_dev = r(0:Natoms_in*Ndim-1)
+    itype_dev = itype(0:Natoms_in-1)
+    
+    If (.not. pure_LJ) Then
+       allocate(q_dev(0:Natoms_in*4-1))
+       q_dev = q(0:Natoms_in*4-1)
+    End If
+
+    nblock = (Natoms_in + NTHREAD - 1) / NTHREAD
 
     If (pure_LJ) Then
-       call per_atom_enerGPU_LJ<<<nblock, NTHREAD>>>(Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, &
-                                            range_dev, sigma_LJ_dev, epsilon_LJ_dev, VL0_dev, hdev, Sphere_Celldev, &
-                                            List_Cell_dev, Map_Cell_dev, Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, atom_ener_dev)
+       call brute_per_atom_enerGPU_LJ<<<nblock, NTHREAD>>>(Ndim, Natoms_in, Ntypes, &
+                                            range_dev, sigma_LJ_dev, epsilon_LJ_dev, VL0_dev, hdev, &
+                                            r_dev, itype_dev, atom_ener_dev)
     Else
-       call per_atom_enerGPU<<<nblock, NTHREAD>>>(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Npatches_max, Ntor_max, Ntypes, &
+       call brute_per_atom_enerGPU<<<nblock, NTHREAD>>>(bool_tor, Ndim, Natoms_in, Npatches_max, Ntor_max, Ntypes, &
                                          Npatches_dev, Ntor_angle_dev, tor_angle_dev, patchdev, ref_tor_dev, range_dev, &
                                          sigma_jon_dev, sigma_tor_jon, sigma_LJ_dev, epsilon_LJ_dev, VL0_dev, XOP_dev, &
-                                         Vpot_Matrix_dev, hdev, Sphere_Celldev, List_Cell_dev, &
-                                         Map_Cell_dev, Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, atom_ener_dev)
+                                         Vpot_Matrix_dev, hdev, r_dev, q_dev, itype_dev, atom_ener_dev)
     End If
 
     ierror = cudaDeviceSynchronize()
+    
+    ! Copy perfect, drift-free energies back to CPU
     atom_energies_host = atom_ener_dev
-    deallocate(atom_ener_dev)
+    
+    deallocate(atom_ener_dev, r_dev, itype_dev)
+    If (.not. pure_LJ) deallocate(q_dev)
+    
   end subroutine compute_per_atom_energy_gpu
 
 end module cuda_fortran
