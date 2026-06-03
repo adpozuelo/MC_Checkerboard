@@ -326,8 +326,13 @@ Subroutine Read_Input_Data
                Read(20,*) 
             EndIf
          EndDo
-         Allocate ( sigma_LJ(0:Npart_types*Npart_types-1) ); Allocate ( rangep(0:Npart_types*Npart_types-1) )
-         Allocate ( VL0(0:Npart_types*Npart_types-1) ); Allocate ( xop(0:Npart_types*Npart_types-1) )
+         Allocate ( sigma_LJ(0:Npart_types*Npart_types-1) )
+         Allocate ( rangep(0:Npart_types*Npart_types-1) )
+         Allocate ( epsilon_LJ(0:Npart_types*Npart_types-1) )
+         Allocate ( VL0(0:Npart_types*Npart_types-1) )
+         Allocate ( xop(0:Npart_types*Npart_types-1) )
+         ! Epsilon_LJ could be set for LJG differently if needed
+         epsilon_LJ = 1.0
          Read(20,*) 
          Do I=0,Npart_types-1
               Indx = I*Npart_types
