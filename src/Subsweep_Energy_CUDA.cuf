@@ -1370,9 +1370,9 @@ end subroutine enerGPU_LJ
   attributes(global) subroutine brute_per_atom_enerGPU_LJ(Ndim, Natoms, Ntypes, &
                                          range, sigma_LJ, epsilon_LJ, VL0, h, r_dev, itype_dev, atom_energy)
     integer, intent(in), value :: Ndim, Natoms, Ntypes
-    real(wp), intent(in), device :: range(*), sigma_LJ(*), epsilon_LJ(*), VL0(*), h(0:8), r_dev(*)
-    integer, intent(in), device :: itype_dev(*)
-    real(wp), intent(out), device :: atom_energy(*)
+    real(wp), intent(in), device :: range(0:*), sigma_LJ(0:*), epsilon_LJ(0:*), VL0(0:*), h(0:8), r_dev(0:*)
+    integer, intent(in), device :: itype_dev(0:*)
+    real(wp), intent(out), device :: atom_energy(0:*)
 
     integer :: i, j, itypei, itypej, Indx
     real(wp) :: xi, yi, zi, XJ, YJ, ZJ, DX, DY, DZ, DXP, DYP, DZP, RSQ
@@ -1433,13 +1433,13 @@ end subroutine enerGPU_LJ
                                         sigma_LJ, epsilon_LJ, VL0, XOP, Vpot_Matrix, h, r_dev, q_dev, itype_dev, atom_energy)
     integer, intent(in), value :: bool_tor, Ndim, Natoms, Npatches_max, Ntor_max, Ntypes
     real(wp), intent(in), value :: sigma_tor
-    integer, intent(in), device :: Npatches(*), Ntor_angle(*), itype_dev(*)
-    real(wp), intent(in), device :: tor_angle(*), patch(*), ref_tor(*)
-    real(wp), intent(in), device :: range(*), sigma_jon(*)
-    real(wp), intent(in), device :: sigma_LJ(*), epsilon_LJ(*), VL0(*), XOP(*)
-    real(wp), intent(in), device :: Vpot_Matrix(*), h(0:8)
-    real(wp), intent(in), device :: r_dev(*), q_dev(*)
-    real(wp), intent(out), device :: atom_energy(*)
+    integer, intent(in), device :: Npatches(0:*), Ntor_angle(0:*), itype_dev(0:*)
+    real(wp), intent(in), device :: tor_angle(0:*), patch(0:*), ref_tor(0:*)
+    real(wp), intent(in), device :: range(0:*), sigma_jon(0:*)
+    real(wp), intent(in), device :: sigma_LJ(0:*), epsilon_LJ(0:*), VL0(0:*), XOP(0:*)
+    real(wp), intent(in), device :: Vpot_Matrix(0:*), h(0:8)
+    real(wp), intent(in), device :: r_dev(0:*), q_dev(0:*)
+    real(wp), intent(out), device :: atom_energy(0:*)
 
     integer :: i, j, itypei, itypej, Indx, k, j3, j4, IndxT1, IndxT2, Indx2, Indx3, Indx4
     real(wp) :: xi, yi, zi, XJ, YJ, ZJ, DX, DY, DZ, DXP, DYP, DZP, RSQ, R12, en_i
