@@ -360,7 +360,7 @@ Subroutine Read_init_conf
    Real(wp) :: den, x, y, z, sx, sy, sz, qw, qi, qj, qk
    Real(wp) :: xlo, xhi, ylo, yhi, zlo, zhi
    Character(len=256) :: line
-   Integer :: ios
+   Integer :: ios, n_types_in_file
 
    write(*,'(A)') char(27)//'[1;33m' // ' >>> Reading initial configuration (LAMMPS data format)...' // char(27)//'[0m'
    Open(21, file='data.atoms', status='old', action='read')
@@ -370,6 +370,26 @@ Subroutine Read_init_conf
       Read(21, '(A)', iostat=ios) line
       If (ios /= 0) Exit 
       If (len_trim(line) == 0) Cycle
+      If (index(line, 'atom types') > 0) Then
+         ! Read the integer at the beginning of the line
+         Read(line, *) n_types_in_file
+      
+         ! Compare it with the namelist variable
+         If (n_types_in_file /= Npart_types) Then
+            Print *, c_red
+            Print *, "=========================================================================="
+            Print *, " *** FATAL SECURITY ERROR: Mismatch in Particle Types! ***"
+            Print *, "=========================================================================="
+            Print *, " -> Npart_types defined in input namelist : ", Npart_types
+            Print *, " -> 'atom types' defined in data.atoms    : ", n_types_in_file
+            Print *, ""
+            Print *, " Please ensure your input namelist matches your configuration file."
+            Print *, " Simulation aborted to prevent reckless behavior."
+            Print *, "=========================================================================="
+            Print *, c_reset
+            Stop
+         End If
+      End If 
 
       If (index(line, 'atoms') > 0 .and. index(line, 'types') == 0 .and. index(line, 'ellipsoids') == 0) Then
          read(line, *) natoms
