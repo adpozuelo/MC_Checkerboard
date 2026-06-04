@@ -141,9 +141,9 @@ Subroutine Volume_Move
        W(:)=W_RU(:)*Box(:)
        rangeP_max=maxval(rangeP)
        if(rangeP_max.gt.W(0).or.rangeP_max.gt.W(1).or.rangeP_max.gt.W(2)) then
-             print*, 'error in MCvol'
+             print*, c_red,'*** Fatal error in MCvol'
              print*, 'rangeP',rangeP
-             print*, 'W',W
+             print*, 'W',W, c_reset
              stop
        endif
    EndIf 
@@ -157,7 +157,7 @@ Subroutine Volume_Move
    ! ΔA = ΔE + PΔV - NkT*ln(V_new/V_old)
    ! --------------------------------------------------------------------------
    Arg= -beta*((En_tot-En_old)+pres*(Vol_new-Vol_old)-dble(Natoms)*log(Vol_new/Vol_old)/beta)
-   Prob = min (1.d0, exp(Arg))
+   Prob = min (1.0, exp(Arg))
    Call Random_number(rnd)
    
    If(rnd < Prob ) Then
