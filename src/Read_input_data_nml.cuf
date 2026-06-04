@@ -160,14 +160,7 @@ Subroutine Read_Input_Data
    Real(wp) :: norm, px, py, pz, sigma_jon_ij, xopp
    real(wp), Allocatable :: Matrix(:,:)
    Character(len=256) :: line
-   
-   Character(len=8), Parameter :: c_blue   = char(27)//'[1;34m'
-   Character(len=8), Parameter :: c_cyan   = char(27)//'[1;36m'
-   Character(len=8), Parameter :: c_green  = char(27)//'[1;32m'
-   Character(len=8), Parameter :: c_yellow = char(27)//'[1;33m'
-   Character(len=8), Parameter :: c_red    = char(27)//'[1;31m'
-   Character(len=8), Parameter :: c_reset  = char(27)//'[0m'
-
+  
    Namelist /Control_Params/ istep_ini, istep_fin, Neq, Nmove, Nsave, Nsave2, Nrestart, imovie, traj_format, Npart_types
    Namelist /MC_Params/ hmax, omax, vmax, displ_update, temp0, temp1, npt, iscale, pres, seed
    Namelist /Potential_Params/ model, cosmax_KF, ctor_max_KF, delta_KF, Bool_tor, sigma_jon_aux, sigma_tor_jon, rangepp, pure_LJ
@@ -355,6 +348,8 @@ Subroutine Read_init_conf
    Use set_precision
    Use configuration
    Use rundata
+   Use utils
+   Use potential, only: Npart_types
    Implicit None
    Integer :: i, Indx, id, ityp, eflag
    Real(wp) :: den, x, y, z, sx, sy, sz, qw, qi, qj, qk
