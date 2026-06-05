@@ -16,7 +16,11 @@ Instituto de Química Física Blas Cabrera (IQF-CSIC)
 
 ## Overview
 
-This code implements a GPU-parallelized Monte Carlo simulation for systems of patchy particles with Lennard-Jones-Gauss (LJG) potential. The implementation uses a checkerboard cell decomposition scheme to enable conflict-free parallel Monte Carlo moves on GPU, achieving significant speedup compared to traditional CPU implementations.
+This code implements a GPU-parallelized Monte Carlo simulation for systems of patchy particles with Lennard-Jones-Gauss (LJG) potential, Kern-Frenkel (K-F) and Lennard-Jones mixtures. The implementation uses a checkerboard cell decomposition scheme to enable conflict-free parallel Monte Carlo moves on GPU, achieving significant speedup compared to traditional CPU implementations.
+
+### Note
+
+Lennard-Jones reduced units are used. Potentials are truncated and shifted at rangepp*sigma_ij (note that other codes use by default a single cutoff)
 
 ### Key Features
 
