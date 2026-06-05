@@ -179,7 +179,8 @@ Subroutine Initialize_variables
    lx_av=0.0
    ly_av=0.0
    lz_av=0.0
-   open(40,file='run-data',access='append')
+   open(40,file='run-data.dat')
+   write(40, '(A18, 6A18)') "# Temperature", "Density", "Volume", "Lx", "Ly", "Lz", "E_per_atom"
 End Subroutine Initialize_variables
 
 

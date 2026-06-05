@@ -341,7 +341,8 @@ Subroutine Read_Input_Data
       EndIf
    End If
    close(20)
-End Subroutine Read_input_data! ==============================================================================
+End Subroutine Read_input_data! =
+!=============================================================================
 ! SUBROUTINE: Read_init_conf
 ! ==============================================================================
 Subroutine Read_init_conf
@@ -402,7 +403,7 @@ Subroutine Read_init_conf
       If (index(line, 'ylo yhi') > 0) Then; read(line, *) ylo, yhi; h(4) = yhi - ylo; End If
       If (index(line, 'zlo zhi') > 0) Then; read(line, *) zlo, zhi; h(8) = zhi - zlo; End If
 
-      If (trim(adjustl(line)) == 'Atoms') Then
+      If (index(adjustl(line), 'Atoms') == 1) Then
          Do i = 1, natoms
             If (pure_LJ) Then
                read(21, *) id, ityp, x, y, z
@@ -410,7 +411,7 @@ Subroutine Read_init_conf
                read(21, *) id, ityp, eflag, den, x, y, z
             End If
             Indx = (id - 1) * ndim; itype(id - 1) = ityp - 1
-            r(Indx) = x; r(Indx+1) = y; r(Indx+2) = z
+            r(Indx) = x-xlo; r(Indx+1) = y-ylo; r(Indx+2) = z-zlo
          End Do
          ! Skip reading ellipsoids if we are in pure LJ mode
          If (pure_LJ) Exit 
@@ -428,8 +429,7 @@ Subroutine Read_init_conf
    Close (21)
 End Subroutine Read_init_conf
 
-
-! ==============================================================================
+! ===============================================================================
 ! SUBROUTINE: Write_final_conf (LAMMPS DATA FORMAT)
 ! ==============================================================================
 Subroutine Write_final_conf
@@ -450,19 +450,25 @@ Subroutine Write_final_conf
    If (.not. pure_LJ) write(21,'(I8,A)') natoms, " ellipsoids"
    write(21,'(I8,A)') maxval(itype)+1, " atom types"; write(21,*) 
    write(21,'(2F15.6,A)') xlo, xhi, " xlo xhi"; write(21,'(2F15.6,A)') ylo, yhi, " ylo yhi"; write(21,'(2F15.6,A)') zlo, zhi, " zlo zhi"; write(21,*) 
-   
-   write(21,'(A)'); write(21,*) 
+   ! Write the Atoms section header
+      If (pure_LJ) Then
+         Write(21, '(A)') "Atoms # atomic"
+      Else
+         Write(21, '(A)') "Atoms # ellipsoid"
+      End If
+      Write(22, *) ""
    Do I=0, natoms-1
       Indx = I * ndim
       If (pure_LJ) Then
-         write(21,'(I8,I8,3F16.8)') i+1, itype(i)+1, r(Indx), r(Indx+1), r(Indx+2)
+         write(21,'(I8,I8,3F16.8)') i+1, itype(i)+1, r(Indx)+xlo, r(Indx+1)+ylo, r(Indx+2)+zlo
       Else
-         write(21,'(I8,I8,I4,F10.4,3F16.8)') i+1, itype(i)+1, 1, 1.0_wp, r(Indx), r(Indx+1), r(Indx+2)
+         write(21,'(I8,I8,I4,F10.4,3F16.8)') i+1, itype(i)+1, 1, 1.0_wp, r(Indx)+xlo, r(Indx+1)+ylo, r(Indx+2)+zlo
       End If
    End Do
    
    If (.not. pure_LJ) Then
-      write(21,*); write(21,'(A)'); write(21,*) 
+      write(21,'(A)'); write(21,*) "Ellipsoids"
+      write(21,*) 
       Do I=0, natoms-1
          Indxq = I * 4
          write(21,'(I8,3F10.4,4F16.8)') i+1, 1.0_wp, 1.0_wp, 1.0_wp, q(Indxq), q(Indxq+1), q(Indxq+2), q(Indxq+3)
