@@ -377,6 +377,23 @@ Subroutine Update_checkerboard(Nl_aux)
        List_Cell(Indice2 + 1 ) = itype(i)   ! y su tipo
 
     EndDo
+   !=========================================================================
+   ! Print Cell List Information
+   !=========================================================================
+   Print *, ""
+   ! Start Cyan Color
+   write(*,'(A)', advance='no') char(27)//'[1;36m' 
+   Print *, " ----------------------------------------------------------------------"
+   Print *, "  >>> Cell List Initialization Complete"
+   Print *, " ----------------------------------------------------------------------"
+   ! Using formatted print for perfect alignment
+   Print '(A, I4, A, I4, A, I4)', "   Grid Dimensions (Nx, Ny, Nz) : ", &
+                                  Nl_Cell(0), " x ", Nl_Cell(1), " x ", Nl_Cell(2)
+   Print '(A, I10)',              "   Total Number of Cells        : ", Ntot_Cell
+   Print '(A, I10)',              "   Max Atoms per Cell Allocated : ", Nat_Cell_Max
+   Print *, " ----------------------------------------------------------------------"
+   ! Reset Color! Reset Color
+   write(*,'(A)') char(27)//'[0m' 
 
 
 End Subroutine Update_checkerboard

@@ -616,20 +616,28 @@ contains
             itypei = List_Cell(imol2+1); Npatchesi = Npatches(itypei)
             Dx_old = Sphere_Cell(imol); Dy_old = Sphere_Cell(imol+1); Dz_old = Sphere_Cell(imol+2)
             Q0_old = Sphere_Cell(imol+3); Q1_old = Sphere_Cell(imol+4); Q2_old = Sphere_Cell(imol+5); Q3_old = Sphere_Cell(imol+6)
-            if (curand_uniform(RND_state(Indx_Rnd)) < 0.5_wp) then
-              itras = 1
-              Dmove_x = Dx_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
-              Dmove_y = Dy_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
-              Dmove_z = Dz_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
-              Qmove_0 = Q0_old; Qmove_1 = Q1_old; Qmove_2 = Q2_old; Qmove_3 = Q3_old
+            if (Npatchesi > 0) then
+              if (curand_uniform(RND_state(Indx_Rnd)) < 0.5_wp) then
+                itras = 1
+                Dmove_x = Dx_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
+                Dmove_y = Dy_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
+                Dmove_z = Dz_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
+                Qmove_0 = Q0_old; Qmove_1 = Q1_old; Qmove_2 = Q2_old; Qmove_3 = Q3_old
+              else
+                itras = 0; Dmove_x = Dx_old; Dmove_y = Dy_old; Dmove_z = Dz_old
+                call genranor(RND_state, nstates, Indx_Rnd, Rnd_or)
+                Qmove_0 = Q0_old + Rnd_or(0)*omax; Qmove_1 = Q1_old + Rnd_or(1)*omax; Qmove_2 = Q2_old + Rnd_or(2)*omax; Qmove_3 = Q3_old + Rnd_or(3)*omax
+                norm = sqrt(Qmove_0*Qmove_0 + Qmove_1*Qmove_1 + Qmove_2*Qmove_2 + Qmove_3*Qmove_3)
+                Qmove_0 = Qmove_0/norm; Qmove_1 = Qmove_1/norm; Qmove_2 = Qmove_2/norm; Qmove_3 = Qmove_3/norm
+              end if
+              call rot_matrix(Q0_old,Q1_old,Q2_old,Q3_old,R1); call rot_matrix(Qmove_0,Qmove_1,Qmove_2,Qmove_3,R1N)
             else
-              itras = 0; Dmove_x = Dx_old; Dmove_y = Dy_old; Dmove_z = Dz_old
-              call genranor(RND_state, nstates, Indx_Rnd, Rnd_or)
-              Qmove_0 = Q0_old + Rnd_or(0)*omax; Qmove_1 = Q1_old + Rnd_or(1)*omax; Qmove_2 = Q2_old + Rnd_or(2)*omax; Qmove_3 = Q3_old + Rnd_or(3)*omax
-              norm = sqrt(Qmove_0*Qmove_0 + Qmove_1*Qmove_1 + Qmove_2*Qmove_2 + Qmove_3*Qmove_3)
-              Qmove_0 = Qmove_0/norm; Qmove_1 = Qmove_1/norm; Qmove_2 = Qmove_2/norm; Qmove_3 = Qmove_3/norm
-            end if
-            call rot_matrix(Q0_old,Q1_old,Q2_old,Q3_old,R1); call rot_matrix(Qmove_0,Qmove_1,Qmove_2,Qmove_3,R1N)
+                itras = 1
+                Dmove_x = Dx_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
+                Dmove_y = Dy_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
+                Dmove_z = Dz_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
+                Qmove_0 = Q0_old; Qmove_1 = Q1_old; Qmove_2 = Q2_old; Qmove_3 = Q3_old
+            endif
           end if
           entot_old(indx_thread) = 0.0_wp; entot_new(indx_thread) = 0.0_wp; overlap_aux(indx_thread) = 0
           call syncthreads()

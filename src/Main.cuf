@@ -271,9 +271,12 @@ Program GPU_MC
       ! Accumulate averages and adjust parameters
       If( (i > Ieq) .AND. (mod(i,Nsave)==0) ) Then
            Call Accumulate_averages
-           
-           Ntrans=no_mc_real*Nmove/2  
+           if (pure_LJ) then 
+            Ntrans=no_mc_real*Nmove  
+           else
+            Ntrans=no_mc_real*Nmove/2  
            Nrot=no_mc_real*Nmove/2
+           endif
            prob_trans=dble(ntrans_ac)/dble(ntrans)
            prob_rot=dble(nrot_ac)/dble(nrot)
            prob_vol=dble(nvol_accept)/dble(nvol)
