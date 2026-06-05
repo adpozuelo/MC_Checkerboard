@@ -155,6 +155,7 @@ See `examples/LJG/` directory for example input filesi for LJG patchy systems.
 **Trajectory Files** (format depends on `traj_format` selection):
 - `movie.xyz` - Trajectory in XYZ format (if `plain` or `both`)
 - `trajectory.nc` - NetCDF trajectory with coordinates, quaternions, cell data, and metadata (if `netcdf` or `both`)
+- `trajectory.lammpstrj` - LAMMPS trajectory with coordinates, quaternions, cell data (if `plain` or `both`)
 
 **Simulation Data**:
 - `run-data.dat` - Time series of properties (energy, pressure, box dimensions)
