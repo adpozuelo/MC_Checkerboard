@@ -1,3 +1,14 @@
+
+# The following environment variables must be defined :
+#
+# NVBIN path of nvfortran binaries
+# NVINCLUDE path to nvfortran header files and modules
+# NVLIBS path to nvfortran dynamic libraries
+# NETCDFINC path to NETCDF and NETCDFF includes
+# NETCDFLIB path to NETCDF and NETCDFF libraries
+# FFTWINC path to FFTW3 include files (might be in system's path)
+# FFTWLIB path to FFTW2 dynamic libs (might be in system's path)
+#
 PATH := $(NVBIN):$(PATH)
 FC = nvfortran
 FCINC = -I$(NETCDFINC) -I$(NVINCLUDE) $(if $(FFTWINC),-I$(FFTWINC)) 

@@ -10,7 +10,7 @@ A high-performance GPU-accelerated Monte Carlo simulation code for patchy partic
 
 Instituto de Química Física Blas Cabrera (IQF-CSIC)
 
-**Date:** May 2026
+**Date:** June 2026
 
 ---
 
@@ -83,7 +83,7 @@ If you want NetCDF trajectory output, load the NetCDF-Fortran module:
 module load netCDF-Fortran  # or path to your netCDF installation
 ```
 
-### Using the provided Makefile
+### Using the provided Makefile (check this file for environment variables that must be defined)
 
 ```bash
 mkdir -p bin
@@ -91,7 +91,8 @@ cd src
 make
 ```
 
-The Makefile automatically includes NetCDF libraries. If netCDF is not in standard locations, you may need to adjust `FCOPTS` and `LKOPTS` in the Makefile.
+The Makefile automatically includes NetCDF libraries if the proper environment variables are set.
+
 
 ### Manual Compilation
 
@@ -141,31 +142,30 @@ netcdf
 ### Running a Simulation
 
 ```bash
-cd T0.154
-../mc_gpu.exe
+mc_gpu.exe filename.nml GPUid (optional)
+
 ```
 
 ### Example Input Structure
 
-See `T0.154/` directory for example input files.
-
+See `examples/LJG/` directory for example input filesi for LJG patchy systems.
+    `examples/LJ`directory for plain LJ mixture
 ### Output Files
 
 **Trajectory Files** (format depends on `traj_format` selection):
 - `movie.xyz` - Trajectory in XYZ format (if `plain` or `both`)
-- `movie-quat.dat` - Particle orientations as quaternions (if `plain` or `both`)
 - `trajectory.nc` - NetCDF trajectory with coordinates, quaternions, cell data, and metadata (if `netcdf` or `both`)
 
 **Simulation Data**:
-- `run-data-[basename].dat` - Time series of properties (energy, pressure, box dimensions)
-- `coords.out-[basename].dat` - Final configuration
+- `run-data.dat` - Time series of properties (energy, pressure, box dimensions)
+- `data.restart` - Restart file configuration
 - `input-restart.nml` - Restart input file with current parameters
 
 **Standard Output**: Energy, acceptance rates, timing information
 
 ---
 
-## Simulation Parameters
+## Simulation Parameters (in namelist)
 
 ### Monte Carlo Control
 - `istep_ini`, `istep_fin` - Initial and final step numbers
@@ -230,7 +230,7 @@ This scheme enables efficient GPU parallelization while maintaining detailed bal
 If you use this code in your research, please cite:
 
 ```
-Eva González Noya and Antonio Díaz Pozuelo, "GPU-Accelerated Monte Carlo for Patchy Particles: A high-performance GPU-accelerated Monte Carlo simulation code for patchy particle systems with anisotropic interactions in NVT and NpT ensembles.", CSIC-Madrid (2026)
+Eva González Noya, Enrique Lomba, and Antonio Díaz Pozuelo, "GPU-Accelerated Monte Carlo for Patchy Particles: A high-performance GPU-accelerated Monte Carlo simulation code for patchy particle systems with anisotropic interactions and simple mixtures in NVT and NpT ensembles.", CSIC-Madrid (2026)
 ```
 
 ---
@@ -265,6 +265,7 @@ GNU GENERAL PUBLIC LICENSE Version 3
 For questions or issues, contact the authors:
 - Eva González Noya: eva.noya@iqf.csic.es
 - Antonio Díaz Pozuelo: adiaz@iqf.csic.es
+- Enrique Lomba: enrique.lomba@csic.es
 
 ---
 
@@ -277,6 +278,15 @@ Computing resources provided by CSIC.
 ---
 
 ## Version History
+
+- **V1.3** (June 2026) Support for LJ mixture
+  - Removed unneeded moves for simple systems
+  - Output info adapted to LJ mixture
+
+- **v1.2** (May 2026) Added compatibility with trj_analysis tool.
+  - Input files transformed to namelist
+  - Configuration files converted to LAMMPS system.data style
+  - Output information beautified
 
 - **v1.1** (February 2026) - NetCDF trajectory support
   - Added `netcdf_trajectory.cuf` module for binary trajectory I/O

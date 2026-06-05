@@ -1,0 +1,36 @@
+&Control_Params
+  istep_ini = 0,
+  istep_fin = 40000,
+  Neq = 0,
+  Nmove = 10,
+  Nsave = 50,
+  Nsave2 = 100,
+  Nrestart = 5000,
+  imovie = .true.,
+  traj_format = 'both',
+  Npart_types = 2
+/
+&MC_Params
+  hmax = 0.0125,
+  omax = 0.5,
+  vmax = 0.1, 0.1, 0.1,
+  displ_update = .true.,
+  temp0 = 1.54,
+  temp1 = 1.54,
+  npt = .false.,
+  iscale = 0,
+  pres = 0.1,
+  seed = 345
+/
+&Potential_Params
+  model = 'LJ',
+  rangepp = 2.5,
+/
+  --- LJ SIGMA MATRIX ---
+1.000  1.200
+1.200  1.400
+
+--- LJ EPSILON MATRIX ---
+1.000  1.500
+1.500  0.500
+
