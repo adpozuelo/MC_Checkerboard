@@ -46,7 +46,8 @@ Program GPU_MC
 
  Real(wp) :: rnd, disp(0:ndim-1), start, finish, omaxo, hmaxo, prob_vol, vmaxo(0:ndim-1)
  Real(wp) :: rnd_vec(ndim), prob_trans, prob_rot, En_tot_old, boxmin, W_RU_min
- Logical :: overlap
+ Real(wp) :: total_gpu_time
+ Logical :: overlap=.false.
  
  ! Array for NetCDF per-atom instantaneous energies
  Real(wp), Allocatable :: atom_energies_host(:)
@@ -246,7 +247,8 @@ Program GPU_MC
  istat = cudaEventCreate(startEvent)
  istat = cudaEventCreate(stopEvent)
  last_gpu_time_ms = 0.0
- 
+ total_gpu_time = 0.0
+
  call cpu_time(start)
  last_cpu_time = start
  istat = cudaEventRecord(startEvent, 0)
@@ -324,8 +326,13 @@ Program GPU_MC
            
            istat = cudaEventRecord(stopEvent, 0)
            istat = cudaEventSynchronize(stopEvent)
+           ! >>> FIX: Measure the exact non-cumulative block interval directly
+           istat = cudaEventElapsedTime(diff_gpu_time_ms, startEvent, stopEvent)
+           
+           ! >>> FIX: Add the pristine operational math time to our accumulator
+           total_gpu_time = total_gpu_time + (real(diff_gpu_time_ms, wp) / 1000.0_wp)
            istat = cudaEventElapsedTime(gpu_time_ms, startEvent, stopEvent)
-           diff_gpu_time_ms = gpu_time_ms - last_gpu_time_ms
+           !diff_gpu_time_ms = gpu_time_ms - last_gpu_time_ms
            last_gpu_time_ms = gpu_time_ms
 
            ! --- Format terminal output based on ensemble ---
@@ -355,6 +362,9 @@ Program GPU_MC
 
            Temp=Temp+DeltaT
            beta=1.d0/Temp
+           ! >>> FIX: Re-anchor the event timer for the next mathematical block.
+           ! Since the terminal freeze happened above, this completely discards the pause!
+           istat = cudaEventRecord(startEvent, 0)
       EndIf
       
       ! Write trajectory snapshots
@@ -408,7 +418,7 @@ Program GPU_MC
 
  write(*,'(A,f18.8)') c_green // ' >>> Final energy after MC moves = ' // c_reset, En_tot
  write(*,'(A,f13.3,A)') '     Total CPU Time spent in main loop = ', finish-start, ' seconds.'
- write(*,'(A,f13.3,A)') '     Total GPU Time spent in main loop = ', gpu_time_ms / 1000.0, ' seconds.'
+ write(*,'(A,f13.3,A)') '     Total GPU Time spent in main loop = ', total_gpu_time, ' seconds.'
  write(*,*)
  
  ! Clean up CUDA events
