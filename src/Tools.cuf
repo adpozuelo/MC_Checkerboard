@@ -239,16 +239,18 @@ Subroutine Write_final_properties
    Use set_precision
    Use properties, Only : en_tot
    Use configuration, Only : natoms 
+   Use rundata, Only : Ecpu_check
    Implicit None
    Logical :: overlap
    Character(len=8), Parameter :: c_yellow = char(27)//'[1;33m'
    Character(len=8), Parameter :: c_reset  = char(27)//'[0m'
-
-   print*, c_yellow // ' >>> Validating Final Configuration Energy on CPU...' // c_reset
-   Call system_energy(overlap)
-   If (overlap) print*, ' [WARNING] Overlap found in final configuration!'
-   print*, '     CPU Final energy:', en_tot, en_tot/natoms
-   print*, ''
+   if (Ecpu_check) then
+      print*, c_yellow // ' >>> Validating Final Configuration Energy on CPU...' // c_reset
+      Call system_energy(overlap)
+      If (overlap) print*, ' [WARNING] Overlap found in final configuration!'
+      print*, '     CPU Final energy:', en_tot, en_tot/natoms
+      print*, ''
+   endif
 End Subroutine Write_final_properties
 
 

@@ -160,8 +160,9 @@ Subroutine Read_Input_Data
    Real(wp) :: norm, px, py, pz, sigma_jon_ij, xopp
    real(wp), Allocatable :: Matrix(:,:)
    Character(len=256) :: line
+
   
-   Namelist /Control_Params/ istep_ini, istep_fin, Neq, Nmove, Nsave, Nsave2, Nrestart, imovie, traj_format, Npart_types
+   Namelist /Control_Params/ istep_ini, istep_fin, Neq, Nmove, Nsave, Nsave2, Nrestart, imovie, traj_format, Npart_types, Ecpu_check
    Namelist /MC_Params/ hmax, omax, vmax, displ_update, temp0, temp1, npt, iscale, pres, seed
    Namelist /Potential_Params/ model, cosmax_KF, ctor_max_KF, delta_KF, Bool_tor, sigma_jon_aux, sigma_tor_jon, rangepp, pure_LJ
 

@@ -142,19 +142,19 @@ Program GPU_MC
  ! --------------------------------------------------------------------------
  ! Calculate initial energy using CPU version (verification)
  ! --------------------------------------------------------------------------
- call cpu_time(start)
- write(*,'(A)') c_yellow // ' >>> Evaluating initial CPU energy for verification...' // c_reset
- Call system_energy(overlap) 
- call cpu_time(finish)
- write(*,'(A,e13.6,A)') '     Time initial energy = ', finish-start, ' seconds.'
+ If (Ecpu_check) Then
+   call cpu_time(start)
+   write(*,'(A)') c_yellow // ' >>> Evaluating initial CPU energy for verification...' // c_reset
+   Call system_energy(overlap) 
+   call cpu_time(finish)
+   write(*,'(A,e13.6,A)') '     Time initial energy = ', finish-start, ' seconds.'
  
- If (overlap) Then
-    write(*,'(A)') c_red // ' [ERROR] Overlap detected in initial configuration!' // c_reset
-    stop
- EndIf
-
- Call print_ener
-
+   If (overlap) Then
+       write(*,'(A)') c_red // ' [ERROR] Overlap detected in initial configuration!' // c_reset
+      stop
+   EndIf
+    Call print_ener
+ endif
  ! --------------------------------------------------------------------------
  ! Initialize checkerboard cell decomposition & GPU Energy
  ! --------------------------------------------------------------------------
