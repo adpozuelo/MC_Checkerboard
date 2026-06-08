@@ -73,7 +73,7 @@ Subroutine System_energy(overlap)
    Use rundata, Only: istep_fin, pure_LJ
    Implicit None
    Integer :: i, j
-   Real(dkind) :: en, ener_part(0:natoms-1), en_tot1
+   Real(wp) :: en, ener_part(0:natoms-1), en_tot1
    Logical :: overlap
    Character(len=8), Parameter :: c_yellow = char(27)//'[1;33m'
    Character(len=8), Parameter :: c_reset  = char(27)//'[0m'
@@ -125,7 +125,7 @@ Subroutine Write_pdb(ener_part)
    Implicit None
    Integer :: i, j, Indx
    Real(wp)   :: angle,alpha
-   Real(dkind)   :: ener_part(0:natoms-1)
+   Real(wp)   :: ener_part(0:natoms-1)
    Character(len=3) :: el
 
    Open(21,file='coords.pdb')

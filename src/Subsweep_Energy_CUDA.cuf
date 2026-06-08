@@ -1053,7 +1053,7 @@ contains
     integer, intent(in) :: Nl_Cell(0:Ndim-1)
     integer, intent(in) :: Nat_Cell(0:Ntot_Cell-1)
     real(wp), intent(in) :: DR_Cell(0:Ntot_Cell*26*3-1)
-    real(dkind), intent(out) :: En_tot
+    real(wp), intent(out) :: En_tot
     integer :: nblock, i, ierror, Ntot_jobs
     integer :: Ndim1, Ndim2, Ndim3
 
@@ -1185,7 +1185,7 @@ contains
     real(wp), intent(in) :: DR_Cell(0:Ntot_Cell*26*3-1)
     real(dkind), intent(in) :: W_RU(0:Ndim-1)
     integer, intent(in) :: Offset_CB(0:Ndim-1)
-    real(dkind), intent(inout) :: En_tot
+    real(wp), intent(inout) :: En_tot
 
     integer :: nblock, Ntot_jobs, TOTAL_THREADS, i, ierror
     integer(kind=8) :: seed_dev, offset
