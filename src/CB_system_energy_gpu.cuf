@@ -33,7 +33,7 @@ Subroutine CB_system_energy_GPU(state)
    Integer      ::  i, j, k, l, indx, ngpus
    Integer      ::  nmol,state
    Real(wp)     ::  energy(Natoms)
-   Real (wp) ::  Ener_tot
+   Real (dkind) ::  Ener_tot
 
    call computeenergygpu(pure_LJ, bool_tor, state, Ndim, Nat_cell_max, Ntot_Cell, Npart_types, &
                      &   Nrb_sites_max, Ntor_max, Nrb_sites, patch, ref_tor_vec, &

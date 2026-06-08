@@ -45,8 +45,9 @@ Program GPU_MC
  Integer :: ngpus,gpuid,Njumps, Nsteps_DeltaT, Natoms_aux
 
  Real(wp) :: rnd, disp(0:ndim-1), start, finish, omaxo, hmaxo, prob_vol, vmaxo(0:ndim-1)
- Real(wp) :: rnd_vec(ndim), prob_trans, prob_rot, En_tot_old, boxmin, W_RU_min
+ Real(wp) :: rnd_vec(ndim), prob_trans, prob_rot, boxmin, W_RU_min
  Real(wp) :: total_gpu_time
+ Real(dkind) :: En_tot_old
  Logical :: overlap=.false.
  
  ! Array for NetCDF per-atom instantaneous energies
@@ -257,6 +258,9 @@ Program GPU_MC
 
       ! Perform MC sweep over all checkerboard sets
       Call MCsweep()
+      ! >>> ADD THIS FORCIBLE SYNC <<<
+      ! Ensure all GPU writes to Sphere_Cell are done before CPU touches it
+      istat = cudaDeviceSynchronize()
       ! Randomly shift cell boundaries to avoid artifacts
       Call Random_number(rnd)
       disp(:) = rnd*disp_max(:)
