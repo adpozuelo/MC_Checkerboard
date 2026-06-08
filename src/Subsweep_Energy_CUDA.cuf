@@ -588,7 +588,8 @@ contains
     real(wp) :: Vangtor_max, v1x,v1y,v1z, mod_v1, FX, FXI, Vangtor, Vang, Vrad, v2x,v2y,v2z, mod_v2, torsion
     real(wp) :: Utor_max, Utor, Vangtor_n, VangN, v2xn,v2yn,v2zn, mod_v2n, torsionn, Utor_max_n, sigma_jon_ij, Vangtor_max_n, v1xn,v1yn,v1zn, mod_v1n
     real(wp) :: dtor, VradN, sigma_LJ_aux, eps_LJ_aux, XOP_aux, VL0_aux, rangeP_aux
-    real(wp) :: a, pi, dospi, DE, ener_new, ener_old, de1, OMG1, OMG2, OMG1N, OMG2N, CSOMG1N, CSOMG1
+    real(wp) :: a, pi, dospi, DE, de1, OMG1, OMG2, OMG1N, OMG2N, CSOMG1N, CSOMG1
+    real(dkind) :: ener_new, ener_old
     real(wp) :: Q0_old, Q1_old, Q2_old, Q3_old, Qmove_0, Qmove_1, Qmove_2, Qmove_3
     real(wp), shared :: R1(0:8), R1N(0:8), Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z, entot_new(0:NTHREAD-1), entot_old(0:NTHREAD-1)
     integer, shared :: overlap_aux(0:NTHREAD-1)
@@ -643,7 +644,7 @@ contains
           call syncthreads()
           if (abs(Dmove_x) < 0.5_wp*W_RU(0) .and. abs(Dmove_y) < 0.5_wp*W_RU(1) .and. abs(Dmove_z) < 0.5_wp*W_RU(2)) then
             if (indx_thread == 0) then
-              ener_old = 0.0_wp; ener_new = 0.0_wp; overlap  = 0
+              ener_old = 0.0d0; ener_new = 0.0d0; overlap  = 0
               do j=0, Nat_Cell_ijk-1
                 if (j /= indx_test) then
                   jmol  = indx_atm_aux  + j*7; jmol2 = indx_atm_aux2 + j*2
@@ -754,7 +755,7 @@ contains
               end do
               entot_old(indx_thread) = ener_old; entot_new(indx_thread) = ener_new; overlap_aux(indx_thread) = overlap
             else
-              ICELL = indx_thread - 1; ener_old = 0.0_wp; ener_new = 0.0_wp; overlap  = 0
+              ICELL = indx_thread - 1; ener_old = 0.0d0; ener_new = 0.0d0; overlap  = 0
               if (ICELL < 26) then
                 Indx_Cell2 = Indx_Cell*26 + ICELL; Indx_Cell2 = Map_Cell(Indx_Cell2); Nat_Cell_neigh = Nat_Cell(Indx_Cell2)
                 Indx_Cell3 = Indx_Cell*26*3 + ICELL*3
