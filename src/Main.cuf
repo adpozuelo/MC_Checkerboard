@@ -364,7 +364,7 @@ Program GPU_MC
            ! Compute per-atom energies prior to NetCDF writing
      ! Compute per-atom energies BEFORE converting to real units using the GPU!
            ! Compute per-atom energies BEFORE converting to real units using the GPU!
-           !Call compute_per_atom_energy_gpu(pure_LJ, bool_tor, ndim, Nat_cell_max, Ntot_Cell, Npart_types, &
+           Call compute_per_atom_energy_gpu(pure_LJ, bool_tor, ndim, Nat_cell_max, Ntot_Cell, Npart_types, &
            !                                 Nrb_sites_max, Ntor_max, sigma_tor_jon, Natoms, atom_energies_host)
            !Call get_per_atom_energies(atom_energies_host)
 
