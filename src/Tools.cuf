@@ -180,17 +180,17 @@ Subroutine Initialize_variables
    ly_av=0.0
    lz_av=0.0
    open(40,file='run-data.dat')
-   write(40, '(A18, 6A18)') "# Temperature", "Density", "Volume", "Lx", "Ly", "Lz", "E_per_atom"
+   write(40, '(4x,A10, 7A17)') "# Step", "Temperature", "Density", "Volume", "Lx", "Ly", "Lz", "E_per_atom"
 End Subroutine Initialize_variables
 
 
-Subroutine Accumulate_averages
+Subroutine Accumulate_averages(in_step)
    Use set_precision
    Use properties 
    Use rundata, Only: temp
    Use configuration
    Implicit None
-
+   integer, intent(in) :: in_step
    if(ndim.eq.2) then
      vol=h(0)*h(3)-h(1)*h(2)
    else
@@ -203,7 +203,7 @@ Subroutine Accumulate_averages
    lx_av=lx_av+box(0)
    ly_av=ly_av+box(1)
    lz_av=lz_av+box(2)
-   write(40,'(7f18.5)') temp,rho,vol,box,en_tot/natoms
+   write(40,'(i12,7f18.5)') in_step, temp,rho,vol,box,en_tot/natoms
 End Subroutine Accumulate_averages
 
 

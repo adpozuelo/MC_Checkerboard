@@ -228,19 +228,19 @@ Program GPU_MC
  ! Formatted headers for NpT vs NVT
  If (NpT) Then
     If (pure_LJ) Then
-       write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans    N_Trans       hmax*L      P_Vol       vmax       N_Cell     CPU(s)     GPU(s)' // c_reset
-       write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------------------------------------------' // c_reset
+       write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans  N_Trans/step    move/part     hmax*L      P_Vol       vmax       N_Cell     CPU(s)     GPU(s)' // c_reset
+       write(*,'(A)') c_blue // '------------------------------------------------------------------------------------------------------------------------------------' // c_reset
     Else
-       write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans      P_Rot    N_Trans       hmax*L         omax      P_Vol       vmax       N_Cell     CPU(s)     GPU(s)' // c_reset
-       write(*,'(A)') c_blue // '--------------------------------------------------------------------------------------------------------------------------------------------------' // c_reset
+       write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans      P_Rot  N_Trans/step  move/part     hmax*L         omax      P_Vol       vmax       N_Cell     CPU(s)     GPU(s)' // c_reset
+       write(*,'(A)') c_blue // '------------------------------------------------------------------------------------------------------------------------------------------------------' // c_reset
     EndIf
  Else
     If (pure_LJ) Then
-       write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans    N_Trans       hmax*L       N_Cell     CPU(s)     GPU(s)' // c_reset
-       write(*,'(A)') c_blue // '------------------------------------------------------------------------------------------------------' // c_reset
+       write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans  N_Trans/step  move/part     hmax*L       N_Cell     CPU(s)     GPU(s)' // c_reset
+       write(*,'(A)') c_blue // '--------------------------------------------------------------------------------------------------------------' // c_reset
     Else
-       write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans      P_Rot    N_Trans       hmax*L         omax       N_Cell     CPU(s)     GPU(s)' // c_reset
-       write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------------------------------------------' // c_reset
+       write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans      P_Rot  N_Trans/step  move/part     hmax*L         omax       N_Cell     CPU(s)     GPU(s)' // c_reset
+       write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------------------------------------------------------' // c_reset
     EndIf
  EndIf
 
@@ -276,7 +276,7 @@ Program GPU_MC
 
       ! Accumulate averages and adjust parameters
       If( (i > Ieq) .AND. (mod(i,Nsave)==0) ) Then
-           Call Accumulate_averages
+           Call Accumulate_averages(i)
            if (pure_LJ) then 
             Ntrans=no_mc_real*Nmove  
            else
@@ -322,11 +322,11 @@ Program GPU_MC
                     if(vmax(2)/vmaxo(2) < 0.5d0) vmax(2)=vmaxo(2)*0.5
                endif
            EndIf
-! >>> THE DRIFT KILLER: Reset the accumulator from scratch periodically
-         ! Doing this every 50 steps takes almost zero time but clears all FP32 noise
-         If (mod(i, 2*Nsave) == 0) Then
+           ! >>> THE DRIFT KILLER: Reset the accumulator from scratch periodically
+           ! Doing this every 50 steps takes almost zero time but clears all FP32 noise
+            If (mod(i, 5*Nsave) == 0) Then
               Call CB_system_energy_gpu(1)
-         EndIf
+            EndIf
 
 
            ! --- Compute Periodic Timers ---
@@ -348,19 +348,19 @@ Program GPU_MC
            ! --- Format terminal output based on ensemble ---
            If (NpT) Then
                If (pure_LJ) Then
-                   write(*,'(i10, f18.8, f11.4, i11, f13.6, f11.4, f11.6, i13, 2f11.3)') &
-                      i, En_tot, prob_trans, ntrans, hmax*box(0), prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+                   write(*,'(i10, f18.8, f11.4, i11, 2f13.6, f11.4, f11.6, i13, 2f11.3)') &
+                      i, En_tot, prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), hmax*box(0), prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
                Else
-                   write(*,'(i10, f18.8, 2f11.4, i11, 2f13.6, f11.4, f11.6, i13, 2f11.3)') &
-                      i, En_tot, prob_trans, prob_rot, ntrans, hmax*box(0), omax, prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+                   write(*,'(i10, f18.8, 2f11.4, i11, 3f13.6, f11.4, f11.6, i13, 2f11.3)') &
+                      i, En_tot, prob_trans, prob_rot, ntrans/nsave, real(ntrans)/real(nsave*natoms), hmax*box(0), omax, prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
                EndIf
            Else
                If (pure_LJ) Then
-                   write(*,'(i10, f18.8, f11.4, i11, f13.6, i13, 2f11.3)') &
-                      i, En_tot, prob_trans, ntrans, hmax*box(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+                   write(*,'(i10, f18.8, f11.4, i11, 2f13.6, i13, 2f11.3)') &
+                      i, En_tot, prob_trans, ntrans/nsave,  real(ntrans)/real(nsave*natoms), hmax*box(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
                Else
-                   write(*,'(i10, f18.8, 2f11.4, i11, 2f13.6, i13, 2f11.3)') &
-                      i, En_tot, prob_trans, prob_rot, ntrans, hmax*box(0), omax, Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+                   write(*,'(i10, f18.8, 2f11.4, i11, 3f13.6, i13, 2f11.3)') &
+                      i, En_tot, prob_trans, prob_rot, ntrans/nsave,  real(ntrans)/real(nsave*natoms), hmax*box(0), omax, Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
                EndIf
            EndIf
         
