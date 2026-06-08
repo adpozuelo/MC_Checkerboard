@@ -322,6 +322,12 @@ Program GPU_MC
                     if(vmax(2)/vmaxo(2) < 0.5d0) vmax(2)=vmaxo(2)*0.5
                endif
            EndIf
+! >>> THE DRIFT KILLER: Reset the accumulator from scratch periodically
+         ! Doing this every 50 steps takes almost zero time but clears all FP32 noise
+         If (mod(i, 2*Nsave) == 0) Then
+              Call CB_system_energy_gpu(1)
+         EndIf
+
 
            ! --- Compute Periodic Timers ---
            call cpu_time(cpu_time_now)
