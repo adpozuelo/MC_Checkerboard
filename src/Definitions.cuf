@@ -152,7 +152,8 @@ END MODULE potential
 MODULE properties
    use set_precision
    Implicit None
-   Real (wp) :: en_tot, rho, vol                       ! Total energy, density, and volume
+   Real (dkind) :: en_tot
+   Real (wp) :: rho, vol                       ! Total energy, density, and volume
    Real (wp) :: en_av, rho_av                          ! Averaged energy and density
    Real (wp) :: lx_av, ly_av, lz_av                    ! Averaged box dimensions
 
