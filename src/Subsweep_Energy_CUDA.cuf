@@ -38,9 +38,9 @@ module cuda_fortran
   real(wp), device, allocatable, save :: disp_dev(:)         
   integer, device, allocatable, save :: ivec_dev(:)          
   
-  real(wp), device, allocatable, save :: energydev(:)        
-  real(wp), device, allocatable, save :: Delta_E_dev(:)      
-  real(wp), allocatable, save :: Delta_E(:), energy(:)       
+  real(dkind), device, allocatable, save :: energydev(:)        
+  real(dkind), device, allocatable, save :: Delta_E_dev(:)      
+  real(dkind), allocatable, save :: Delta_E(:), energy(:)       
   
   integer, device, allocatable, save :: overlap_error_dev(:) 
   integer, allocatable, save :: overlap_error(:)             
@@ -182,7 +182,7 @@ contains
     integer, intent(in), device :: List_Cell(0:Ntot_Cell*Nat_Cell_Max*2-1), Map_Cell(0:Ntot_Cell*26-1)
     integer, intent(in), device :: Nl_Cell(0:Ndim-1), Nat_Cell(0:Ntot_Cell-1)
     real(wp), intent(in), device :: DR_Cell(0:Ntot_Cell*26*3-1)
-    real(wp), intent(out), device :: energy(0:Ntot_Cell-1)
+    real(dkind), intent(out), device :: energy(0:Ntot_Cell-1)
     
     integer :: imol, jmol, kpatch, k, Indx_Cell2, Indx_Cell3, l, m, indx_atm_aux, Nat_Cell_ijk, Nat_Cell_neigh
     integer :: Nl0, Nl1, Nl2, ICell, indx_neigh_aux2, imol2, jmol2, indx_atm_aux2, itypei, itypej, Indx2, Indx3, Indx4, indx_neigh_auxp
@@ -237,7 +237,7 @@ contains
                 dist = sqrt(RSQ)
                 
                 if (RSQ <= 0.25_wp) then
-                  energy(Indx_Cell) = 9.0e99_wp; return
+                  energy(Indx_Cell) = 9.0d99; return
                 else if (RSQ < 0.9604_wp * s_LJ_aux * s_LJ_aux) then
                   call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
                   energ = energ + Vrad
@@ -351,7 +351,7 @@ contains
                   dist = sqrt(RSQ)
                   
                   if (RSQ <= 0.25_wp) then
-                    energy(Indx_Cell) = 9.0e99_wp; return
+                    energy(Indx_Cell) = 9.0d99; return
                   else if (RSQ < 0.9604_wp * s_LJ_aux * s_LJ_aux) then
                     call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
                     energ = energ + Vrad
@@ -465,7 +465,7 @@ contains
     integer, intent(in), device :: List_Cell(0:Ntot_Cell*Nat_Cell_Max*2-1), Map_Cell(0:Ntot_Cell*26-1)
     integer, intent(in), device :: Nl_Cell(0:Ndim-1), Nat_Cell(0:Ntot_Cell-1)
     real(wp), intent(in), device :: DR_Cell(0:Ntot_Cell*26*3-1)
-    real(wp), intent(out), device :: energy(0:Ntot_Cell-1)
+    real(dkind), intent(out), device :: energy(0:Ntot_Cell-1)
     
     integer :: imol, jmol, l, m, Indx_Cell2, Indx_Cell3, Nat_Cell_ijk, Nat_Cell_neigh
     integer :: Nl0, Nl1, Nl2, ICell, imol2, jmol2, itypei, itypej, Indx
@@ -507,7 +507,7 @@ contains
                 RSQ = DX*DX + DY*DY + DZ*DZ
                 
                 if (RSQ <= 0.25_wp) then
-                  energy(Indx_Cell) = 9.0e99_wp; return
+                  energy(Indx_Cell) = 9.0d99; return
                 else if (RSQ < range_aux*range_aux) then
                   call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
                   energ = energ + Vrad
@@ -535,7 +535,7 @@ contains
                   RSQ = DX*DX + DY*DY + DZ*DZ
                   
                   if (RSQ <= 0.25_wp) then
-                    energy(Indx_Cell) = 9.0e99_wp; return
+                    energy(Indx_Cell) = 9.0d99; return
                   else if (RSQ < range_aux*range_aux) then
                     call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
                     energ = energ + Vrad
@@ -572,7 +572,8 @@ contains
     real(wp), device, intent(in) :: h(0:Ndim*Ndim-1), DR_Cell(0:Ntot_Cell*26*3-1)
     real(dkind), device, intent(in) :: W_RU(0:Ndim-1)
     real(wp), value :: sigma_tor, beta, hmax, omax
-    real(wp), device, intent(inout) :: Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1), Delta_energy(0:Ntot_Cell-1)
+    real(wp), device, intent(inout) :: Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1)
+    real(dkind), device, intent(out) :: Delta_energy(0:Ntot_Cell-1)
 
     integer :: Nl0,Nl1,Nl2,Nl02,Nl12,Nl22, Indx_Rnd, indx_atm_aux, indx_atm_aux2
     integer :: j, k, l, s, overlap, kpatch, imol, ICELL, indx_test, jmol, ntrasa, nrota
@@ -588,8 +589,8 @@ contains
     real(wp) :: Vangtor_max, v1x,v1y,v1z, mod_v1, FX, FXI, Vangtor, Vang, Vrad, v2x,v2y,v2z, mod_v2, torsion
     real(wp) :: Utor_max, Utor, Vangtor_n, VangN, v2xn,v2yn,v2zn, mod_v2n, torsionn, Utor_max_n, sigma_jon_ij, Vangtor_max_n, v1xn,v1yn,v1zn, mod_v1n
     real(wp) :: dtor, VradN, sigma_LJ_aux, eps_LJ_aux, XOP_aux, VL0_aux, rangeP_aux
-    real(wp) :: a, pi, dospi, DE, de1, OMG1, OMG2, OMG1N, OMG2N, CSOMG1N, CSOMG1
-    real(dkind) :: ener_new, ener_old
+    real(wp) :: a, pi, dospi, OMG1, OMG2, OMG1N, OMG2N, CSOMG1N, CSOMG1
+    real(dkind) :: ener_new, ener_old, DE, de1
     real(wp) :: Q0_old, Q1_old, Q2_old, Q3_old, Qmove_0, Qmove_1, Qmove_2, Qmove_3
     real(wp), shared :: R1(0:8), R1N(0:8), Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z, entot_new(0:NTHREAD-1), entot_old(0:NTHREAD-1)
     integer, shared :: overlap_aux(0:NTHREAD-1)
