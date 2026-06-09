@@ -228,18 +228,18 @@ Program GPU_MC
  ! Formatted headers for NpT vs NVT
  If (NpT) Then
     If (pure_LJ) Then
-       write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans  N_Trans/step    move/part     hmax*L      P_Vol       vmax       N_Cell     CPU(s)     GPU(s)' // c_reset
+       write(*,'(A)') c_yellow // '      Step        En_tot/N    P_Trans  N_Trans/step    move/part     hmax*L      P_Vol       vmax       N_Cell     CPU(s)     GPU(s)' // c_reset
        write(*,'(A)') c_blue // '------------------------------------------------------------------------------------------------------------------------------------' // c_reset
     Else
-       write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans      P_Rot  N_Trans/step  move/part     hmax*L         omax      P_Vol       vmax       N_Cell     CPU(s)     GPU(s)' // c_reset
+       write(*,'(A)') c_yellow // '      Step        En_tot/N    P_Trans      P_Rot  N_Trans/step  move/part     hmax*L         omax      P_Vol       vmax       N_Cell     CPU(s)     GPU(s)' // c_reset
        write(*,'(A)') c_blue // '------------------------------------------------------------------------------------------------------------------------------------------------------' // c_reset
     EndIf
  Else
     If (pure_LJ) Then
-       write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans  N_Trans/step  move/part     hmax*L       N_Cell     CPU(s)     GPU(s)' // c_reset
+       write(*,'(A)') c_yellow // '      Step        En_tot/N    P_Trans  N_Trans/step  move/part     hmax*L       N_Cell     CPU(s)     GPU(s)' // c_reset
        write(*,'(A)') c_blue // '--------------------------------------------------------------------------------------------------------------' // c_reset
     Else
-       write(*,'(A)') c_yellow // '      Step           En_tot    P_Trans      P_Rot  N_Trans/step  move/part     hmax*L         omax       N_Cell     CPU(s)     GPU(s)' // c_reset
+       write(*,'(A)') c_yellow // '      Step        En_tot/N    P_Trans      P_Rot  N_Trans/step  move/part     hmax*L         omax       N_Cell     CPU(s)     GPU(s)' // c_reset
        write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------------------------------------------------------' // c_reset
     EndIf
  EndIf
@@ -349,18 +349,18 @@ Program GPU_MC
            If (NpT) Then
                If (pure_LJ) Then
                    write(*,'(i10, f18.8, f11.4, i11, 2f13.6, f11.4, f11.6, i13, 2f11.3)') &
-                      i, En_tot, prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), hmax*box(0), prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+                      i, En_tot/real(natoms), prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), hmax*box(0), prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
                Else
                    write(*,'(i10, f18.8, 2f11.4, i11, 3f13.6, f11.4, f11.6, i13, 2f11.3)') &
-                      i, En_tot, prob_trans, prob_rot, ntrans/nsave, real(ntrans)/real(nsave*natoms), hmax*box(0), omax, prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+                      i, En_tot/real(natoms), prob_trans, prob_rot, ntrans/nsave, real(ntrans)/real(nsave*natoms), hmax*box(0), omax, prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
                EndIf
            Else
                If (pure_LJ) Then
                    write(*,'(i10, f18.8, f11.4, i11, 2f13.6, i13, 2f11.3)') &
-                      i, En_tot, prob_trans, ntrans/nsave,  real(ntrans)/real(nsave*natoms), hmax*box(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+                      i, En_tot/real(natoms), prob_trans, ntrans/nsave,  real(ntrans)/real(nsave*natoms), hmax*box(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
                Else
                    write(*,'(i10, f18.8, 2f11.4, i11, 3f13.6, i13, 2f11.3)') &
-                      i, En_tot, prob_trans, prob_rot, ntrans/nsave,  real(ntrans)/real(nsave*natoms), hmax*box(0), omax, Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+                      i, En_tot/real(natoms), prob_trans, prob_rot, ntrans/nsave,  real(ntrans)/real(nsave*natoms), hmax*box(0), omax, Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
                EndIf
            EndIf
         
