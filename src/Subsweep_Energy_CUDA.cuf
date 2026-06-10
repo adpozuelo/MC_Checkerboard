@@ -898,6 +898,185 @@ contains
     end if
   end subroutine subsweep
 
+  ! ==============================================================================
+  ! KERNEL: subsweep_LJ (Optimized Pure Lennard-Jones Monte Carlo Moves)
+  ! ==============================================================================
+  attributes(global) subroutine subsweep_LJ(RND_state, nstates, overlap_error, bool_tor, Ndim, Nmove, Nat_Cell_Max, &
+                                         Ntot_Cell, Nsubset_Cell, Npatches_max, Ntor_max, Ntypes, &
+                                         Npatches, patch, ref_tor, sigma_jon, sigma_tor, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, &
+                                         Ntor_angle, tor_angle, Vpot_Matrix, h, beta, hmax, omax, Sphere_Cell, List_Cell, Map_Cell, &
+                                         Nl_Cell, Nat_Cell, DR_Cell, Offset_CB, W_RU, Delta_energy, Ntras_ac, Nrot_ac)
+    type(curandStateXORWOW), intent(inout) :: RND_state(0:nstates-1)
+    integer, value :: nstates
+    integer, device, intent(inout) :: overlap_error(0:Ntot_Cell-1)
+    integer, device, intent(in) :: Npatches(0:Ntypes-1), Ntor_angle(0:Ntypes*Npatches_max-1)
+    integer, device, intent(in) :: List_Cell(0:Ntot_Cell*Nat_Cell_Max*2-1), Map_Cell(0:Ntot_Cell*26-1)
+    integer, device, intent(in) :: Nl_Cell(0:Ndim-1), Nat_Cell(0:Ntot_Cell-1), Offset_CB(0:Ndim-1)
+    integer, device, intent(inout) :: Ntras_ac(0:Ntot_Cell-1), Nrot_ac(0:Ntot_Cell-1)
+    integer, value :: bool_tor, Ndim, Nmove, Nat_Cell_Max, Ntot_Cell, Nsubset_Cell, Npatches_max, Ntor_max, Ntypes
+    real(wp), device, intent(in) :: patch(0:Ntypes*Npatches_max*Ndim-1), ref_tor(0:Ntypes*Npatches_max*Ndim-1)
+    real(wp), device, intent(in) :: sigma_jon(0:Ntypes*Npatches_max-1), sigma_LJ(0:Ntypes*Ntypes-1), epsilon_LJ(0:Ntypes*Ntypes-1)
+    real(wp), device, intent(in) :: rangeP(0:Ntypes*Ntypes-1), VL0(0:Ntypes*Ntypes-1), XOP(0:Ntypes*Ntypes-1)
+    real(wp), device, intent(in) :: tor_angle(0:Ntypes*Npatches_max*Ntor_max-1), Vpot_Matrix(0:Ntypes*Npatches_max*Ntypes*Npatches_max-1)
+    real(wp), device, intent(in) :: h(0:Ndim*Ndim-1), DR_Cell(0:Ntot_Cell*26*3-1)
+    real(dkind), device, intent(in) :: W_RU(0:Ndim-1)
+    real(wp), value :: sigma_tor, beta, hmax, omax
+    real(wp), device, intent(inout) :: Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1)
+    real(dkind), device, intent(out) :: Delta_energy(0:Ntot_Cell-1)
+
+    ! Streamlined local variables (All Patchy/Torsion variables completely removed)
+    integer :: Nl0, Nl1, Nl2, Nl02, Nl12, Nl22, Indx_Rnd, indx_atm_aux, indx_atm_aux2
+    integer :: j, l, s, overlap, imol, ICELL, indx_test, jmol, ntrasa
+    integer :: Indx_Cell2, Indx_Cell3, Nat_Cell_neigh, indx_neigh_aux2, indx_neigh_auxp, itypej
+    integer :: Indxk, i, indx_thread, indx_rnd_x, indx_rnd_y, indx_rnd_z
+    integer :: jcell_x, jcell_y, jcell_z
+    integer, shared :: Indx_Cell, Nat_Cell_ijk, itypei
+    real(wp) :: DX, DY, DZ, DXn, DYn, DZn, distn, dist, RSQ, RSQn, H11, H12, H13, H21, H22, H23, H31, H32, H33
+    real(wp) :: dx_neigh, dy_neigh, dz_neigh, XJ, YJ, ZJ, prob
+    real(wp) :: Vrad, VradN, sigma_LJ_aux, eps_LJ_aux, VL0_aux, rangeP_aux
+    real(dkind) :: ener_new, ener_old, DE, de1
+    real(wp) :: Qmove_0, Qmove_1, Qmove_2, Qmove_3
+    real(wp), shared :: Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z, entot_new(0:NTHREAD-1), entot_old(0:NTHREAD-1)
+    integer, shared :: overlap_aux(0:NTHREAD-1)
+
+    indx_rnd = blockIdx%x - 1; Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2); Nl02 = Nl0/2; Nl12 = Nl1/2; Nl22 = Nl2/2
+    indx_rnd_z = indx_rnd/(Nl02*Nl12); indx_rnd_y = (indx_rnd - Nl02*Nl12*indx_rnd_z)/Nl02
+    if (indx_rnd_y == 0 .and. indx_rnd_z == 0) then; indx_rnd_x = indx_rnd; else; indx_rnd_x = mod(indx_rnd, indx_rnd_y*Nl02 + indx_rnd_z*Nl02*Nl12); end if
+    jcell_x = 2*indx_rnd_x + Offset_CB(0); jcell_y = 2*indx_rnd_y + Offset_CB(1); jcell_z = 2*indx_rnd_z + Offset_CB(2)
+    indx_thread = threadIdx%x - 1
+
+    if (jcell_x < Nl0 .and. jcell_y < Nl1 .and. jcell_z < Nl2) then
+      Indx_Cell = mod(jcell_x+Nl0, Nl0) + mod(jcell_y+Nl1, Nl1)*Nl0 + mod(jcell_z+Nl2, Nl2)*Nl0*Nl1
+      Indx_Rnd = mod(indx_rnd_x+Nl02, Nl02) + mod(indx_rnd_y+Nl12, Nl12)*Nl02 + mod(indx_rnd_z+Nl22, Nl22)*Nl02*Nl12
+      Nat_Cell_ijk = Nat_Cell(Indx_Cell)
+      DE = 0.0_wp; ntrasa = 0
+      call syncthreads()
+
+      if (Nat_Cell_ijk > 0) then
+        H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
+        indx_atm_aux  = Indx_Cell * Nat_Cell_Max * 7; indx_atm_aux2 = Indx_Cell * Nat_Cell_Max * 2
+        
+        do s=0, Nmove-1
+          if (indx_thread == 0) then
+            indx_test = int(Nat_Cell_ijk * curand_uniform(RND_state(Indx_Rnd)))
+            if (indx_test >= Nat_Cell_ijk) indx_test = Nat_Cell_ijk-1; if (indx_test < 0) indx_test = 0
+            imol = indx_atm_aux  + indx_test*7; imol2= indx_atm_aux2 + indx_test*2
+            itypei = List_Cell(imol2+1)
+            
+            Dx_old = Sphere_Cell(imol); Dy_old = Sphere_Cell(imol+1); Dz_old = Sphere_Cell(imol+2)
+            ! Preserve orientations even though they don't change during pure LJ moves
+            Qmove_0 = Sphere_Cell(imol+3); Qmove_1 = Sphere_Cell(imol+4); Qmove_2 = Sphere_Cell(imol+5); Qmove_3 = Sphere_Cell(imol+6)
+            
+            ! Pure LJ: Force translation move exclusively
+            Dmove_x = Dx_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
+            Dmove_y = Dy_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
+            Dmove_z = Dz_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
+          end if
+          
+          entot_old(indx_thread) = 0.0_wp; entot_new(indx_thread) = 0.0_wp; overlap_aux(indx_thread) = 0
+          call syncthreads()
+
+          if (abs(Dmove_x) < 0.5_wp*W_RU(0) .and. abs(Dmove_y) < 0.5_wp*W_RU(1) .and. abs(Dmove_z) < 0.5_wp*W_RU(2)) then
+            if (indx_thread == 0) then
+              ener_old = 0.0d0; ener_new = 0.0d0; overlap  = 0
+              do j=0, Nat_Cell_ijk-1
+                if (j /= indx_test) then
+                  jmol  = indx_atm_aux  + j*7; jmol2 = indx_atm_aux2 + j*2
+                  XJ = Sphere_Cell(jmol); YJ = Sphere_Cell(jmol+1); ZJ = Sphere_Cell(jmol+2)
+                  itypej = List_Cell(jmol2+1); Indxk = Ntypes*itypei + itypej
+                  
+                  sigma_LJ_aux = sigma_LJ(Indxk)
+                  eps_LJ_aux   = epsilon_LJ(Indxk) 
+                  VL0_aux      = VL0(Indxk)
+                  rangeP_aux   = rangeP(Indxk)
+                  
+                  call get_dist(XJ,YJ,ZJ, Dx_old,Dy_old,Dz_old, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX,DY,DZ, RSQ, dist)
+                  call get_dist(XJ,YJ,ZJ, Dmove_x,Dmove_y,Dmove_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DXn,DYn,DZn, RSQn, distn)
+                  
+                  if (RSQ < 0.249999_wp) then; overlap_error(Indx_Cell) = 1; return; end if
+                  if (RSQn < 0.250000_wp) then; overlap = 1; ener_new = ener_new + 9.0e+33_wp; end if
+                  
+                  ! Streamlined Evaluation using only the Cutoff Matrix
+                  if (RSQ < rangeP_aux*rangeP_aux) then
+                    call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad); ener_old = ener_old + Vrad
+                  end if
+                  if (RSQn < rangeP_aux*rangeP_aux) then
+                    call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, VradN); ener_new = ener_new + VradN
+                  end if
+                end if
+              end do
+              entot_old(indx_thread) = ener_old; entot_new(indx_thread) = ener_new; overlap_aux(indx_thread) = overlap
+            else
+              ICELL = indx_thread - 1; ener_old = 0.0d0; ener_new = 0.0d0; overlap  = 0
+              if (ICELL < 26) then
+                Indx_Cell2 = Indx_Cell*26 + ICELL; Indx_Cell2 = Map_Cell(Indx_Cell2); Nat_Cell_neigh = Nat_Cell(Indx_Cell2)
+                Indx_Cell3 = Indx_Cell*26*3 + ICELL*3
+                dx_neigh = DR_Cell(Indx_Cell3); dy_neigh = DR_Cell(Indx_Cell3+1); dz_neigh = DR_Cell(Indx_Cell3+2)
+                
+                if (Nat_Cell_neigh > 0) then
+                  indx_neigh_aux2 = Indx_Cell2 * Nat_Cell_Max * 7; indx_neigh_auxp = Indx_Cell2 * Nat_Cell_Max * 2
+                  do l=0, Nat_Cell_neigh-1
+                    jmol = indx_neigh_aux2 + l*7; jmol2= indx_neigh_auxp + l*2
+                    XJ = Sphere_Cell(jmol)   + dx_neigh; YJ = Sphere_Cell(jmol+1) + dy_neigh; ZJ = Sphere_Cell(jmol+2) + dz_neigh
+                    itypej = List_Cell(jmol2 + 1); Indxk = Ntypes*itypei + itypej
+                    
+                    sigma_LJ_aux = sigma_LJ(Indxk)
+                    eps_LJ_aux   = epsilon_LJ(Indxk) 
+                    VL0_aux      = VL0(Indxk)
+                    rangeP_aux   = rangeP(Indxk)
+                    
+                    call get_dist(XJ,YJ,ZJ, Dx_old,Dy_old,Dz_old, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX,DY,DZ, RSQ, dist)
+                    call get_dist(XJ,YJ,ZJ, Dmove_x,Dmove_y,Dmove_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DXn,DYn,DZn, RSQn, distn)
+                    
+                    if (RSQ < 0.249999_wp) then; overlap_error(Indx_Cell) = 1; return; end if
+                    if (RSQn < 0.250000_wp) then
+                      overlap = 1; ener_new = ener_new + 99999999999._wp
+                    else
+                      ! Streamlined Neighbor Interaction Evaluation
+                      if (RSQ < rangeP_aux*rangeP_aux) then
+                        call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad); ener_old = ener_old + Vrad
+                      end if
+                      ! FIXED TYPO: Now correctly passes VradN instead of Vrad to new energy tracking
+                      if (RSQn < rangeP_aux*rangeP_aux) then
+                        call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, VradN); ener_new = ener_new + VradN
+                      end if
+                    end if
+                  end do
+                end if
+                entot_new(indx_thread) = ener_new; entot_old(indx_thread) = ener_old; overlap_aux(indx_thread) = overlap
+              end if
+            end if
+            call syncthreads()
+            
+            if (indx_thread == 0) then
+              overlap = 0
+              do i=0,26; if (overlap_aux(i) == 1) overlap = 1; end do
+              if (overlap == 0) then
+                ener_old = 0.0_wp; ener_new = 0.0_wp
+                do i=0,26; ener_old = ener_old + entot_old(i); ener_new = ener_new + entot_new(i); end do
+                de1 = ener_new - ener_old; prob = exp(-beta*de1)
+                
+                if (curand_uniform(RND_state(Indx_Rnd)) < prob) then
+                  Sphere_Cell(imol  ) = Dmove_x; Sphere_Cell(imol+1) = Dmove_y; Sphere_Cell(imol+2) = Dmove_z
+                  Sphere_Cell(imol+3) = Qmove_0; Sphere_Cell(imol+4) = Qmove_1; Sphere_Cell(imol+5) = Qmove_2; Sphere_Cell(imol+6) = Qmove_3
+                  DE = DE + de1; ntrasa = ntrasa + 1
+                end if
+              end if
+            end if
+            call syncthreads()
+          end if
+          call syncthreads()
+        end do
+        call syncthreads()
+      end if
+      call syncthreads()
+      
+      if (indx_thread == 0) then
+        Delta_energy(Indx_Cell) = DE; Ntras_ac(Indx_Cell) = ntrasa; Nrot_ac (Indx_Cell) = 0
+      end if
+    end if
+  end subroutine subsweep_LJ
+
   attributes(global) subroutine shiftGPU(Ndim, Nat_Cell_Max, Ntot_Cell, Nl_Cell, Sphere_Cell, &
                                          Sphere_Cell_new, List_Cell, List_Cell_new, Nat_Cell, Nat_Cell_new, &
                                          W_RU, ivec, disp)
@@ -1230,14 +1409,20 @@ contains
     if (nblock == 0) nblock = 1
     Ntot_jobs = nblock*NTHREAD
     if (Ntot_jobs < Nsubset_Cell) nblock = nblock + 1
-
-    ! ---> ADDED epsilon_LJ_dev
-    call subsweep<<<nblock,NTHREAD>>>(RND_States, TOTAL_THREADS, overlap_error_dev, bool_tor, Ndim, Nmove, Nat_Cell_Max, &
-                                      Ntot_Cell, Nsubset_Cell, Npatches_max, Ntor_max, Npart_types, &
-                                      Npatches_dev, patchdev, ref_tor_dev, sigma_jon_dev, sigma_tor, sigma_LJ_dev, epsilon_LJ_dev, range_dev, VL0_dev, XOP_dev, &
-                                      Ntor_angle_dev, tor_angle_dev, Vpot_Matrix_dev, hdev, beta, hmax, omax, Sphere_Celldev, List_Cell_dev, Map_Cell_dev, &
-                                      Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Offset_dev, W_RU_dev, Delta_E_dev, Ntras_ac_dev, Nrot_ac_dev)
-    
+! Host side routing implementation
+    if (pure_LJ) then
+        call subsweep_LJ<<<nblock,NTHREAD>>>(RND_States, TOTAL_THREADS, overlap_error_dev, bool_tor, Ndim, Nmove, Nat_Cell_Max, &
+                                          Ntot_Cell, Nsubset_Cell, Npatches_max, Ntor_max, Npart_types, &
+                                          Npatches_dev, patchdev, ref_tor_dev, sigma_jon_dev, sigma_tor, sigma_LJ_dev, epsilon_LJ_dev, range_dev, VL0_dev, XOP_dev, &
+                                          Ntor_angle_dev, tor_angle_dev, Vpot_Matrix_dev, hdev, beta, hmax, omax, Sphere_Celldev, List_Cell_dev, Map_Cell_dev, &
+                                          Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Offset_dev, W_RU_dev, Delta_E_dev, Ntras_ac_dev, Nrot_ac_dev)
+    else
+        call subsweep<<<nblock,NTHREAD>>>(RND_States, TOTAL_THREADS, overlap_error_dev, bool_tor, Ndim, Nmove, Nat_Cell_Max, &
+                                          Ntot_Cell, Nsubset_Cell, Npatches_max, Ntor_max, Npart_types, &
+                                          Npatches_dev, patchdev, ref_tor_dev, sigma_jon_dev, sigma_tor, sigma_LJ_dev, epsilon_LJ_dev, range_dev, VL0_dev, XOP_dev, &
+                                          Ntor_angle_dev, tor_angle_dev, Vpot_Matrix_dev, hdev, beta, hmax, omax, Sphere_Celldev, List_Cell_dev, Map_Cell_dev, &
+                                          Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Offset_dev, W_RU_dev, Delta_E_dev, Ntras_ac_dev, Nrot_ac_dev)
+    end if
     Delta_E   = Delta_E_dev
     Ntras_ac  = Ntras_ac_dev
     Nrot_ac   = Nrot_ac_dev
