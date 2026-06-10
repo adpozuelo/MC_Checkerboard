@@ -926,7 +926,7 @@ contains
 
     ! Streamlined local variables (All Patchy/Torsion variables completely removed)
     integer :: Nl0, Nl1, Nl2, Nl02, Nl12, Nl22, Indx_Rnd, indx_atm_aux, indx_atm_aux2
-    integer :: j, l, s, overlap, imol, ICELL, indx_test, jmol, jmol2, ntrasa
+    integer :: j, l, s, overlap, imol, imol2, ICELL, indx_test, jmol, jmol2, ntrasa
     integer :: Indx_Cell2, Indx_Cell3, Nat_Cell_neigh, indx_neigh_aux2, indx_neigh_auxp, itypej
     integer :: Indxk, i, indx_thread, indx_rnd_x, indx_rnd_y, indx_rnd_z
     integer :: jcell_x, jcell_y, jcell_z
