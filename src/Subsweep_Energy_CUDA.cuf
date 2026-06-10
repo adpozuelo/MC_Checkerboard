@@ -785,7 +785,7 @@ contains
                           call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad); ener_old = ener_old + Vrad
                         end if
                         if (RSQn < rangeP_aux*rangeP_aux) then
-                          call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad); ener_new = ener_new + Vrad
+                          call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vradn); ener_new = ener_new + Vradn
                         end if
                       else
                         Q0j = Sphere_Cell(jmol + 3); Q1j = Sphere_Cell(jmol + 4); Q2j = Sphere_Cell(jmol + 5); Q3j = Sphere_Cell(jmol + 6)

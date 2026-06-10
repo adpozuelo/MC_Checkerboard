@@ -325,7 +325,7 @@ Program GPU_MC
            ! >>> THE DRIFT KILLER: Reset the accumulator from scratch periodically
            ! Doing this every 50 steps takes almost zero time but clears all FP32 noise
             If (mod(i, 5*Nsave) == 0) Then
-              Call CB_system_energy_gpu(1)
+!              Call CB_system_energy_gpu(1)
             EndIf
 
 
