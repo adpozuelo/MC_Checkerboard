@@ -549,355 +549,349 @@ contains
       end if
   end subroutine enerGPU_LJ
 
-  ! ==============================================================================
-  ! KERNEL: subsweep (Monte Carlo Moves & Energy Difference)
-  ! ==============================================================================
-  attributes(global) subroutine subsweep(RND_state, nstates, overlap_error, bool_tor, Ndim, Nmove, Nat_Cell_Max, &
-                                         Ntot_Cell, Nsubset_Cell, Npatches_max, Ntor_max, Ntypes, &
-                                         Npatches, patch, ref_tor, sigma_jon, sigma_tor, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, &
-                                         Ntor_angle, tor_angle, Vpot_Matrix, h, beta, hmax, omax, Sphere_Cell, List_Cell, Map_Cell, &
-                                         Nl_Cell, Nat_Cell, DR_Cell, Offset_CB, W_RU, Delta_energy, Ntras_ac, Nrot_ac)
-    type(curandStateXORWOW), intent(inout) :: RND_state(0:nstates-1)
-    integer, value :: nstates
-    integer, device, intent(inout) :: overlap_error(0:Ntot_Cell-1)
-    integer, device, intent(in) :: Npatches(0:Ntypes-1), Ntor_angle(0:Ntypes*Npatches_max-1)
-    integer, device, intent(in) :: List_Cell(0:Ntot_Cell*Nat_Cell_Max*2-1), Map_Cell(0:Ntot_Cell*26-1)
-    integer, device, intent(in) :: Nl_Cell(0:Ndim-1), Nat_Cell(0:Ntot_Cell-1), Offset_CB(0:Ndim-1)
-    integer, device, intent(inout) :: Ntras_ac(0:Ntot_Cell-1), Nrot_ac(0:Ntot_Cell-1)
-    integer, value :: bool_tor, Ndim, Nmove, Nat_Cell_Max, Ntot_Cell, Nsubset_Cell, Npatches_max, Ntor_max, Ntypes
-    real(wp), device, intent(in) :: patch(0:Ntypes*Npatches_max*Ndim-1), ref_tor(0:Ntypes*Npatches_max*Ndim-1)
-    real(wp), device, intent(in) :: sigma_jon(0:Ntypes*Npatches_max-1), sigma_LJ(0:Ntypes*Ntypes-1), epsilon_LJ(0:Ntypes*Ntypes-1)
-    real(wp), device, intent(in) :: rangeP(0:Ntypes*Ntypes-1), VL0(0:Ntypes*Ntypes-1), XOP(0:Ntypes*Ntypes-1)
-    real(wp), device, intent(in) :: tor_angle(0:Ntypes*Npatches_max*Ntor_max-1), Vpot_Matrix(0:Ntypes*Npatches_max*Ntypes*Npatches_max-1)
-    real(wp), device, intent(in) :: h(0:Ndim*Ndim-1), DR_Cell(0:Ntot_Cell*26*3-1)
-    real(dkind), device, intent(in) :: W_RU(0:Ndim-1)
-    real(wp), value :: sigma_tor, beta, hmax, omax
-    real(wp), device, intent(inout) :: Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1)
-    real(dkind), device, intent(out) :: Delta_energy(0:Ntot_Cell-1)
+   attributes(device) subroutine calc_pair_energy( &
+        XJ, YJ, ZJ, jmol, Sphere_Cell, &
+        Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z, &
+        R1, R1N, H11, H12, H13, H21, H22, H23, H31, H32, H33, &
+        itypei, itypej, bool_tor, a, pi, dospi, &
+        Ntypes, Npatches_max, Ndim, Ntor_max, sigma_tor, &
+        Npatches, patch, ref_tor, sigma_jon, sigma_LJ, epsilon_LJ, &
+        rangeP, VL0, XOP, tor_angle, Vpot_Matrix, Ntor_angle, &
+        e_old_inc, e_new_inc, is_overlap, is_fatal_overlap)
 
-    integer :: Nl0,Nl1,Nl2,Nl02,Nl12,Nl22, Indx_Rnd, indx_atm_aux, indx_atm_aux2
-    integer :: j, k, l, s, overlap, kpatch, imol, ICELL, indx_test, jmol, ntrasa, nrota
-    integer :: Indx_Cell2, Indx_Cell3, Nat_Cell_neigh, indx_neigh_aux2, itras, indx_neigh_auxp, imol2, jmol2, itypej
-    integer :: Indx2, Indx3, Indx4, Indxk, j3, j4, IndxT1, IndxT2, i, indx_thread, indx_rnd_x, indx_rnd_y, indx_rnd_z
-    integer :: Npatchesj, kpatch_aux, jcell_x, jcell_y, jcell_z
-    integer, shared :: Indx_Cell, Nat_Cell_ijk, itypei, Npatchesi
-    real(wp) :: DX,DY,DZ, DXn,DYn,DZn, distn, dist, RSQ, RSQn, H11,H12,H13,H21,H22,H23,H31,H32,H33
-    real(wp) :: Q0j,Q1j,Q2j,Q3j, PX,PY,PZ, PX1,PY1,PZ1, PX2,PY2,PZ2, dx_neigh, dy_neigh, dz_neigh, PX1n,PY1n,PZ1n
-    real(wp) :: norm, factor_energy, XJ,YJ,ZJ, prob
-    real(wp) :: PX1_ref, PX2_ref(0:19), PY1_ref, PY2_ref(0:19), PZ1_ref, PZ2_ref(0:19), PX1N_ref,PY1N_ref,PZ1N_ref
-    real(wp) :: Rnd_or(0:3), COS2(0:19), R2(0:8), COS2N(0:19)
-    real(wp) :: Vangtor_max, v1x,v1y,v1z, mod_v1, FX, FXI, Vangtor, Vang, Vrad, v2x,v2y,v2z, mod_v2, torsion
-    real(wp) :: Utor_max, Utor, Vangtor_n, VangN, v2xn,v2yn,v2zn, mod_v2n, torsionn, Utor_max_n, sigma_jon_ij, Vangtor_max_n, v1xn,v1yn,v1zn, mod_v1n
-    real(wp) :: dtor, VradN, sigma_LJ_aux, eps_LJ_aux, XOP_aux, VL0_aux, rangeP_aux
-    real(wp) :: a, pi, dospi, OMG1, OMG2, OMG1N, OMG2N, CSOMG1N, CSOMG1
-    real(dkind) :: ener_new, ener_old, DE, de1
-    real(wp) :: Q0_old, Q1_old, Q2_old, Q3_old, Qmove_0, Qmove_1, Qmove_2, Qmove_3
-    real(wp), shared :: R1(0:8), R1N(0:8), Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z, entot_new(0:NTHREAD-1), entot_old(0:NTHREAD-1)
-    integer, shared :: overlap_aux(0:NTHREAD-1)
+        ! Scalar Inputs
+        integer, intent(in) :: jmol, itypei, itypej, bool_tor, Ntypes, Npatches_max, Ndim, Ntor_max
+        real(wp), intent(in) :: XJ, YJ, ZJ, Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z
+        real(wp), intent(in) :: H11, H12, H13, H21, H22, H23, H31, H32, H33
+        real(wp), intent(in) :: a, pi, dospi, sigma_tor
+        
+        ! Array Inputs
+        real(wp), intent(in) :: R1(0:8), R1N(0:8)
+        real(wp), device, intent(in) :: Sphere_Cell(0:*)
+        integer, device, intent(in) :: Npatches(0:*), Ntor_angle(0:*)
+        real(wp), device, intent(in) :: patch(0:*), ref_tor(0:*), sigma_jon(0:*), sigma_LJ(0:*), epsilon_LJ(0:*)
+        real(wp), device, intent(in) :: rangeP(0:*), VL0(0:*), XOP(0:*), tor_angle(0:*), Vpot_Matrix(0:*)
+        
+        ! Outputs
+        real(wp), intent(out) :: e_old_inc, e_new_inc
+        integer, intent(out) :: is_overlap, is_fatal_overlap
 
-    a = 1000.0_wp; pi = acos(-1.0_wp); dospi = 2.0_wp*pi
-    indx_rnd = blockIdx%x - 1; Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2); Nl02 = Nl0/2; Nl12 = Nl1/2; Nl22 = Nl2/2
-    indx_rnd_z = indx_rnd/(Nl02*Nl12); indx_rnd_y = (indx_rnd - Nl02*Nl12*indx_rnd_z)/Nl02
-    if (indx_rnd_y == 0 .and. indx_rnd_z == 0) then; indx_rnd_x = indx_rnd; else; indx_rnd_x = mod(indx_rnd, indx_rnd_y*Nl02 + indx_rnd_z*Nl02*Nl12); end if
-    jcell_x = 2*indx_rnd_x + Offset_CB(0); jcell_y = 2*indx_rnd_y + Offset_CB(1); jcell_z = 2*indx_rnd_z + Offset_CB(2)
-    indx_thread = threadIdx%x - 1
-    if (jcell_x < Nl0 .and. jcell_y < Nl1 .and. jcell_z < Nl2) then
-      Indx_Cell = mod(jcell_x+Nl0, Nl0) + mod(jcell_y+Nl1, Nl1)*Nl0 + mod(jcell_z+Nl2, Nl2)*Nl0*Nl1
-      Indx_Rnd = mod(indx_rnd_x+Nl02, Nl02) + mod(indx_rnd_y+Nl12, Nl12)*Nl02 + mod(indx_rnd_z+Nl22, Nl22)*Nl02*Nl12
-      Nat_Cell_ijk = Nat_Cell(Indx_Cell)
-      DE = 0.0_wp; ntrasa = 0; nrota = 0
-      call syncthreads()
-      if (Nat_Cell_ijk > 0) then
-        H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
-        indx_atm_aux  = Indx_Cell * Nat_Cell_Max * 7; indx_atm_aux2 = Indx_Cell * Nat_Cell_Max * 2
-        do s=0, Nmove-1
-          if (indx_thread == 0) then
-            indx_test = int(Nat_Cell_ijk * curand_uniform(RND_state(Indx_Rnd)))
-            if (indx_test >= Nat_Cell_ijk) indx_test = Nat_Cell_ijk-1; if (indx_test < 0) indx_test = 0
-            imol = indx_atm_aux  + indx_test*7; imol2= indx_atm_aux2 + indx_test*2
-            itypei = List_Cell(imol2+1); Npatchesi = Npatches(itypei)
-            Dx_old = Sphere_Cell(imol); Dy_old = Sphere_Cell(imol+1); Dz_old = Sphere_Cell(imol+2)
-            Q0_old = Sphere_Cell(imol+3); Q1_old = Sphere_Cell(imol+4); Q2_old = Sphere_Cell(imol+5); Q3_old = Sphere_Cell(imol+6)
-            if (Npatchesi > 0) then
-              if (curand_uniform(RND_state(Indx_Rnd)) < 0.5_wp) then
-                itras = 1
-                Dmove_x = Dx_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
-                Dmove_y = Dy_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
-                Dmove_z = Dz_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
-                Qmove_0 = Q0_old; Qmove_1 = Q1_old; Qmove_2 = Q2_old; Qmove_3 = Q3_old
-              else
-                itras = 0; Dmove_x = Dx_old; Dmove_y = Dy_old; Dmove_z = Dz_old
-                call genranor(RND_state, nstates, Indx_Rnd, Rnd_or)
-                Qmove_0 = Q0_old + Rnd_or(0)*omax; Qmove_1 = Q1_old + Rnd_or(1)*omax; Qmove_2 = Q2_old + Rnd_or(2)*omax; Qmove_3 = Q3_old + Rnd_or(3)*omax
-                norm = sqrt(Qmove_0*Qmove_0 + Qmove_1*Qmove_1 + Qmove_2*Qmove_2 + Qmove_3*Qmove_3)
-                Qmove_0 = Qmove_0/norm; Qmove_1 = Qmove_1/norm; Qmove_2 = Qmove_2/norm; Qmove_3 = Qmove_3/norm
-              end if
-              call rot_matrix(Q0_old,Q1_old,Q2_old,Q3_old,R1); call rot_matrix(Qmove_0,Qmove_1,Qmove_2,Qmove_3,R1N)
+        ! Local Variables
+        real(wp) :: Q0j, Q1j, Q2j, Q3j
+        real(wp) :: DX, DY, DZ, DXn, DYn, DZn, RSQ, dist, RSQn, distn
+        real(wp) :: Vrad, VradN, Vangtor_max, Vangtor_max_n
+        real(wp) :: sigma_LJ_aux, eps_LJ_aux, XOP_aux, VL0_aux, rangeP_aux
+        real(wp) :: PX, PY, PZ, PX2, PY2, PZ2, PX1, PY1, PZ1, PX1n, PY1n, PZ1n
+        real(wp) :: COS2(0:19), COS2N(0:19), PX2_ref(0:19), PY2_ref(0:19), PZ2_ref(0:19)
+        real(wp) :: CSOMG1, CSOMG1N, PX1_ref, PY1_ref, PZ1_ref, PX1N_ref, PY1N_ref, PZ1N_ref
+        real(wp) :: v1x, v1y, v1z, mod_v1, OMG1, v1xn, v1yn, v1zn, mod_v1n, OMG1N
+        real(wp) :: OMG2, OMG2N, sigma_jon_ij, Vang, VangN, factor_energy
+        real(wp) :: v2x, v2y, v2z, mod_v2, v2xn, v2yn, v2zn, mod_v2n, torsion, torsionn
+        real(wp) :: Utor_max, Utor, dtor, Vangtor, Utor_max_n, Vangtor_n
+        real(wp) :: R2(0:8), FX, FXI
+        integer :: Indxk, Npatchesi, Npatchesj, kpatch_aux, kpatch, k, j3, j4
+        integer :: Indx2, Indx3, Indx4, IndxT1, IndxT2
+
+        e_old_inc = 0.0_wp
+        e_new_inc = 0.0_wp
+        is_overlap = 0
+        is_fatal_overlap = 0
+
+        Indxk = Ntypes * itypei + itypej
+        sigma_LJ_aux = sigma_LJ(Indxk)
+        eps_LJ_aux   = epsilon_LJ(Indxk) 
+        XOP_aux = XOP(Indxk); VL0_aux = VL0(Indxk); rangeP_aux = rangeP(Indxk)
+
+        call get_dist(XJ,YJ,ZJ, Dx_old,Dy_old,Dz_old, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX,DY,DZ, RSQ, dist)
+        call get_dist(XJ,YJ,ZJ, Dmove_x,Dmove_y,Dmove_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DXn,DYn,DZn, RSQn, distn)
+
+        if (RSQ < 0.249999_wp) then
+            is_fatal_overlap = 1
+            return
+        end if
+        if (RSQn < 0.250000_wp) then
+            is_overlap = 1
+        end if
+
+        if (RSQ < 0.9604_wp*sigma_LJ_aux*sigma_LJ_aux .and. RSQn < 0.9604_wp*sigma_LJ_aux*sigma_LJ_aux) then
+            call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad); e_old_inc = e_old_inc + Vrad
+            call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, VradN); e_new_inc = e_new_inc + VradN
+        else if (dist < rangeP_aux .or. distn < rangeP_aux) then
+            Npatchesi = Npatches(itypei); Npatchesj = Npatches(itypej)
+            if (Npatchesi <= 1 .or. Npatchesj <= 1) then
+                if (RSQ < rangeP_aux*rangeP_aux) then
+                    call vlj(RSQ,  sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad); e_old_inc = e_old_inc + Vrad
+                end if
+                if (RSQn < rangeP_aux*rangeP_aux) then
+                    call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, VradN); e_new_inc = e_new_inc + VradN
+                end if
             else
-                itras = 1
-                Dmove_x = Dx_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
-                Dmove_y = Dy_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
-                Dmove_z = Dz_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
-                Qmove_0 = Q0_old; Qmove_1 = Q1_old; Qmove_2 = Q2_old; Qmove_3 = Q3_old
-            endif
-          end if
-          entot_old(indx_thread) = 0.0_wp; entot_new(indx_thread) = 0.0_wp; overlap_aux(indx_thread) = 0
-          call syncthreads()
-          if (abs(Dmove_x) < 0.5_wp*W_RU(0) .and. abs(Dmove_y) < 0.5_wp*W_RU(1) .and. abs(Dmove_z) < 0.5_wp*W_RU(2)) then
-            if (indx_thread == 0) then
-              ener_old = 0.0d0; ener_new = 0.0d0; overlap  = 0
-              do j=0, Nat_Cell_ijk-1
-                if (j /= indx_test) then
-                  jmol  = indx_atm_aux  + j*7; jmol2 = indx_atm_aux2 + j*2
-                  XJ = Sphere_Cell(jmol); YJ = Sphere_Cell(jmol+1); ZJ = Sphere_Cell(jmol+2)
-                  itypej = List_Cell(jmol2+1); Indxk = Ntypes*itypei + itypej
-                  sigma_LJ_aux = sigma_LJ(Indxk)
-                  eps_LJ_aux   = epsilon_LJ(Indxk) 
-                  XOP_aux = XOP(Indxk); VL0_aux = VL0(Indxk); rangeP_aux = rangeP(Indxk)
-                  call get_dist(XJ,YJ,ZJ, Dx_old,Dy_old,Dz_old, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX,DY,DZ, RSQ, dist)
-                  call get_dist(XJ,YJ,ZJ, Dmove_x,Dmove_y,Dmove_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DXn,DYn,DZn, RSQn, distn)
-                  
-                  if (RSQ < 0.249999_wp) then; overlap_error(Indx_Cell) = 1; return; end if
-                  if (RSQn < 0.250000_wp) then; overlap = 1; ener_new = ener_new + 9.0e+33_wp; end if
-                  
-                  if (RSQ < 0.9604_wp*sigma_LJ_aux*sigma_LJ_aux .and. RSQn < 0.9604_wp*sigma_LJ_aux*sigma_LJ_aux) then
-                    call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad); ener_old = ener_old + Vrad
-                    call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, VradN); ener_new = ener_new + VradN
-                  else if (dist < rangeP_aux .or. distn < rangeP_aux) then
-                    Npatchesi = Npatches(itypei); Npatchesj = Npatches(itypej)
-                    if (Npatchesi <= 1 .or. Npatchesj <= 1) then
-                      if (RSQ < rangeP_aux*rangeP_aux) then
-                        call vlj(RSQ,  sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad); ener_old = ener_old + Vrad
-                      end if
-                      if (RSQn < rangeP_aux*rangeP_aux) then
-                        call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, VradN); ener_new = ener_new + VradN
-                      end if
-                    else
-                      Q0j = Sphere_Cell(jmol+3); Q1j = Sphere_Cell(jmol+4); Q2j = Sphere_Cell(jmol+5); Q3j = Sphere_Cell(jmol+6)
-                      call rot_matrix(Q0j,Q1j,Q2j,Q3j,R2); kpatch_aux = Npatches_max*Ndim*itypej
-                      do k=0, Npatchesj-1
-                        kpatch = kpatch_aux + k*Ndim; PX = patch(kpatch); PY = patch(kpatch+1); PZ = patch(kpatch+2)
-                        call patch_real(PX,PY,PZ,R2,PX2,PY2,PZ2); COS2(k)  = -(PX2*DX  + PY2*DY  + PZ2*DZ )/dist; COS2N(k) = -(PX2*DXn + PY2*DYn + PZ2*DZn)/distn
-                        PX = ref_tor(kpatch); PY = ref_tor(kpatch+1); PZ = ref_tor(kpatch+2)
-                        call patch_real(PX,PY,PZ,R2, PX2_ref(k), PY2_ref(k), PZ2_ref(k))
-                      end do
-                      Vangtor_max   = -1.0_wp; Vangtor_max_n = -1.0_wp; kpatch_aux = Npatches_max*Ndim*itypei
-                      do j3=0, Npatchesi-1
-                        kpatch = kpatch_aux + j3*Ndim; PX = patch(kpatch); PY = patch(kpatch+1); PZ = patch(kpatch+2)
-                        call patch_real(PX,PY,PZ,R1,PX2,PY2,PZ2); CSOMG1 = (PX2*DX + PY2*DY + PZ2*DZ)/dist
-                        call patch_real(PX,PY,PZ,R1N,PX2,PY2,PZ2); CSOMG1N = (PX2*DXn + PY2*DYn + PZ2*DZn)/distn
-                        PX = ref_tor(kpatch); PY = ref_tor(kpatch+1); PZ = ref_tor(kpatch+2)
-                        call patch_real(PX,PY,PZ,R1,  PX1_ref,PY1_ref,PZ1_ref); call patch_real(PX,PY,PZ,R1N, PX1N_ref,PY1N_ref,PZ1N_ref)
-                        call get_torsion(PX1_ref, PY1_ref, PZ1_ref, DX, DY, DZ, v1x,v1y,v1z, mod_v1); call get_cosine(CSOMG1, OMG1)
-                        call get_torsion(PX1N_ref, PY1N_ref, PZ1N_ref, DXn, DYn, DZn, v1xn,v1yn,v1zn, mod_v1n); call get_cosine(CSOMG1N, OMG1N)
-                        Indx2 = itypei * Npatches_max + j3; Indx3 = Indx2 * Npatches_max * Ntypes; Indx4 = Indx3 + itypej * Npatches_max
-                        IndxT1= Npatches_max*itypei + j3
-                        do j4=0, Npatchesj-1
-                          factor_energy = Vpot_Matrix(Indx4 + j4)
-                          if (factor_energy > 0.000001_wp) then
+                Q0j = Sphere_Cell(jmol+3); Q1j = Sphere_Cell(jmol+4); Q2j = Sphere_Cell(jmol+5); Q3j = Sphere_Cell(jmol+6)
+                call rot_matrix(Q0j,Q1j,Q2j,Q3j,R2); kpatch_aux = Npatches_max*Ndim*itypej
+                do k=0, Npatchesj-1
+                    kpatch = kpatch_aux + k*Ndim; PX = patch(kpatch); PY = patch(kpatch+1); PZ = patch(kpatch+2)
+                    call patch_real(PX,PY,PZ,R2,PX2,PY2,PZ2); COS2(k)  = -(PX2*DX  + PY2*DY  + PZ2*DZ )/dist; COS2N(k) = -(PX2*DXn + PY2*DYn + PZ2*DZn)/distn
+                    PX = ref_tor(kpatch); PY = ref_tor(kpatch+1); PZ = ref_tor(kpatch+2)
+                    call patch_real(PX,PY,PZ,R2, PX2_ref(k), PY2_ref(k), PZ2_ref(k))
+                end do
+                Vangtor_max   = -1.0_wp; Vangtor_max_n = -1.0_wp; kpatch_aux = Npatches_max*Ndim*itypei
+                do j3=0, Npatchesi-1
+                    kpatch = kpatch_aux + j3*Ndim; PX = patch(kpatch); PY = patch(kpatch+1); PZ = patch(kpatch+2)
+                    call patch_real(PX,PY,PZ,R1,PX2,PY2,PZ2); CSOMG1 = (PX2*DX + PY2*DY + PZ2*DZ)/dist
+                    call patch_real(PX,PY,PZ,R1N,PX2,PY2,PZ2); CSOMG1N = (PX2*DXn + PY2*DYn + PZ2*DZn)/distn
+                    PX = ref_tor(kpatch); PY = ref_tor(kpatch+1); PZ = ref_tor(kpatch+2)
+                    call patch_real(PX,PY,PZ,R1,  PX1_ref,PY1_ref,PZ1_ref); call patch_real(PX,PY,PZ,R1N, PX1N_ref,PY1N_ref,PZ1N_ref)
+                    call get_torsion(PX1_ref, PY1_ref, PZ1_ref, DX, DY, DZ, v1x,v1y,v1z, mod_v1); call get_cosine(CSOMG1, OMG1)
+                    call get_torsion(PX1N_ref, PY1N_ref, PZ1N_ref, DXn, DYn, DZn, v1xn,v1yn,v1zn, mod_v1n); call get_cosine(CSOMG1N, OMG1N)
+                    Indx2 = itypei * Npatches_max + j3; Indx3 = Indx2 * Npatches_max * Ntypes; Indx4 = Indx3 + itypej * Npatches_max
+                    IndxT1= Npatches_max*itypei + j3
+                    do j4=0, Npatchesj-1
+                        factor_energy = Vpot_Matrix(Indx4 + j4)
+                        if (factor_energy > 0.000001_wp) then
                             call get_cosine(COS2(j4), OMG2); IndxT2 = Npatches_max*itypej + j4
                             sigma_jon_ij = 2.0_wp*sigma_jon(IndxT1)*sigma_jon(IndxT2)
                             Vang  = exp( -(OMG1*OMG1  + OMG2*OMG2 )/sigma_jon_ij ); call get_cosine(COS2N(j4), OMG2N)
                             VangN = exp( -(OMG1N*OMG1N + OMG2N*OMG2N)/sigma_jon_ij )
                             if (bool_tor == 1 .and. Npatchesi > 1 .and. Npatchesj > 1 .and. Ntor_angle(IndxT1) > 0 .and. Ntor_angle(IndxT2) > 0) then
-                              call get_torsion(PX2_ref(j4), PY2_ref(j4), PZ2_ref(j4), DX, DY, DZ, v2x,v2y,v2z, mod_v2)
-                              call get_torsion(PX2_ref(j4), PY2_ref(j4), PZ2_ref(j4), DXn, DYn, DZn, v2xn,v2yn,v2zn, mod_v2n)
-                              if (mod_v1 /= 0.0_wp .and. mod_v2 /= 0.0_wp) then
-                                call get_torsion_angle(v1x,v1y,v1z,mod_v1, v2x,v2y,v2z,mod_v2, DX,DY,DZ, dist, torsion)
-                                Utor_max = -100.0_wp
-                                do k=0, Ntor_angle(IndxT1)-1
-                                  dtor = torsion - tor_angle(IndxT1*Ntor_max + k)
-                                  if (dtor > pi) then; dtor = dtor - dospi; else if (dtor < -pi) then; dtor = dtor + dospi; end if
-                                  Utor = exp( -dtor*dtor/sigma_tor ); if (Utor > Utor_max) Utor_max = Utor
-                                end do
-                                Vangtor = factor_energy*Vang*Utor_max
-                              end if
-                              if (mod_v1n /= 0.0_wp .and. mod_v2n /= 0.0_wp) then
-                                call get_torsion_angle(v1xn,v1yn,v1zn,mod_v1n, v2xn,v2yn,v2zn,mod_v2n, DXn,DYn,DZn, distn, torsionn)
-                                IndxT1 = Npatches_max*itypei + j3; Utor_max_n = -100.0_wp
-                                do k=0, Ntor_angle(IndxT1)-1
-                                  dtor = torsionn - tor_angle(IndxT1*Ntor_max + k)
-                                  if (dtor > pi) then; dtor = dtor - dospi; else if (dtor < -pi) then; dtor = dtor + dospi; end if
-                                  Utor = exp( -dtor*dtor/sigma_tor ); if (Utor > Utor_max_n) Utor_max_n = Utor
-                                end do
-                                Vangtor_n = factor_energy*VangN*Utor_max_n
-                              end if
+                                call get_torsion(PX2_ref(j4), PY2_ref(j4), PZ2_ref(j4), DX, DY, DZ, v2x,v2y,v2z, mod_v2)
+                                call get_torsion(PX2_ref(j4), PY2_ref(j4), PZ2_ref(j4), DXn, DYn, DZn, v2xn,v2yn,v2zn, mod_v2n)
+                                if (mod_v1 /= 0.0_wp .and. mod_v2 /= 0.0_wp) then
+                                    call get_torsion_angle(v1x,v1y,v1z,mod_v1, v2x,v2y,v2z,mod_v2, DX,DY,DZ, dist, torsion)
+                                    Utor_max = -100.0_wp
+                                    do k=0, Ntor_angle(IndxT1)-1
+                                        dtor = torsion - tor_angle(IndxT1*Ntor_max + k)
+                                        if (dtor > pi) then; dtor = dtor - dospi; else if (dtor < -pi) then; dtor = dtor + dospi; end if
+                                        Utor = exp( -dtor*dtor/sigma_tor ); if (Utor > Utor_max) Utor_max = Utor
+                                    end do
+                                    Vangtor = factor_energy*Vang*Utor_max
+                                end if
+                                if (mod_v1n /= 0.0_wp .and. mod_v2n /= 0.0_wp) then
+                                    call get_torsion_angle(v1xn,v1yn,v1zn,mod_v1n, v2xn,v2yn,v2zn,mod_v2n, DXn,DYn,DZn, distn, torsionn)
+                                    Utor_max_n = -100.0_wp
+                                    do k=0, Ntor_angle(IndxT1)-1
+                                        dtor = torsionn - tor_angle(IndxT1*Ntor_max + k)
+                                        if (dtor > pi) then; dtor = dtor - dospi; else if (dtor < -pi) then; dtor = dtor + dospi; end if
+                                        Utor = exp( -dtor*dtor/sigma_tor ); if (Utor > Utor_max_n) Utor_max_n = Utor
+                                    end do
+                                    Vangtor_n = factor_energy*VangN*Utor_max_n
+                                end if
                             else
-                              Vangtor   = factor_energy*Vang; Vangtor_n = factor_energy*VangN
+                                Vangtor   = factor_energy*Vang; Vangtor_n = factor_energy*VangN
                             end if
                             if (Vangtor   > Vangtor_max  ) Vangtor_max   = Vangtor
                             if (Vangtor_n > Vangtor_max_n) Vangtor_max_n = Vangtor_n
-                          end if
-                        end do
-                      end do
-                      
-                      if (RSQ < 0.9604_wp*sigma_LJ_aux*sigma_LJ_aux) then
-                        call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad); ener_old = ener_old + Vrad
-                      else if (dist < rangeP_aux) then
-                        if (Vangtor_max /= -1.0_wp) then
-                          FX  = (1.0_wp + tanh(a*(-XOP_aux + dist )))/2.0_wp; FXI = (1.0_wp - tanh(a*(-XOP_aux + dist )))/2.0_wp
-                          call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
-                          ener_old = ener_old + Vrad * (FXI + Vangtor_max * FX)
                         end if
-                      end if
-                      
-                      if (RSQn < 0.9604_wp*sigma_LJ_aux*sigma_LJ_aux) then
-                        call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, VradN); ener_new = ener_new + VradN
-                      else if (distn < rangeP_aux) then
-                        if (Vangtor_max_n /= -1.0_wp) then
-                          FX  = (1.0_wp + tanh(a*(-XOP_aux + distn)))/2.0_wp; FXI = (1.0_wp - tanh(a*(-XOP_aux + distn)))/2.0_wp
-                          call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, VradN)
-                          ener_new = ener_new + VradN * (FXI + Vangtor_max_n * FX)
-                        end if
-                      end if
+                    end do
+                end do
+                
+                if (RSQ < 0.9604_wp*sigma_LJ_aux*sigma_LJ_aux) then
+                    call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad); e_old_inc = e_old_inc + Vrad
+                else if (dist < rangeP_aux) then
+                    if (Vangtor_max /= -1.0_wp) then
+                        FX  = (1.0_wp + tanh(a*(-XOP_aux + dist )))/2.0_wp; FXI = (1.0_wp - tanh(a*(-XOP_aux + dist )))/2.0_wp
+                        call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
+                        e_old_inc = e_old_inc + Vrad * (FXI + Vangtor_max * FX)
                     end if
-                  end if
                 end if
-              end do
-              entot_old(indx_thread) = ener_old; entot_new(indx_thread) = ener_new; overlap_aux(indx_thread) = overlap
-            else
-              ICELL = indx_thread - 1; ener_old = 0.0d0; ener_new = 0.0d0; overlap  = 0
-              if (ICELL < 26) then
-                Indx_Cell2 = Indx_Cell*26 + ICELL; Indx_Cell2 = Map_Cell(Indx_Cell2); Nat_Cell_neigh = Nat_Cell(Indx_Cell2)
-                Indx_Cell3 = Indx_Cell*26*3 + ICELL*3
-                dx_neigh = DR_Cell(Indx_Cell3); dy_neigh = DR_Cell(Indx_Cell3+1); dz_neigh = DR_Cell(Indx_Cell3+2)
-                if (Nat_Cell_neigh > 0) then
-                  indx_neigh_aux2 = Indx_Cell2 * Nat_Cell_Max * 7; indx_neigh_auxp = Indx_Cell2 * Nat_Cell_Max * 2
-                  do l=0, Nat_Cell_neigh-1
-                    jmol = indx_neigh_aux2 + l*7; jmol2= indx_neigh_auxp + l*2
-                    XJ = Sphere_Cell(jmol)   + dx_neigh; YJ = Sphere_Cell(jmol+1) + dy_neigh; ZJ = Sphere_Cell(jmol+2) + dz_neigh
-                    itypej = List_Cell(jmol2 + 1); Indxk = Ntypes*itypei + itypej
-                    sigma_LJ_aux = sigma_LJ(Indxk)
-                    eps_LJ_aux   = epsilon_LJ(Indxk) 
-                    XOP_aux = XOP(Indxk); VL0_aux = VL0(Indxk); rangeP_aux = rangeP(Indxk)
-                    call get_dist(XJ,YJ,ZJ, Dx_old,Dy_old,Dz_old, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX,DY,DZ, RSQ, dist)
-                    call get_dist(XJ,YJ,ZJ, Dmove_x,Dmove_y,Dmove_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DXn,DYn,DZn, RSQn, distn)
-                    
-                    if (RSQ < 0.249999_wp) then; overlap_error(Indx_Cell) = 1; return; end if
-                    if (RSQn < 0.250000_wp) then; overlap = 1; ener_new = ener_new + 99999999999._wp
-                    else if (RSQ < 0.9604_wp*sigma_LJ_aux*sigma_LJ_aux .and. RSQn < 0.9604_wp*sigma_LJ_aux*sigma_LJ_aux) then
-                      call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad); ener_old = ener_old + Vrad
-                      call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad); ener_new = ener_new + Vrad
-                    else if (dist < rangeP_aux .or. distn < rangeP_aux) then
-                      Npatchesi = Npatches(itypei); Npatchesj = Npatches(itypej)
-                      if (Npatchesi <= 1 .or. Npatchesj <= 1) then
-                        if (RSQ < rangeP_aux*rangeP_aux) then
-                          call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad); ener_old = ener_old + Vrad
-                        end if
-                        if (RSQn < rangeP_aux*rangeP_aux) then
-                          call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vradn); ener_new = ener_new + Vradn
-                        end if
-                      else
-                        Q0j = Sphere_Cell(jmol + 3); Q1j = Sphere_Cell(jmol + 4); Q2j = Sphere_Cell(jmol + 5); Q3j = Sphere_Cell(jmol + 6)
-                        call rot_matrix(Q0j,Q1j,Q2j,Q3j,R2); kpatch_aux = Npatches_max*Ndim*itypej
-                        do k=0, Npatchesj-1
-                          kpatch = kpatch_aux + k*Ndim; PX = patch(kpatch); PY=patch(kpatch+1); PZ=patch(kpatch+2)
-                          call patch_real(PX,PY,PZ,R2,PX2,PY2,PZ2); COS2(k)  = -(PX2*DX  + PY2*DY  + PZ2*DZ )/dist; COS2N(k) = -(PX2*DXn + PY2*DYn + PZ2*DZn)/distn
-                          PX = ref_tor(kpatch); PY=ref_tor(kpatch+1); PZ=ref_tor(kpatch+2); call patch_real(PX,PY,PZ,R2, PX2_ref(k), PY2_ref(k), PZ2_ref(k))
-                        end do
-                        Vangtor_max   = -1.0_wp; Vangtor_max_n = -1.0_wp; kpatch_aux = Npatches_max*Ndim*itypei
-                        do j3=0, Npatchesi-1
-                          kpatch = kpatch_aux + j3*Ndim; PX = patch(kpatch); PY=patch(kpatch+1); PZ=patch(kpatch+2)
-                          call patch_real(PX,PY,PZ,R1,  PX1,PY1,PZ1); call patch_real(PX,PY,PZ,R1N, PX1n,PY1n,PZ1n)
-                          CSOMG1  = (PX1 *DX + PY1 *DY + PZ1 *DZ )/dist; CSOMG1N = (PX1n*DXn+ PY1n*DYn+ PZ1n*DZn)/distn
-                          PX = ref_tor(kpatch); PY=ref_tor(kpatch+1); PZ=ref_tor(kpatch+2)
-                          call patch_real(PX,PY,PZ,R1,  PX1_ref,PY1_ref,PZ1_ref); call patch_real(PX,PY,PZ,R1N, PX1N_ref,PY1N_ref,PZ1N_ref)
-                          call get_torsion(PX1_ref,  PY1_ref,  PZ1_ref,  DX, DY, DZ,  v1x,v1y,v1z,  mod_v1 ); call get_cosine(CSOMG1,  OMG1 )
-                          call get_torsion(PX1N_ref, PY1N_ref, PZ1N_ref, DXn,DYn,DZn, v1xn,v1yn,v1zn, mod_v1n); call get_cosine(CSOMG1N, OMG1N)
-                          Indx2 = itypei * Npatches_max + j3; Indx3 = Indx2 * Npatches_max * Ntypes; Indx4 = Indx3 + itypej * Npatches_max
-                          IndxT1= Npatches_max*itypei + j3
-                          do j4=0, Npatchesj-1
-                            factor_energy = Vpot_Matrix(Indx4 + j4)
-                            if (factor_energy > 1.0e-6_wp) then
-                              call get_cosine(COS2 (j4), OMG2 ); call get_cosine(COS2N(j4), OMG2N)
-                              IndxT2 = Npatches_max*itypej + j4; sigma_jon_ij = 2.0_wp*sigma_jon(IndxT1)*sigma_jon(IndxT2)
-                              Vang  = exp( -(OMG1 *OMG1  + OMG2 *OMG2 )/sigma_jon_ij ); VangN = exp( -(OMG1N*OMG1N + OMG2N*OMG2N)/sigma_jon_ij )
-                              if (bool_tor == 1 .and. Npatchesi > 1 .and. Npatchesj > 1 .and. Ntor_angle(IndxT1) > 0 .and. Ntor_angle(IndxT2) > 0) then
-                                call get_torsion(PX2_ref(j4), PY2_ref(j4), PZ2_ref(j4), DX, DY, DZ,  v2x ,v2y ,v2z , mod_v2 )
-                                call get_torsion(PX2_ref(j4), PY2_ref(j4), PZ2_ref(j4), DXn,DYn,DZn, v2xn,v2yn,v2zn, mod_v2n)
-                                if (mod_v1  /= 0.0_wp .and. mod_v2  /= 0.0_wp) then
-                                  call get_torsion_angle(v1x,v1y,v1z,mod_v1, v2x,v2y,v2z,mod_v2,  DX ,DY ,DZ , dist , torsion )
-                                  Utor_max = -100.0_wp
-                                  do k=0, Ntor_angle(IndxT1)-1
-                                    dtor = torsion - tor_angle(IndxT1*Ntor_max + k)
-                                    if (dtor > pi) then; dtor = dtor - dospi; else if (dtor < -pi) then; dtor = dtor + dospi; end if
-                                    Utor = exp( -dtor*dtor/sigma_tor ); if (Utor > Utor_max) Utor_max = Utor
-                                  end do
-                                  Vangtor = factor_energy*Vang*Utor_max
-                                end if
-                                if (mod_v1n /= 0.0_wp .and. mod_v2n /= 0.0_wp) then
-                                  call get_torsion_angle(v1xn,v1yn,v1zn,mod_v1n, v2xn,v2yn,v2zn,mod_v2n, DXn,DYn,DZn, distn, torsionn)
-                                  Utor_max_n = -100.0_wp
-                                  do k=0, Ntor_angle(IndxT1)-1
-                                    dtor = torsionn - tor_angle(IndxT1*Ntor_max + k)
-                                    if (dtor > pi) then; dtor = dtor - dospi; else if (dtor < -pi) then; dtor = dtor + dospi; end if
-                                    Utor = exp( -dtor*dtor/sigma_tor ); if (Utor > Utor_max_n) Utor_max_n = Utor
-                                  end do
-                                  Vangtor_n = factor_energy*VangN*Utor_max_n
-                                end if
-                              else
-                                Vangtor   = factor_energy*Vang; Vangtor_n = factor_energy*VangN
-                              end if
-                              if (Vangtor   > Vangtor_max  ) Vangtor_max   = Vangtor
-                              if (Vangtor_n > Vangtor_max_n) Vangtor_max_n = Vangtor_n
-                            end if
-                          end do
-                        end do
-                        
-                        if (RSQ < 0.9604_wp*sigma_LJ_aux*sigma_LJ_aux) then
-                          call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad); ener_old = ener_old + Vrad
-                        else if (dist < rangeP_aux) then
-                          if (Vangtor_max /= -1.0_wp) then
-                            FX  = (1.0_wp + tanh(a*(-XOP_aux + dist )))/2.0_wp; FXI = (1.0_wp - tanh(a*(-XOP_aux + dist )))/2.0_wp
-                            call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
-                            ener_old = ener_old + Vrad * (FXI + Vangtor_max * FX)
-                          end if
-                        end if
-                        
-                        if (RSQn < 0.9604_wp*sigma_LJ_aux*sigma_LJ_aux) then
-                          call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, VradN); ener_new = ener_new + VradN
-                        else if (distn < rangeP_aux) then
-                          if (Vangtor_max_n /= -1.0_wp) then
-                            FX  = (1.0_wp + tanh(a*(-XOP_aux + distn)))/2.0_wp; FXI = (1.0_wp - tanh(a*(-XOP_aux + distn)))/2.0_wp
-                            call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, VradN)
-                            ener_new = ener_new + VradN * (FXI + Vangtor_max_n * FX)
-                          end if
-                        end if
-                      end if
+                
+                if (RSQn < 0.9604_wp*sigma_LJ_aux*sigma_LJ_aux) then
+                    call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, VradN); e_new_inc = e_new_inc + VradN
+                else if (distn < rangeP_aux) then
+                    if (Vangtor_max_n /= -1.0_wp) then
+                        FX  = (1.0_wp + tanh(a*(-XOP_aux + distn)))/2.0_wp; FXI = (1.0_wp - tanh(a*(-XOP_aux + distn)))/2.0_wp
+                        call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, VradN)
+                        e_new_inc = e_new_inc + VradN * (FXI + Vangtor_max_n * FX)
                     end if
-                  end do
                 end if
-                entot_new(indx_thread) = ener_new; entot_old(indx_thread) = ener_old; overlap_aux(indx_thread) = overlap
-              end if
             end if
-            call syncthreads()
-            if (indx_thread == 0) then
-              overlap = 0
-              do i=0,26; if (overlap_aux(i) == 1) overlap = 1; end do
-              if (overlap == 0) then
-                ener_old = 0.0_wp; ener_new = 0.0_wp
-                do i=0,26; ener_old = ener_old + entot_old(i); ener_new = ener_new + entot_new(i); end do
-                de1 = ener_new - ener_old; prob = exp(-beta*de1)
-                if (curand_uniform(RND_state(Indx_Rnd)) < prob) then
-                  Sphere_Cell(imol  ) = Dmove_x; Sphere_Cell(imol+1) = Dmove_y; Sphere_Cell(imol+2) = Dmove_z
-                  Sphere_Cell(imol+3) = Qmove_0; Sphere_Cell(imol+4) = Qmove_1; Sphere_Cell(imol+5) = Qmove_2; Sphere_Cell(imol+6) = Qmove_3
-                  DE = DE + de1; if (itras /= 0) then; ntrasa = ntrasa + 1; else; nrota = nrota + 1; end if
-                end if
-              end if
-            end if
-            call syncthreads()
-          end if
-          call syncthreads()
-        end do
-        call syncthreads()
-      end if
-      call syncthreads()
-      if (indx_thread == 0) then
-        Delta_energy(Indx_Cell) = DE; Ntras_ac(Indx_Cell) = ntrasa; Nrot_ac (Indx_Cell) = nrota
-      end if
-    end if
-  end subroutine subsweep
+        end if
+    end subroutine calc_pair_energy
+  
+  attributes(global) subroutine subsweep(RND_state, nstates, overlap_error, bool_tor, Ndim, Nmove, Nat_Cell_Max, &
+                                             Ntot_Cell, Nsubset_Cell, Npatches_max, Ntor_max, Ntypes, &
+                                             Npatches, patch, ref_tor, sigma_jon, sigma_tor, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, &
+                                             Ntor_angle, tor_angle, Vpot_Matrix, h, beta, hmax, omax, Sphere_Cell, List_Cell, Map_Cell, &
+                                             Nl_Cell, Nat_Cell, DR_Cell, Offset_CB, W_RU, Delta_energy, Ntras_ac, Nrot_ac)
+        type(curandStateXORWOW), intent(inout) :: RND_state(0:nstates-1)
+        integer, value :: nstates
+        integer, device, intent(inout) :: overlap_error(0:Ntot_Cell-1)
+        integer, device, intent(in) :: Npatches(0:Ntypes-1), Ntor_angle(0:Ntypes*Npatches_max-1)
+        integer, device, intent(in) :: List_Cell(0:Ntot_Cell*Nat_Cell_Max*2-1), Map_Cell(0:Ntot_Cell*26-1)
+        integer, device, intent(in) :: Nl_Cell(0:Ndim-1), Nat_Cell(0:Ntot_Cell-1), Offset_CB(0:Ndim-1)
+        integer, device, intent(inout) :: Ntras_ac(0:Ntot_Cell-1), Nrot_ac(0:Ntot_Cell-1)
+        integer, value :: bool_tor, Ndim, Nmove, Nat_Cell_Max, Ntot_Cell, Nsubset_Cell, Npatches_max, Ntor_max, Ntypes
+        real(wp), device, intent(in) :: patch(0:Ntypes*Npatches_max*Ndim-1), ref_tor(0:Ntypes*Npatches_max*Ndim-1)
+        real(wp), device, intent(in) :: sigma_jon(0:Ntypes*Npatches_max-1), sigma_LJ(0:Ntypes*Ntypes-1), epsilon_LJ(0:Ntypes*Ntypes-1)
+        real(wp), device, intent(in) :: rangeP(0:Ntypes*Ntypes-1), VL0(0:Ntypes*Ntypes-1), XOP(0:Ntypes*Ntypes-1)
+        real(wp), device, intent(in) :: tor_angle(0:Ntypes*Npatches_max*Ntor_max-1), Vpot_Matrix(0:Ntypes*Npatches_max*Ntypes*Npatches_max-1)
+        real(wp), device, intent(in) :: h(0:Ndim*Ndim-1), DR_Cell(0:Ntot_Cell*26*3-1)
+        real(dkind), device, intent(in) :: W_RU(0:Ndim-1)
+        real(wp), value :: sigma_tor, beta, hmax, omax
+        real(wp), device, intent(inout) :: Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1)
+        real(dkind), device, intent(out) :: Delta_energy(0:Ntot_Cell-1)
 
+        ! Pruned local variables
+        integer :: Nl0, Nl1, Nl2, Nl02, Nl12, Nl22, Indx_Rnd, indx_atm_aux, indx_atm_aux2
+        integer :: j, l, s, overlap, imol, ICELL, indx_test, jmol, ntrasa, nrota
+        integer :: Indx_Cell2, Indx_Cell3, Nat_Cell_neigh, indx_neigh_aux2, itras, indx_neigh_auxp, imol2, jmol2, itypej
+        integer :: i, indx_thread, indx_rnd_x, indx_rnd_y, indx_rnd_z, jcell_x, jcell_y, jcell_z
+        integer :: is_overlap, is_fatal_overlap
+        
+        integer, shared :: Indx_Cell, Nat_Cell_ijk, itypei, Npatchesi
+        
+        real(wp) :: H11, H12, H13, H21, H22, H23, H31, H32, H33
+        real(wp) :: dx_neigh, dy_neigh, dz_neigh, norm, XJ, YJ, ZJ, prob
+        real(wp) :: Rnd_or(0:3)
+        real(wp) :: a, pi, dospi, e_old_inc, e_new_inc
+        real(dkind) :: ener_new, ener_old, DE, de1
+        real(wp) :: Q0_old, Q1_old, Q2_old, Q3_old, Qmove_0, Qmove_1, Qmove_2, Qmove_3
+        
+        real(wp), shared :: R1(0:8), R1N(0:8), Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z, entot_new(0:NTHREAD-1), entot_old(0:NTHREAD-1)
+        integer, shared :: overlap_aux(0:NTHREAD-1)
+
+        a = 1000.0_wp; pi = acos(-1.0_wp); dospi = 2.0_wp*pi
+        indx_rnd = blockIdx%x - 1; Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2); Nl02 = Nl0/2; Nl12 = Nl1/2; Nl22 = Nl2/2
+        indx_rnd_z = indx_rnd/(Nl02*Nl12); indx_rnd_y = (indx_rnd - Nl02*Nl12*indx_rnd_z)/Nl02
+        if (indx_rnd_y == 0 .and. indx_rnd_z == 0) then; indx_rnd_x = indx_rnd; else; indx_rnd_x = mod(indx_rnd, indx_rnd_y*Nl02 + indx_rnd_z*Nl02*Nl12); end if
+        jcell_x = 2*indx_rnd_x + Offset_CB(0); jcell_y = 2*indx_rnd_y + Offset_CB(1); jcell_z = 2*indx_rnd_z + Offset_CB(2)
+        indx_thread = threadIdx%x - 1
+
+        if (jcell_x < Nl0 .and. jcell_y < Nl1 .and. jcell_z < Nl2) then
+            Indx_Cell = mod(jcell_x+Nl0, Nl0) + mod(jcell_y+Nl1, Nl1)*Nl0 + mod(jcell_z+Nl2, Nl2)*Nl0*Nl1
+            Indx_Rnd = mod(indx_rnd_x+Nl02, Nl02) + mod(indx_rnd_y+Nl12, Nl12)*Nl02 + mod(indx_rnd_z+Nl22, Nl22)*Nl02*Nl12
+            Nat_Cell_ijk = Nat_Cell(Indx_Cell)
+            DE = 0.0_wp; ntrasa = 0; nrota = 0
+            call syncthreads()
+
+            if (Nat_Cell_ijk > 0) then
+                H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
+                indx_atm_aux  = Indx_Cell * Nat_Cell_Max * 7; indx_atm_aux2 = Indx_Cell * Nat_Cell_Max * 2
+                do s=0, Nmove-1
+                    if (indx_thread == 0) then
+                        indx_test = int(Nat_Cell_ijk * curand_uniform(RND_state(Indx_Rnd)))
+                        if (indx_test >= Nat_Cell_ijk) indx_test = Nat_Cell_ijk-1; if (indx_test < 0) indx_test = 0
+                        imol = indx_atm_aux  + indx_test*7; imol2= indx_atm_aux2 + indx_test*2
+                        itypei = List_Cell(imol2+1); Npatchesi = Npatches(itypei)
+                        Dx_old = Sphere_Cell(imol); Dy_old = Sphere_Cell(imol+1); Dz_old = Sphere_Cell(imol+2)
+                        Q0_old = Sphere_Cell(imol+3); Q1_old = Sphere_Cell(imol+4); Q2_old = Sphere_Cell(imol+5); Q3_old = Sphere_Cell(imol+6)
+                        if (Npatchesi > 0) then
+                            if (curand_uniform(RND_state(Indx_Rnd)) < 0.5_wp) then
+                                itras = 1
+                                Dmove_x = Dx_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
+                                Dmove_y = Dy_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
+                                Dmove_z = Dz_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
+                                Qmove_0 = Q0_old; Qmove_1 = Q1_old; Qmove_2 = Q2_old; Qmove_3 = Q3_old
+                            else
+                                itras = 0; Dmove_x = Dx_old; Dmove_y = Dy_old; Dmove_z = Dz_old
+                                call genranor(RND_state, nstates, Indx_Rnd, Rnd_or)
+                                Qmove_0 = Q0_old + Rnd_or(0)*omax; Qmove_1 = Q1_old + Rnd_or(1)*omax; Qmove_2 = Q2_old + Rnd_or(2)*omax; Qmove_3 = Q3_old + Rnd_or(3)*omax
+                                norm = sqrt(Qmove_0*Qmove_0 + Qmove_1*Qmove_1 + Qmove_2*Qmove_2 + Qmove_3*Qmove_3)
+                                Qmove_0 = Qmove_0/norm; Qmove_1 = Qmove_1/norm; Qmove_2 = Qmove_2/norm; Qmove_3 = Qmove_3/norm
+                            end if
+                            call rot_matrix(Q0_old,Q1_old,Q2_old,Q3_old,R1); call rot_matrix(Qmove_0,Qmove_1,Qmove_2,Qmove_3,R1N)
+                        else
+                            itras = 1
+                            Dmove_x = Dx_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
+                            Dmove_y = Dy_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
+                            Dmove_z = Dz_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
+                            Qmove_0 = Q0_old; Qmove_1 = Q1_old; Qmove_2 = Q2_old; Qmove_3 = Q3_old
+                        endif
+                    end if
+                    entot_old(indx_thread) = 0.0_wp; entot_new(indx_thread) = 0.0_wp; overlap_aux(indx_thread) = 0
+                    call syncthreads()
+
+                    if (abs(Dmove_x) < 0.5_wp*W_RU(0) .and. abs(Dmove_y) < 0.5_wp*W_RU(1) .and. abs(Dmove_z) < 0.5_wp*W_RU(2)) then
+                        if (indx_thread == 0) then
+                            ener_old = 0.0d0; ener_new = 0.0d0; overlap  = 0
+                            do j=0, Nat_Cell_ijk-1
+                                if (j /= indx_test) then
+                                    jmol  = indx_atm_aux  + j*7; jmol2 = indx_atm_aux2 + j*2
+                                    XJ = Sphere_Cell(jmol); YJ = Sphere_Cell(jmol+1); ZJ = Sphere_Cell(jmol+2)
+                                    itypej = List_Cell(jmol2+1)
+                                    
+                                    call calc_pair_energy( &
+                                        XJ, YJ, ZJ, jmol, Sphere_Cell, &
+                                        Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z, &
+                                        R1, R1N, H11, H12, H13, H21, H22, H23, H31, H32, H33, &
+                                        itypei, itypej, bool_tor, a, pi, dospi, &
+                                        Ntypes, Npatches_max, Ndim, Ntor_max, sigma_tor, &
+                                        Npatches, patch, ref_tor, sigma_jon, sigma_LJ, epsilon_LJ, &
+                                        rangeP, VL0, XOP, tor_angle, Vpot_Matrix, Ntor_angle, &
+                                        e_old_inc, e_new_inc, is_overlap, is_fatal_overlap)
+                                        
+                                    if (is_fatal_overlap == 1) then; overlap_error(Indx_Cell) = 1; return; end if
+                                    if (is_overlap == 1) then; overlap = 1; ener_new = ener_new + 9.0e+33_wp; end if
+                                    
+                                    ener_old = ener_old + e_old_inc
+                                    ener_new = ener_new + e_new_inc
+                                end if
+                            end do
+                            entot_old(indx_thread) = ener_old; entot_new(indx_thread) = ener_new; overlap_aux(indx_thread) = overlap
+                        else
+                            ICELL = indx_thread - 1; ener_old = 0.0d0; ener_new = 0.0d0; overlap  = 0
+                            if (ICELL < 26) then
+                                Indx_Cell2 = Indx_Cell*26 + ICELL; Indx_Cell2 = Map_Cell(Indx_Cell2); Nat_Cell_neigh = Nat_Cell(Indx_Cell2)
+                                Indx_Cell3 = Indx_Cell*26*3 + ICELL*3
+                                dx_neigh = DR_Cell(Indx_Cell3); dy_neigh = DR_Cell(Indx_Cell3+1); dz_neigh = DR_Cell(Indx_Cell3+2)
+                                if (Nat_Cell_neigh > 0) then
+                                    indx_neigh_aux2 = Indx_Cell2 * Nat_Cell_Max * 7; indx_neigh_auxp = Indx_Cell2 * Nat_Cell_Max * 2
+                                    do l=0, Nat_Cell_neigh-1
+                                        jmol = indx_neigh_aux2 + l*7; jmol2= indx_neigh_auxp + l*2
+                                        XJ = Sphere_Cell(jmol)   + dx_neigh
+                                        YJ = Sphere_Cell(jmol+1) + dy_neigh
+                                        ZJ = Sphere_Cell(jmol+2) + dz_neigh
+                                        itypej = List_Cell(jmol2 + 1)
+                                        
+                                        call calc_pair_energy( &
+                                            XJ, YJ, ZJ, jmol, Sphere_Cell, &
+                                            Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z, &
+                                            R1, R1N, H11, H12, H13, H21, H22, H23, H31, H32, H33, &
+                                            itypei, itypej, bool_tor, a, pi, dospi, &
+                                            Ntypes, Npatches_max, Ndim, Ntor_max, sigma_tor, &
+                                            Npatches, patch, ref_tor, sigma_jon, sigma_LJ, epsilon_LJ, &
+                                            rangeP, VL0, XOP, tor_angle, Vpot_Matrix, Ntor_angle, &
+                                            e_old_inc, e_new_inc, is_overlap, is_fatal_overlap)
+                                            
+                                        if (is_fatal_overlap == 1) then; overlap_error(Indx_Cell) = 1; return; end if
+                                        if (is_overlap == 1) then; overlap = 1; ener_new = ener_new + 99999999999._wp; end if
+                                        
+                                        ener_old = ener_old + e_old_inc
+                                        ener_new = ener_new + e_new_inc
+                                    end do
+                                end if
+                                entot_new(indx_thread) = ener_new; entot_old(indx_thread) = ener_old; overlap_aux(indx_thread) = overlap
+                            end if
+                        end if
+                        call syncthreads()
+
+                        if (indx_thread == 0) then
+                            overlap = 0
+                            do i=0,26; if (overlap_aux(i) == 1) overlap = 1; end do
+                            if (overlap == 0) then
+                                ener_old = 0.0_wp; ener_new = 0.0_wp
+                                do i=0,26; ener_old = ener_old + entot_old(i); ener_new = ener_new + entot_new(i); end do
+                                de1 = ener_new - ener_old; prob = exp(-beta*de1)
+                                if (curand_uniform(RND_state(Indx_Rnd)) < prob) then
+                                    Sphere_Cell(imol  ) = Dmove_x; Sphere_Cell(imol+1) = Dmove_y; Sphere_Cell(imol+2) = Dmove_z
+                                    Sphere_Cell(imol+3) = Qmove_0; Sphere_Cell(imol+4) = Qmove_1; Sphere_Cell(imol+5) = Qmove_2; Sphere_Cell(imol+6) = Qmove_3
+                                    DE = DE + de1; if (itras /= 0) then; ntrasa = ntrasa + 1; else; nrota = nrota + 1; end if
+                                end if
+                            end if
+                        end if
+                        call syncthreads()
+                    end if
+                    call syncthreads()
+                end do
+                call syncthreads()
+            end if
+            call syncthreads()
+
+            if (indx_thread == 0) then
+                Delta_energy(Indx_Cell) = DE; Ntras_ac(Indx_Cell) = ntrasa; Nrot_ac (Indx_Cell) = nrota
+            end if
+        end if
+    end subroutine subsweep
+    
   ! ==============================================================================
   ! KERNEL: subsweep_LJ (Optimized Pure Lennard-Jones Monte Carlo Moves)
   ! ==============================================================================
