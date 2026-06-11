@@ -1,5 +1,8 @@
 ! ==============================================================================
 ! MODULE: cuda_fortran
+! DESCRIPTION: This module contains all the CUDA device variables, helper 
+! functions, device kernels, and host wrappers required to perform 
+! Monte Carlo sweeps, evaluate energies, and update cell lists on the GPU.
 ! ==============================================================================
 module cuda_fortran
   use cudafor
@@ -8,6 +11,10 @@ module cuda_fortran
   use set_precision
   implicit none
 
+  ! ----------------------------------------------------------------------------
+  ! DEVICE MEMORY ARRAYS (State, Cell Lists, and Potential Parameters)
+  ! ----------------------------------------------------------------------------
+  ! Cell list tracking arrays
   integer, device, allocatable, save :: Map_Cell_dev(:)      
   integer, device, allocatable, save :: Offset_dev(:)        
   integer, device, allocatable, save :: Nl_Cell_dev(:)       
@@ -16,6 +23,7 @@ module cuda_fortran
   integer, device, allocatable, save :: Nat_Cell_new(:)      
   integer, device, allocatable, save :: List_Cell_new(:)     
   
+  ! Patchy / Torsional potential parameters
   integer, device, allocatable, save :: Npatches_dev(:)      
   integer, device, allocatable, save :: Ntor_angle_dev(:)    
   real(wp), device, allocatable, save :: patchdev(:)         
@@ -23,24 +31,28 @@ module cuda_fortran
   real(wp), device, allocatable, save :: tor_angle_dev(:)    
   real(wp), device, allocatable, save :: Vpot_Matrix_dev(:)  
   real(wp), device, allocatable, save :: sigma_jon_dev(:)    
-  ! ---> ADDED epsilon_LJ_dev
+  
+  ! Isotropic Lennard-Jones & repulsive parameters
   real(wp), device, allocatable, save :: sigma_LJ_dev(:), epsilon_LJ_dev(:)
   real(wp), device, allocatable, save :: range_dev(:)        
   real(wp), device, allocatable, save :: XOP_dev(:)          
   real(wp), device, allocatable, save :: VL0_dev(:)          
   
+  ! Particle coordinates and orientations (Quaternions)
   real(wp), device, allocatable, save :: Sphere_Celldev(:)   
   real(wp), device, allocatable, save :: Sphere_Cell_new(:)  
   
+  ! Simulation box and displacement parameters
   real(dkind), device, allocatable, save :: W_RU_dev(:)      
   real(wp), device, allocatable, save :: hdev(:)             
   real(wp), device, allocatable, save :: DR_Cell_dev(:)      
   real(wp), device, allocatable, save :: disp_dev(:)         
   integer, device, allocatable, save :: ivec_dev(:)          
   
+  ! Energy and acceptance tracking
   real(dkind), device, allocatable, save :: energydev(:)        
   real(dkind), device, allocatable, save :: Delta_E_dev(:)      
-  real(dkind), allocatable, save :: Delta_E(:), energy(:)       
+  real(dkind), allocatable, save :: Delta_E(:), energy(:) 
   
   integer, device, allocatable, save :: overlap_error_dev(:) 
   integer, allocatable, save :: overlap_error(:)             
@@ -48,6 +60,7 @@ module cuda_fortran
   integer, device, allocatable, save :: Nrot_ac_dev(:)       
   integer, allocatable, save :: Ntras_ac(:), Nrot_ac(:)      
 
+  ! Random Number Generator states for each GPU thread
   type(curandStateXORWOW), device, allocatable, save :: RND_States(:)
   
   integer, save :: init_subsweep = 0, init_shift = 0
@@ -55,6 +68,10 @@ module cuda_fortran
 
 contains
 
+  ! ==============================================================================
+  ! KERNEL: setup_random_kernel
+  ! DESCRIPTION: Initializes the cuRAND states for a given number of threads.
+  ! ==============================================================================
   attributes(global) subroutine setup_random_kernel(seed, offset, state, nstates)
       integer(kind=8), intent(in), value :: seed
       integer(kind=8), intent(in), value :: offset
@@ -62,20 +79,30 @@ contains
       type(curandStateXORWOW), intent(inout) :: state(0:nstates - 1)
       integer :: Indx_Cell
       Indx_Cell = (threadIdx%x + (blockIdx%x - 1)*blockDim%x) - 1
+    
       if (Indx_Cell <= nstates) call curand_init(seed, Indx_Cell, offset, state(Indx_Cell))
   end subroutine setup_random_kernel
 
-  ! ---> ADDED eps to signature and math
-  ! ---> ADDED eps to signature and REPLACED dist with RSQ
+  ! ==============================================================================
+  ! DEVICE FUNCTION: vlj
+  ! DESCRIPTION: Calculates the Lennard-Jones potential interaction given the 
+  ! squared distance (RSQ) between two particles.
+  ! ==============================================================================
   attributes(device) subroutine vlj(RSQ, sigma, eps, VL0, Vrad)
     real(wp), intent(in), value :: RSQ, sigma, eps, VL0
     real(wp), intent(out) :: Vrad
     real(wp) :: R126, R1212
     R126 = (RSQ / (sigma * sigma))**3
     R1212 = R126 * R126
+    ! Standard 12-6 LJ form shifted by VL0
     Vrad = -4.0_wp * eps * ( (R1212 - R126)/(R1212*R126) + VL0 )
   end subroutine vlj
 
+  ! ==============================================================================
+  ! DEVICE FUNCTION: get_torsion
+  ! DESCRIPTION: Computes the cross product (torsion vector) of a patch vector (P)
+  ! and the distance vector (D) between two particles.
+  ! ==============================================================================
   attributes(device) subroutine get_torsion(PX,PY,PZ, DX,DY,DZ, vx,vy,vz, modv)
     real(wp), intent(in), value :: PX,PY,PZ, DX,DY,DZ
     real(wp), intent(out) :: vx,vy,vz, modv
@@ -85,11 +112,17 @@ contains
     modv = sqrt(vx*vx + vy*vy + vz*vz)
   end subroutine get_torsion
 
+  ! ==============================================================================
+  ! DEVICE FUNCTION: get_torsion_angle
+  ! DESCRIPTION: Extracts the dihedral/torsional angle between two patch vectors 
+  ! interacting across a distance.
+  ! ==============================================================================
   attributes(device) subroutine get_torsion_angle(v1x,v1y,v1z,mod_v1, v2x,v2y,v2z,mod_v2, DX,DY,DZ, dist, torsion)
     real(wp), intent(in), value :: v1x,v1y,v1z,mod_v1, v2x,v2y,v2z,mod_v2, DX,DY,DZ, dist
     real(wp), intent(out) :: torsion
     real(wp) :: cangle, v12x,v12y,v12z, v12b2
     cangle = (v1x*v2x + v1y*v2y + v1z*v2z)/mod_v1/mod_v2
+    ! Prevent NaN from floating point precision issues causing acos domain errors
     if (abs(cangle) > 1.0_wp) then
       if (abs(cangle) - 1.0_wp < 1.0e-4_wp) cangle = sign(1.0_wp, cangle)
     end if
@@ -101,18 +134,29 @@ contains
     torsion = atan2(v12b2, cangle)
   end subroutine get_torsion_angle
 
-  ! ---> CHANGED signature to return RSQ as well
+  ! ==============================================================================
+  ! DEVICE FUNCTION: get_dist
+  ! DESCRIPTION: Computes the distance vector between two particles applying the
+  ! Minimum Image Convention (MIC) under Periodic Boundary Conditions (PBC)
+  ! using the box transformation matrix (H).
+  ! ==============================================================================
   attributes(device) subroutine get_dist(XJ,YJ,ZJ,XI,YI,ZI, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX,DY,DZ, RSQ, dist)
     real(wp), intent(in), value :: XJ,YJ,ZJ,XI,YI,ZI, H11,H12,H13,H21,H22,H23,H31,H32,H33
     real(wp), intent(out) :: DX,DY,DZ, RSQ, dist
     real(wp) :: DXP,DYP,DZP
     DX = XJ - XI; DY = YJ - YI; DZ = ZJ - ZI
+    ! Convert to fractional coordinates and apply minimum image rounding
     DXP = DX - anint(DX); DYP = DY - anint(DY); DZP = DZ - anint(DZ)
+    ! Convert back to Cartesian coordinates
     DX = H11*DXP + H12*DYP + H13*DZP; DY = H21*DXP + H22*DYP + H23*DZP; DZ = H31*DXP + H32*DYP + H33*DZP
     RSQ = DX*DX + DY*DY + DZ*DZ
     dist = sqrt(RSQ)
   end subroutine get_dist
 
+  ! ==============================================================================
+  ! DEVICE FUNCTION: rot_matrix
+  ! DESCRIPTION: Generates a 3x3 rotation matrix (R) from a Quaternion (Q0-Q3).
+  ! ==============================================================================
   attributes(device) subroutine rot_matrix(Q0, Q1, Q2, Q3, R)
     real(wp), intent(in), value :: Q0,Q1,Q2,Q3
     real(wp), intent(out) :: R(0:8)
@@ -124,6 +168,11 @@ contains
     R(6) = 2.0_wp*(Q1Q3-Q0Q2); R(7) = 2.0_wp*(Q2Q3+Q0Q1); R(8) = Q02-Q12-Q22+Q32
   end subroutine rot_matrix
 
+  ! ==============================================================================
+  ! DEVICE FUNCTION: patch_real
+  ! DESCRIPTION: Rotates a patch vector (PX, PY, PZ) into real space (PX2, PY2, PZ2)
+  ! using a provided rotation matrix R.
+  ! ==============================================================================
   attributes(device) subroutine patch_real(PX,PY,PZ, R, PX2,PY2,PZ2)
     real(wp), intent(in), value :: PX,PY,PZ
     real(wp), intent(in) :: R(0:8)
@@ -131,6 +180,10 @@ contains
     PX2 = R(0)*PX + R(1)*PY + R(2)*PZ; PY2 = R(3)*PX + R(4)*PY + R(5)*PZ; PZ2 = R(6)*PX + R(7)*PY + R(8)*PZ
   end subroutine patch_real
 
+  ! ==============================================================================
+  ! DEVICE FUNCTION: get_cosine
+  ! DESCRIPTION: Safely computes the arccosine avoiding out-of-domain errors.
+  ! ==============================================================================
   attributes(device) subroutine get_cosine(CSOMG, OMG)
     real(wp), intent(in), value :: CSOMG
     real(wp), intent(out) :: OMG
@@ -140,11 +193,17 @@ contains
     OMG = acos(CSOMG)
   end subroutine get_cosine
 
+  ! ==============================================================================
+  ! DEVICE FUNCTION: genranor
+  ! DESCRIPTION: Generates a random 3D orientation (quaternion) based on 
+  ! Marsaglia's uniform hypersphere point picking algorithm.
+  ! ==============================================================================
   attributes(device) subroutine genranor(RND_state, nstates, Indx_Rnd, Rnd_or)
     type(curandStateXORWOW), intent(inout) :: RND_state(0:nstates-1)
     integer, intent(in), value :: nstates, Indx_Rnd
     real(wp), intent(out) :: Rnd_or(0:3)
     real(wp) :: xran1,xran2,xran3,xran4, ransq12, ransq34, ranh
+    
     ransq12 = 2.0_wp
     do
       xran1 = 1.0_wp - 2.0_wp * curand_uniform(RND_state(Indx_Rnd))
@@ -152,6 +211,7 @@ contains
       ransq12 = xran1*xran1 + xran2*xran2
       if (.not. (ransq12 >= 1.0_wp)) exit
     end do
+    
     ransq34 = 2.0_wp
     do
       xran3 = 1.0_wp - 2.0_wp * curand_uniform(RND_state(Indx_Rnd))
@@ -159,12 +219,16 @@ contains
       ransq34 = xran3*xran3 + xran4*xran4
       if (.not. (ransq34 >= 1.0_wp)) exit
     end do
+    
     ranh = sqrt( (1.0_wp - ransq12)/ransq34 )
     Rnd_or(0) = xran1; Rnd_or(1) = xran2; Rnd_or(2) = xran3*ranh; Rnd_or(3) = xran4*ranh
   end subroutine genranor
 
   ! ==============================================================================
   ! KERNEL: enerGPU (System Energy)
+  ! DESCRIPTION: Computes the full energy of the system for patchy particles by 
+  ! mapping each thread block to a region in the cell list. It iterates over 
+  ! particles within a cell and their 26 neighboring cells.
   ! ==============================================================================
   attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Npatches_max, Ntor_max, Ntypes, &
                                         Npatches, Ntor_angle, tor_angle, patch, ref_tor, range, sigma_jon, sigma_tor, &
@@ -200,6 +264,7 @@ contains
     real(wp) :: a, pi, dospi
 
     a = 1000.0_wp; pi = acos(-1.0_wp); dospi = 2.0_wp*pi
+    ! Determine 1D index of the thread representing a single Cell
     Indx_Cell = (threadIdx%x + (blockIdx%x-1)*blockDim%x) - 1
     Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2)
     jcell_z = Indx_Cell/(Nl0*Nl1)
@@ -214,11 +279,14 @@ contains
           H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
           indx_atm_aux  = Indx_Cell * Nat_Cell_Max * 7; indx_atm_aux2 = Indx_Cell * Nat_Cell_Max * 2
           
+          ! Evaluate particles in the current cell interacting with other particles in the SAME cell
           do m=0, Nat_Cell_ijk-1
             imol = indx_atm_aux + m*7; imol2 = indx_atm_aux2 + m*2
             xi = Sphere_Cell(imol); yi = Sphere_Cell(imol + 1); zi = Sphere_Cell(imol + 2)
             Q0i = Sphere_Cell(imol + 3); Q1i = Sphere_Cell(imol + 4); Q2i = Sphere_Cell(imol + 5); Q3i = Sphere_Cell(imol + 6)
             itypei = List_Cell(imol2 + 1)
+            
+            ! Compute Rotation Matrix R1 for particle i from quaternions
             Q102=Q0i*Q0i; Q112=Q1i*Q1i; Q122=Q2i*Q2i; Q132=Q3i*Q3i; Q10Q11=Q0i*Q1i; Q10Q12=Q0i*Q2i; Q10Q13=Q0i*Q3i; Q11Q12=Q1i*Q2i; Q11Q13=Q1i*Q3i; Q12Q13=Q2i*Q3i
             R111 = Q102+Q112-Q122-Q132; R112 = 2.0_wp*(Q11Q12-Q10Q13); R113 = 2.0_wp*(Q11Q13+Q10Q12)
             R121 = 2.0_wp*(Q11Q12+Q10Q13); R122 = Q102-Q112+Q122-Q132; R123 = 2.0_wp*(Q12Q13-Q10Q11)
@@ -236,6 +304,7 @@ contains
                 RSQ = DX*DX + DY*DY + DZ*DZ
                 dist = sqrt(RSQ)
                 
+                ! Trap hard overlaps instantly
                 if (RSQ <= 0.25_wp) then
                   energy(Indx_Cell) = 9.0d99; return
                 else if (RSQ < 0.9604_wp * s_LJ_aux * s_LJ_aux) then
@@ -246,6 +315,7 @@ contains
                     call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
                     energ = energ + Vrad
                   else
+                    ! Patch-Patch Interaction evaluation
                     Q0j = Sphere_Cell(jmol + 3); Q1j = Sphere_Cell(jmol + 4); Q2j = Sphere_Cell(jmol + 5); Q3j = Sphere_Cell(jmol + 6)
                     Q202=Q0j*Q0j; Q212=Q1j*Q1j; Q222=Q2j*Q2j; Q232=Q3j*Q3j; Q20Q21=Q0j*Q1j; Q20Q22=Q0j*Q2j; Q20Q23=Q0j*Q3j; Q21Q22=Q1j*Q2j; Q21Q23=Q1j*Q3j; Q22Q23=Q2j*Q3j
                     R211 = Q202+Q212-Q222-Q232; R212 = 2.0_wp*(Q21Q22-Q20Q23); R213 = 2.0_wp*(Q21Q23+Q20Q22)
@@ -320,6 +390,7 @@ contains
                         end if
                       end do
                     end do
+                  
                     if (Vangtor_max == -1.0_wp) then
                       energ=energ+0.0_wp
                     else
@@ -332,6 +403,7 @@ contains
               end if
             end do
             
+            ! Evaluate particles in the current cell interacting with particles in 26 NEIGHBORING cells
             do ICell=0,25
               Indx_Cell2 = Map_Cell(Indx_Cell*26 + ICell); Nat_Cell_neigh = Nat_Cell(Indx_Cell2)
               Indx_Cell3 = Indx_Cell*26*3 + ICell*3
@@ -360,6 +432,7 @@ contains
                       call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
                       energ = energ + Vrad
                     else
+                      ! Repeat Patch-Patch Interaction for Neighbors
                       Q0j = Sphere_Cell(jmol + 3); Q1j = Sphere_Cell(jmol + 4); Q2j = Sphere_Cell(jmol + 5); Q3j = Sphere_Cell(jmol + 6)
                       Q202=Q0j*Q0j; Q212=Q1j*Q1j; Q222=Q2j*Q2j; Q232=Q3j*Q3j; Q20Q21=Q0j*Q1j; Q20Q22=Q0j*Q2j; Q20Q23=Q0j*Q3j; Q21Q22=Q1j*Q2j; Q21Q23=Q1j*Q3j; Q22Q23=Q2j*Q3j
                       R211 = Q202+Q212-Q222-Q232; R212 = 2.0_wp*(Q21Q22-Q20Q23); R213 = 2.0_wp*(Q21Q23+Q20Q22); R221 = 2.0_wp*(Q21Q22+Q20Q23); R222 = Q202-Q212+Q222-Q232
@@ -454,6 +527,9 @@ contains
 
   ! ==============================================================================
   ! KERNEL: enerGPU_LJ (Pure Isotropic LJ)
+  ! DESCRIPTION: A highly optimized, simplified version of the energy calculation 
+  ! kernel designed specifically for standard, isotropic Lennard-Jones particles, 
+  ! bypassing all the rotational / patchy logic.
   ! ==============================================================================
   attributes(global) subroutine enerGPU_LJ(Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, &
                                          range, sigma_LJ, epsilon_LJ, VL0, h, Sphere_Cell, List_Cell, Map_Cell, Nl_Cell, &
@@ -549,7 +625,13 @@ contains
       end if
   end subroutine enerGPU_LJ
 
-   attributes(device) subroutine calc_pair_energy( &
+  ! ==============================================================================
+  ! DEVICE FUNCTION: calc_pair_energy
+  ! DESCRIPTION: Computes the isolated pairwise interaction energy specifically 
+  ! extracted for use within the Monte Carlo trial moves (`subsweep`). It evaluates 
+  ! the energy increment for both the 'old' and 'new' trial states simultaneously.
+  ! ==============================================================================
+  attributes(device) subroutine calc_pair_energy( &
         XJ, YJ, ZJ, jmol, Sphere_Cell, &
         Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z, &
         R1, R1N, H11, H12, H13, H21, H22, H23, H31, H32, H33, &
@@ -707,6 +789,13 @@ contains
         end if
     end subroutine calc_pair_energy
   
+  ! ==============================================================================
+  ! KERNEL: subsweep
+  ! DESCRIPTION: Master routine for a Monte Carlo sweep (patchy potentials). 
+  ! Uses a checkerboard spatial decomposition (to prevent race conditions) where 
+  ! non-adjacent cells are assigned to blocks. Within a cell, threads evaluate 
+  ! trial translations/rotations and accept via the Metropolis criterion.
+  ! ==============================================================================
   attributes(global) subroutine subsweep(RND_state, nstates, overlap_error, bool_tor, Ndim, Nmove, Nat_Cell_Max, &
                                              Ntot_Cell, Nsubset_Cell, Npatches_max, Ntor_max, Ntypes, &
                                              Npatches, patch, ref_tor, sigma_jon, sigma_tor, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, &
@@ -730,7 +819,7 @@ contains
         real(wp), device, intent(inout) :: Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1)
         real(dkind), device, intent(out) :: Delta_energy(0:Ntot_Cell-1)
 
-        ! Pruned local variables
+        ! Pruned local variables mapping to thread/block
         integer :: Nl0, Nl1, Nl2, Nl02, Nl12, Nl22, Indx_Rnd, indx_atm_aux, indx_atm_aux2
         integer :: j, l, s, overlap, imol, ICELL, indx_test, jmol, ntrasa, nrota
         integer :: Indx_Cell2, Indx_Cell3, Nat_Cell_neigh, indx_neigh_aux2, itras, indx_neigh_auxp, imol2, jmol2, itypej
@@ -738,11 +827,9 @@ contains
         integer :: is_overlap, is_fatal_overlap
         
         integer, shared :: Indx_Cell, Nat_Cell_ijk, itypei, Npatchesi
-        
         real(wp) :: H11, H12, H13, H21, H22, H23, H31, H32, H33
         real(wp) :: dx_neigh, dy_neigh, dz_neigh, norm, XJ, YJ, ZJ, prob
-        real(wp) :: Rnd_or(0:3)
-        real(wp) :: a, pi, dospi, e_old_inc, e_new_inc
+        real(wp) :: Rnd_or(0:3), a, pi, dospi, e_old_inc, e_new_inc
         real(dkind) :: ener_new, ener_old, DE, de1
         real(wp) :: Q0_old, Q1_old, Q2_old, Q3_old, Qmove_0, Qmove_1, Qmove_2, Qmove_3
         
@@ -753,6 +840,7 @@ contains
         indx_rnd = blockIdx%x - 1; Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2); Nl02 = Nl0/2; Nl12 = Nl1/2; Nl22 = Nl2/2
         indx_rnd_z = indx_rnd/(Nl02*Nl12); indx_rnd_y = (indx_rnd - Nl02*Nl12*indx_rnd_z)/Nl02
         if (indx_rnd_y == 0 .and. indx_rnd_z == 0) then; indx_rnd_x = indx_rnd; else; indx_rnd_x = mod(indx_rnd, indx_rnd_y*Nl02 + indx_rnd_z*Nl02*Nl12); end if
+        ! Apply checkerboard offset
         jcell_x = 2*indx_rnd_x + Offset_CB(0); jcell_y = 2*indx_rnd_y + Offset_CB(1); jcell_z = 2*indx_rnd_z + Offset_CB(2)
         indx_thread = threadIdx%x - 1
 
@@ -766,7 +854,10 @@ contains
             if (Nat_Cell_ijk > 0) then
                 H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
                 indx_atm_aux  = Indx_Cell * Nat_Cell_Max * 7; indx_atm_aux2 = Indx_Cell * Nat_Cell_Max * 2
+                
+                ! Perform Nmove consecutive trial moves in this cell
                 do s=0, Nmove-1
+                    ! Thread 0 picks the particle and proposes the trial move
                     if (indx_thread == 0) then
                         indx_test = int(Nat_Cell_ijk * curand_uniform(RND_state(Indx_Rnd)))
                         if (indx_test >= Nat_Cell_ijk) indx_test = Nat_Cell_ijk-1; if (indx_test < 0) indx_test = 0
@@ -774,6 +865,8 @@ contains
                         itypei = List_Cell(imol2+1); Npatchesi = Npatches(itypei)
                         Dx_old = Sphere_Cell(imol); Dy_old = Sphere_Cell(imol+1); Dz_old = Sphere_Cell(imol+2)
                         Q0_old = Sphere_Cell(imol+3); Q1_old = Sphere_Cell(imol+4); Q2_old = Sphere_Cell(imol+5); Q3_old = Sphere_Cell(imol+6)
+                        
+                        ! Propose Move (50% Translation / 50% Rotation if patchy)
                         if (Npatchesi > 0) then
                             if (curand_uniform(RND_state(Indx_Rnd)) < 0.5_wp) then
                                 itras = 1
@@ -797,10 +890,13 @@ contains
                             Qmove_0 = Q0_old; Qmove_1 = Q1_old; Qmove_2 = Q2_old; Qmove_3 = Q3_old
                         endif
                     end if
+                    
                     entot_old(indx_thread) = 0.0_wp; entot_new(indx_thread) = 0.0_wp; overlap_aux(indx_thread) = 0
                     call syncthreads()
 
+                    ! Check if the particle translated out of bounds bounds
                     if (abs(Dmove_x) < 0.5_wp*W_RU(0) .and. abs(Dmove_y) < 0.5_wp*W_RU(1) .and. abs(Dmove_z) < 0.5_wp*W_RU(2)) then
+                        ! Thread 0 evaluates self-interactions
                         if (indx_thread == 0) then
                             ener_old = 0.0d0; ener_new = 0.0d0; overlap  = 0
                             do j=0, Nat_Cell_ijk-1
@@ -828,6 +924,7 @@ contains
                             end do
                             entot_old(indx_thread) = ener_old; entot_new(indx_thread) = ener_new; overlap_aux(indx_thread) = overlap
                         else
+                            ! Threads 1-26 evaluate interactions with the 26 neighboring cells concurrently
                             ICELL = indx_thread - 1; ener_old = 0.0d0; ener_new = 0.0d0; overlap  = 0
                             if (ICELL < 26) then
                                 Indx_Cell2 = Indx_Cell*26 + ICELL; Indx_Cell2 = Map_Cell(Indx_Cell2); Nat_Cell_neigh = Nat_Cell(Indx_Cell2)
@@ -864,6 +961,7 @@ contains
                         end if
                         call syncthreads()
 
+                        ! Collect threaded energies back at thread 0 and apply Metropolis acceptance criterion
                         if (indx_thread == 0) then
                             overlap = 0
                             do i=0,26; if (overlap_aux(i) == 1) overlap = 1; end do
@@ -871,6 +969,7 @@ contains
                                 ener_old = 0.0_wp; ener_new = 0.0_wp
                                 do i=0,26; ener_old = ener_old + entot_old(i); ener_new = ener_new + entot_new(i); end do
                                 de1 = ener_new - ener_old; prob = exp(-beta*de1)
+                                ! Metropolis logic
                                 if (curand_uniform(RND_state(Indx_Rnd)) < prob) then
                                     Sphere_Cell(imol  ) = Dmove_x; Sphere_Cell(imol+1) = Dmove_y; Sphere_Cell(imol+2) = Dmove_z
                                     Sphere_Cell(imol+3) = Qmove_0; Sphere_Cell(imol+4) = Qmove_1; Sphere_Cell(imol+5) = Qmove_2; Sphere_Cell(imol+6) = Qmove_3
@@ -893,7 +992,9 @@ contains
     end subroutine subsweep
     
   ! ==============================================================================
-  ! KERNEL: subsweep_LJ (Optimized Pure Lennard-Jones Monte Carlo Moves)
+  ! KERNEL: subsweep_LJ 
+  ! DESCRIPTION: Optimized Master routine for pure Isotropic LJ potentials.
+  ! Strips away patchy and orientation logic completely for pure performance.
   ! ==============================================================================
   attributes(global) subroutine subsweep_LJ(RND_state, nstates, overlap_error, bool_tor, Ndim, Nmove, Nat_Cell_Max, &
                                          Ntot_Cell, Nsubset_Cell, Npatches_max, Ntor_max, Ntypes, &
@@ -918,7 +1019,6 @@ contains
     real(wp), device, intent(inout) :: Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1)
     real(dkind), device, intent(out) :: Delta_energy(0:Ntot_Cell-1)
 
-    ! Streamlined local variables (All Patchy/Torsion variables completely removed)
     integer :: Nl0, Nl1, Nl2, Nl02, Nl12, Nl22, Indx_Rnd, indx_atm_aux, indx_atm_aux2
     integer :: j, l, s, overlap, imol, imol2, ICELL, indx_test, jmol, jmol2, ntrasa
     integer :: Indx_Cell2, Indx_Cell3, Nat_Cell_neigh, indx_neigh_aux2, indx_neigh_auxp, itypej
@@ -958,6 +1058,7 @@ contains
             itypei = List_Cell(imol2+1)
             
             Dx_old = Sphere_Cell(imol); Dy_old = Sphere_Cell(imol+1); Dz_old = Sphere_Cell(imol+2)
+            
             ! Preserve orientations even though they don't change during pure LJ moves
             Qmove_0 = Sphere_Cell(imol+3); Qmove_1 = Sphere_Cell(imol+4); Qmove_2 = Sphere_Cell(imol+5); Qmove_3 = Sphere_Cell(imol+6)
             
@@ -1030,7 +1131,6 @@ contains
                       if (RSQ < rangeP_aux*rangeP_aux) then
                         call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad); ener_old = ener_old + Vrad
                       end if
-                      ! FIXED TYPO: Now correctly passes VradN instead of Vrad to new energy tracking
                       if (RSQn < rangeP_aux*rangeP_aux) then
                         call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, VradN); ener_new = ener_new + VradN
                       end if
@@ -1071,6 +1171,12 @@ contains
     end if
   end subroutine subsweep_LJ
 
+  ! ==============================================================================
+  ! KERNEL: shiftGPU
+  ! DESCRIPTION: Detects if a particle has crossed a cell boundary. If so, updates
+  ! its fractional coordinates via Minimum Image Convention and moves it from the 
+  ! old cell list to the correct new cell list.
+  ! ==============================================================================
   attributes(global) subroutine shiftGPU(Ndim, Nat_Cell_Max, Ntot_Cell, Nl_Cell, Sphere_Cell, &
                                          Sphere_Cell_new, List_Cell, List_Cell_new, Nat_Cell, Nat_Cell_new, &
                                          W_RU, ivec, disp)
@@ -1104,12 +1210,14 @@ contains
         Nat_Cell_ijk = Nat_Cell(Indx_Cell); Nat_Cell_ijk_new = 0
         WR0=W_RU(0)*0.5_wp; WR1=W_RU(1)*0.5_wp; WR2=W_RU(2)*0.5_wp
         
+        ! Check existing particles within cell bounds
         if (Nat_Cell_ijk > 0) then
           do i=0, Nat_Cell_ijk-1
             Indx  = Indice  + i*(Ndim+4); Indx2 = Indicep + i*2
             if ( Indx+6 < Ntot_Cell*Nat_Cell_Max*(Ndim+4) .and. Indx2+1 < Ntot_Cell*Nat_Cell_Max*2 ) then
               Dx = Sphere_Cell(Indx); Dy = Sphere_Cell(Indx+1); Dz = Sphere_Cell(Indx+2)
               Q0 = Sphere_Cell(Indx+3); Q1 = Sphere_Cell(Indx+4); Q2 = Sphere_Cell(Indx+5); Q3 = Sphere_Cell(Indx+6)
+              
               if (ivec(0) /= 0) then
                 Dx = Dx - real(ivec(0),wp)*disp(0)
                 if ( (Dx >= -WR0) .and. (Dx < WR0) ) then
@@ -1147,6 +1255,7 @@ contains
           end do
         end if
         
+        ! Check neighbor particles that might have shifted INTO this cell
         Neigh_x = jcell_x + ivec(0); Neigh_y = jcell_y + ivec(1); Neigh_z = jcell_z + ivec(2)
         Indx_Cell2 = mod(Neigh_x+Nl0,Nl0) + mod(Neigh_y+Nl1,Nl1)*Nl0 + mod(Neigh_z+Nl2,Nl2)*Nl0*Nl1
         ICell_Neigh  = Indx_Cell2*Nat_Cell_Max*(Ndim+4); ICell_Neigh2 = Indx_Cell2*Nat_Cell_Max*2
@@ -1205,8 +1314,13 @@ contains
     end if
   end subroutine shiftGPU
   
-  
-  ! ---> ADDED epsilon_LJ
+ 
+  ! ==============================================================================
+  ! HOST SUBROUTINE: computeenergygpu
+  ! DESCRIPTION: Allocates necessary device memory via `clean`/`allocate` the 
+  ! first time it is run (or on reset). Launches the correct energy evaluation 
+  ! kernel (Pure LJ vs Patchy) across available device blocks.
+  ! ==============================================================================
   subroutine computeenergygpu(pure_LJ, bool_tor, init, Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, Npatches_max, Ntor_max, &
                               Npatches, patch, ref_tor_vec, sigma_jon, sigma_tor_jon, sigma_LJ, epsilon_LJ, range, VL0, XOP, &
                               Ntor_angle, tor_angle, Vpot_Matrix, h, Sphere_Cell, List_Cell, Map_Cell, Nl_Cell, Nat_Cell, &
@@ -1218,7 +1332,7 @@ contains
     integer, intent(in) :: Npatches(0:Ntypes-1), Ntor_angle(0:Ntypes*Npatches_max-1)
     real(wp), intent(in) :: patch(0:Ntypes*Npatches_max*Ndim-1), ref_tor_vec(0:Ntypes*Npatches_max*Ndim-1)
     real(wp), intent(in) :: sigma_jon(0:Ntypes*Npatches_max-1), sigma_tor_jon
-    real(wp), intent(in) :: sigma_LJ(0:Ntypes*Ntypes-1), epsilon_LJ(0:Ntypes*Ntypes-1) ! <--- Added Here
+    real(wp), intent(in) :: sigma_LJ(0:Ntypes*Ntypes-1), epsilon_LJ(0:Ntypes*Ntypes-1) 
     real(wp), intent(in) :: range(0:Ntypes*Ntypes-1), VL0(0:Ntypes*Ntypes-1), XOP(0:Ntypes*Ntypes-1)
     real(wp), intent(in) :: tor_angle(0:Ntypes*Npatches_max*Ntor_max-1), Vpot_Matrix(0:Ntypes*Npatches_max*Ntypes*Npatches_max-1)
     real(wp), intent(in) :: h(0:Ndim*Ndim-1)
@@ -1231,7 +1345,8 @@ contains
     real(dkind), intent(out) :: En_tot
     integer :: nblock, i, ierror, Ntot_jobs
     integer :: Ndim1, Ndim2, Ndim3
-    ! >>> FORCE UPDATE: The GPU must see the CPU's current Sphere_Cell
+    
+    ! FORCE UPDATE: The GPU must see the CPU's current Sphere_Cell
     Sphere_Celldev = Sphere_Cell
     Ndim1 = Ntypes*Npatches_max*Ntypes*Npatches_max
     Ndim2 = Ntypes*Npatches_max
@@ -1241,7 +1356,7 @@ contains
       allocate(energy(0:Ntot_Cell-1))
       if (allocated(energydev))       deallocate(energydev)
       if (allocated(DR_Cell_dev))     deallocate(DR_Cell_dev)
-      if (allocated(hdev))            deallocate(hdev)
+      if (allocated(hdev))           deallocate(hdev)
       if (allocated(Map_Cell_dev))    deallocate(Map_Cell_dev)
       if (allocated(Sphere_Celldev))  deallocate(Sphere_Celldev)
       if (allocated(Nat_Cell_dev))    deallocate(Nat_Cell_dev)
@@ -1255,10 +1370,11 @@ contains
       if (allocated(Vpot_Matrix_dev)) deallocate(Vpot_Matrix_dev)
       if (allocated(sigma_jon_dev))   deallocate(sigma_jon_dev)
       if (allocated(sigma_LJ_dev))    deallocate(sigma_LJ_dev)
-      if (allocated(epsilon_LJ_dev))  deallocate(epsilon_LJ_dev) ! <--- Added Here
+      if (allocated(epsilon_LJ_dev))  deallocate(epsilon_LJ_dev)
       if (allocated(XOP_dev))         deallocate(XOP_dev)
       if (allocated(range_dev))       deallocate(range_dev)
       if (allocated(VL0_dev))         deallocate(VL0_dev)
+      
       allocate(energydev(0:Ntot_Cell-1))
       allocate(DR_Cell_dev(0:Ntot_Cell*26*3-1))
       allocate(hdev(0:Ndim*Ndim-1))
@@ -1275,10 +1391,11 @@ contains
       allocate(Vpot_Matrix_dev(0:Ndim1-1))
       allocate(sigma_jon_dev(0:Ntypes*Npatches_max-1))
       allocate(sigma_LJ_dev(0:Ntypes*Ntypes-1))
-      allocate(epsilon_LJ_dev(0:Ntypes*Ntypes-1)) ! <--- Added Here
+      allocate(epsilon_LJ_dev(0:Ntypes*Ntypes-1)) 
       allocate(XOP_dev(0:Ntypes*Ntypes-1))
       allocate(range_dev(0:Ntypes*Ntypes-1))
       allocate(VL0_dev(0:Ntypes*Ntypes-1))
+      
       DR_Cell_dev     = DR_Cell
       Map_Cell_dev    = Map_Cell
       Nl_Cell_dev     = Nl_Cell
@@ -1290,13 +1407,12 @@ contains
       Vpot_Matrix_dev = Vpot_Matrix
       sigma_jon_dev   = sigma_jon
       sigma_LJ_dev    = sigma_LJ
-      epsilon_LJ_dev  = epsilon_LJ ! <--- Added Here
+      epsilon_LJ_dev  = epsilon_LJ
       range_dev       = range
       XOP_dev         = XOP
       VL0_dev         = VL0
       init = 1 
     else if (init == 3) then
-      ! (Memory management logic remains the same)
       if (allocated(DR_Cell_dev)) deallocate(DR_Cell_dev); allocate(DR_Cell_dev(0:Ntot_Cell*26*3-1))
       if (allocated(Map_Cell_dev)) deallocate(Map_Cell_dev); allocate(Map_Cell_dev(0:Ntot_Cell*26-1))
       if (allocated(Sphere_Celldev)) deallocate(Sphere_Celldev); allocate(Sphere_Celldev(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1))
@@ -1308,11 +1424,13 @@ contains
       DR_Cell_dev = DR_Cell; Map_Cell_dev = Map_Cell; Nl_Cell_dev = Nl_Cell
       init = 1
     end if
+    
     List_Cell_dev   = List_Cell
     Sphere_Celldev  = Sphere_Cell
     Nat_Cell_dev    = Nat_Cell
     hdev            = h
     energydev = 0.0_wp
+    
     nblock = Ntot_Cell/NTHREAD
     if (nblock == 0) nblock = 1
     Ntot_jobs = nblock*NTHREAD
@@ -1320,12 +1438,12 @@ contains
       nblock = nblock + 1
     end if
 
-    ! ---> ADDED epsilon_LJ_dev parameter
     call enerGPU<<<nblock, NTHREAD>>>(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Npatches_max, Ntor_max, Ntypes, &
                                       Npatches_dev, Ntor_angle_dev, tor_angle_dev, patchdev, ref_tor_dev, range_dev, &
                                       sigma_jon_dev, sigma_tor_jon, sigma_LJ_dev, epsilon_LJ_dev, VL0_dev, XOP_dev, &
                                       Vpot_Matrix_dev, hdev, Sphere_Celldev, List_Cell_dev, &
                                       Map_Cell_dev, Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, energydev)
+    
     energy = energydev
     Sphere_Cell = Sphere_Celldev
     ierror = cudaDeviceSynchronize()
@@ -1339,7 +1457,11 @@ contains
     end if
   end subroutine computeenergygpu
 
-  ! ---> ADDED epsilon_LJ to signature
+  ! ==============================================================================
+  ! HOST SUBROUTINE: subsweepgpu
+  ! DESCRIPTION: Wrapper for `subsweep_LJ` and `subsweep`. It prepares device data, 
+  ! manages random number state memory, and passes the offset for checkerboard sweeps.
+  ! ==============================================================================
   subroutine subsweepgpu(pure_LJ, bool_tor, seed, No_tras_ac, No_rot_ac, Ndim, Nmove, Nat_Cell_Max, Ntot_Cell, Nsubset_Cell, &
                          Npatches_max, Ntor_max, Npart_types, Npatches, patch, ref_tor_vec, sigma_jon, sigma_tor, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, &
                          Ntor_angle, tor_angle, Vpot_Matrix, h, beta, hmax, omax, Sphere_Cell, List_Cell, Map_Cell, Nl_Cell, Nat_Cell, DR_Cell, W_RU, Offset_CB, En_tot)
@@ -1368,9 +1490,9 @@ contains
     real(dkind) :: Total_energy
     integer :: No_tras_ac_subsweep, No_rot_ac_subsweep
     logical, intent(in) :: pure_LJ
+    
     if (init_subsweep == 0) then
-      ! (Memory management logic remains the same)
-          nblock = (10*Nsubset_Cell)/NTHREAD
+      nblock = (10*Nsubset_Cell)/NTHREAD
       if (nblock == 0) nblock = 1
       Ntot_jobs = nblock*NTHREAD
       if (Ntot_jobs < Nsubset_Cell) nblock = nblock + 1
@@ -1395,7 +1517,6 @@ contains
       init_subsweep = 1
     end if
     
-    ! ... (Initialization variables)
     Offset_dev = Offset_CB; Sphere_Celldev = Sphere_Cell; List_Cell_dev  = List_Cell; Nat_Cell_dev   = Nat_Cell; hdev = h
     overlap_error_dev = 0; Delta_E_dev = 0.0_wp; Ntras_ac_dev = 0; Nrot_ac_dev = 0
     
@@ -1403,7 +1524,8 @@ contains
     if (nblock == 0) nblock = 1
     Ntot_jobs = nblock*NTHREAD
     if (Ntot_jobs < Nsubset_Cell) nblock = nblock + 1
-! Host side routing implementation
+
+    ! Host side routing implementation
     if (pure_LJ) then
         call subsweep_LJ<<<nblock,NTHREAD>>>(RND_States, TOTAL_THREADS, overlap_error_dev, bool_tor, Ndim, Nmove, Nat_Cell_Max, &
                                           Ntot_Cell, Nsubset_Cell, Npatches_max, Ntor_max, Npart_types, &
@@ -1417,6 +1539,7 @@ contains
                                           Ntor_angle_dev, tor_angle_dev, Vpot_Matrix_dev, hdev, beta, hmax, omax, Sphere_Celldev, List_Cell_dev, Map_Cell_dev, &
                                           Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Offset_dev, W_RU_dev, Delta_E_dev, Ntras_ac_dev, Nrot_ac_dev)
     end if
+    
     Delta_E   = Delta_E_dev
     Ntras_ac  = Ntras_ac_dev
     Nrot_ac   = Nrot_ac_dev
@@ -1440,7 +1563,13 @@ contains
     No_tras_ac= No_tras_ac + No_tras_ac_subsweep
     No_rot_ac = No_rot_ac + No_rot_ac_subsweep
   end subroutine subsweepgpu
- subroutine shiftcellsgpu(Ndim, Nat_Cell_Max, Ntot_Cell, Nl_Cell, Sphere_Cell, List_Cell, Nat_Cell, W_RU, ivec, disp)
+
+  ! ==============================================================================
+  ! HOST SUBROUTINE: shiftcellsgpu
+  ! DESCRIPTION: Wrapper for `shiftGPU` to ensure particle bounds are preserved 
+  ! and the cell lists are corrected.
+  ! ==============================================================================
+  subroutine shiftcellsgpu(Ndim, Nat_Cell_Max, Ntot_Cell, Nl_Cell, Sphere_Cell, List_Cell, Nat_Cell, W_RU, ivec, disp)
     integer, intent(in) :: Ndim, Nat_Cell_Max, Ntot_Cell
     integer, intent(in) :: Nl_Cell(0:Ndim-1)
     real(wp), intent(inout) :: Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1)
@@ -1475,9 +1604,11 @@ contains
     Sphere_Cell = Sphere_Cell_new; List_Cell = List_Cell_new; Nat_Cell = Nat_Cell_new
     ierror = cudaDeviceSynchronize()
   end subroutine shiftcellsgpu
-  
 
-
+  ! ==============================================================================
+  ! HOST SUBROUTINE: clean
+  ! DESCRIPTION: Safely deallocates memory bound to the GPU.
+  ! ==============================================================================
   subroutine clean()
     if (allocated(Map_Cell_dev))       deallocate(Map_Cell_dev)
     if (allocated(Offset_dev))         deallocate(Offset_dev)
@@ -1495,14 +1626,22 @@ contains
     if (allocated(ref_tor_dev))        deallocate(ref_tor_dev)
     if (allocated(tor_angle_dev))      deallocate(tor_angle_dev)
     if (allocated(Vpot_Matrix_dev))    deallocate(Vpot_Matrix_dev)
-    if (allocated(epsilon_LJ_dev))     deallocate(epsilon_LJ_dev) ! <--- Added Here
+    if (allocated(epsilon_LJ_dev))     deallocate(epsilon_LJ_dev) 
   end subroutine clean
   
-  ! ... (The rest of the file remains unchanged)
+  ! ==============================================================================
+  ! HOST SUBROUTINE: limpio
+  ! DESCRIPTION: Forcibly resets the CUDA device.
+  ! ==============================================================================
   subroutine limpio()
     integer :: ierror; ierror = cudaDeviceReset()
   end subroutine limpio
 
+  ! ==============================================================================
+  ! HOST SUBROUTINE: energyinitialize
+  ! DESCRIPTION: First-pass initialization routine handling broad memory setup 
+  ! for cell states and trajectory variables.
+  ! ==============================================================================
   subroutine energyinitialize(Ndim, Nat_Cell_Max, Ntot_Cell, h, Sphere_Cell, List_Cell, Map_Cell, Nl_Cell, Nat_Cell, DR_Cell, W_RU)
     integer, intent(in) :: Ndim, Nat_Cell_Max, Ntot_Cell
     real(wp), intent(in) :: h(0:Ndim*Ndim-1)
@@ -1539,7 +1678,9 @@ contains
   end subroutine energyinitialize
 
   ! ==============================================================================
-  ! KERNEL: cell_per_atom_enerGPU_LJ (Pure Isotropic LJ - O(N) Cell List)
+  ! KERNEL: cell_per_atom_enerGPU_LJ
+  ! DESCRIPTION: Evaluates per-atom energies for Pure LJ particles across a Cell 
+  ! List. Used extensively in trajectory output and thermodynamics metrics.
   ! ==============================================================================
   attributes(global) subroutine cell_per_atom_enerGPU_LJ(Ndim, Natoms, Nat_Cell_Max, Ntot_Cell, Ntypes, &
                                          range, sigma_LJ, VL0, h, Sphere_Cell, List_Cell, Map_Cell, Nl_Cell, &
@@ -1641,7 +1782,9 @@ contains
 
 
   ! ==============================================================================
-  ! KERNEL: cell_per_atom_enerGPU (Patchy Potential - O(N) Cell List)
+  ! KERNEL: cell_per_atom_enerGPU
+  ! DESCRIPTION: Evaluates per-atom energies for Patchy particles across a Cell 
+  ! List. Used extensively in trajectory output and thermodynamics metrics.
   ! ==============================================================================
   attributes(global) subroutine cell_per_atom_enerGPU(bool_tor, Ndim, Natoms, Nat_Cell_Max, Ntot_Cell, Npatches_max, Ntor_max, Ntypes, &
                                         Npatches, Ntor_angle, tor_angle, patch, ref_tor, range, sigma_jon, sigma_tor, &
@@ -1797,6 +1940,7 @@ contains
                         end if
                       end do
                     end do
+                  
                     if (Vangtor_max == -1.0_wp) then
                       en_i = en_i + 0.0_wp
                     else
@@ -1936,7 +2080,8 @@ contains
   end subroutine cell_per_atom_enerGPU
 
 ! ==============================================================================
-  ! HOST WRAPPER: compute_per_atom_energy_gpu (Now Cell-Based for Speed)
+  ! HOST WRAPPER: compute_per_atom_energy_gpu 
+  ! DESCRIPTION: Uses the appropriate per-atom energy evaluation kernel (Patchy vs Pure LJ).
   ! ==============================================================================
   subroutine compute_per_atom_energy_gpu(pure_LJ, bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, Npatches_max, Ntor_max, &
                                          sigma_tor_jon, Natoms_in, atom_energies_host)
