@@ -114,7 +114,7 @@ END MODULE rundata
 MODULE potential
    Use set_precision
    Implicit None
-   Integer :: pot_type                                 ! 0, pure LJ, 1 site-site patches, 2 torsional patches
+
    Integer :: Npart_types                              ! Number of different particle types
    Integer :: Nrb_sites_max = 7, Ntor_max = 6          ! Max patches per particle and torsional angles
    Integer, Allocatable :: Nrb_sites(:)                ! Number of patches for each particle type

@@ -17,7 +17,7 @@ LKLIBS = -L$(NETCDFLIB) -L$(NVLIBS) $(if $(FFTWLIB),-L$(FFTWLIB))
 LKOPTS = -cuda -cudalib=curand  $(LKLIBS) -lnetcdff 
 
 EXE = -o ../bin/mc_gpu.exe
-OBJ = Definitions.o IO_data_nml.o Tools.o Subsweep_Energy_CUDA.o \
+OBJ = Definitions.o Read_input_data_nml.o Tools.o Subsweep_Energy_CUDA.o \
 		InitializeCheckerboard.o MCsweep_Checkerboard.o Shift_Cells.o \
 		CB_system_energy_gpu.o energy.o Volume_move.o UpdateCheckerboard.o \
 		netcdf_trajectory.o \

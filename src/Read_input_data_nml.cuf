@@ -56,7 +56,7 @@ Subroutine Write_Input_File(istep)
    ! =========================================================================
    ! BRANCH: PURE LENNARD-JONES MODE
    ! =========================================================================
-   If (pot_type == 0) Then
+   If (pure_LJ) Then
       Write(21,*) "--- LJ SIGMA MATRIX ---"
       Do I=0,Npart_types-1
            Indx = I*Npart_types
@@ -77,73 +77,69 @@ Subroutine Write_Input_File(istep)
    ! =========================================================================
    ! BRANCH: PATCHY ANISOTROPIC MODE (ORIGINAL LOGIC)
    ! =========================================================================
-   Elseif (pot_type ==1) then
+   Else
       Write(21,*) "--- TOPOLOGY AND PATCH GEOMETRY DATA ---"
       Write(21,*) (Nrb_sites(J),J=0,Npart_types-1)
+      
       Do J = 0, Npart_types-1
-            Indx = J * Nrb_sites_max*Ndim
-            Indx_tor = J * Nrb_sites_max
-            Indx_tor2 = J * Nrb_sites_max*Ntor_max
-            If( Nrb_sites(J) >= 2 ) Then 
-               Do I = 0, Nrb_sites(J)-1
-                  Indx2 = Indx + I*Ndim
-                  Write(21,'(3F12.8)',advance='no') patch( Indx2 ),patch( Indx2+1 ),patch( Indx2+2 )
-                  If (Ntor_angle(Indx_tor+i) == 0 ) Then 
-                     Write(21,'(3F12.8,3x,I3)') ref_tor_vec( Indx2 ), ref_tor_vec( Indx2+1 ), ref_tor_vec( Indx2+2 ), Ntor_angle( Indx_tor + I )
-                  Else
-                     Write(21,'(3F12.8,3x,I3)',advance='no') ref_tor_vec( Indx2 ), ref_tor_vec( Indx2+1 ), ref_tor_vec( Indx2+2 ), Ntor_angle( Indx_tor + I )
-                     Do K = 0, Ntor_angle( Indx_tor+I )-1
-                        Write(21,'(F12.6)',advance='no') tor_angle( Indx_tor2 +I*Ntor_max + K )
-                     EndDo
-                     Write(21,*)
-                  EndIf
-               End Do
-            ElseIf( Nrb_sites(J) == 1) Then
+         Indx = J * Nrb_sites_max*Ndim
+         Indx_tor = J * Nrb_sites_max
+         Indx_tor2 = J * Nrb_sites_max*Ntor_max
+         If( Nrb_sites(J) >= 2 ) Then 
+            Do I = 0, Nrb_sites(J)-1
+               Indx2 = Indx + I*Ndim
+               Write(21,'(3F12.8)',advance='no') patch( Indx2 ),patch( Indx2+1 ),patch( Indx2+2 )
+               If (Ntor_angle(Indx_tor+i) == 0 ) Then 
+                   Write(21,'(3F12.8,3x,I3)') ref_tor_vec( Indx2 ), ref_tor_vec( Indx2+1 ), ref_tor_vec( Indx2+2 ), Ntor_angle( Indx_tor + I )
+               Else
+                   Write(21,'(3F12.8,3x,I3)',advance='no') ref_tor_vec( Indx2 ), ref_tor_vec( Indx2+1 ), ref_tor_vec( Indx2+2 ), Ntor_angle( Indx_tor + I )
+                   Do K = 0, Ntor_angle( Indx_tor+I )-1
+                      Write(21,'(F12.6)',advance='no') tor_angle( Indx_tor2 +I*Ntor_max + K )
+                   EndDo
+                   Write(21,*)
+               EndIf
+            End Do
+         ElseIf( Nrb_sites(J) == 1) Then
                Write(21,'(3F12.8)')  ( patch( Indx+K ), K = 0, Ndim -1 )
-            Endif
+         Endif
       EndDo
+
       Write(21,*) "-vpot matrix --"
       Do I = 0, Npart_types -1
-         Indx1= I * Npart_types * Nrb_sites_max *Nrb_sites_max
-         Do J = 0, Nrb_sites(I) -1
-            Indx2 = Indx1 +  J * (Nrb_sites_max*Npart_types) 
+        Indx1= I * Npart_types * Nrb_sites_max *Nrb_sites_max
+        Do J = 0, Nrb_sites(I) -1
+          Indx2 = Indx1 +  J * (Nrb_sites_max*Npart_types) 
             Do K = 0, Npart_types -1
                Do M = 0, Nrb_sites(K) -1
                     write(21,'(F5.2)',advance='no') Vpot_Matrix( Indx2+k*Nrb_sites_max+M )
                EndDo
             EndDo
             write(21,*) 
-         EndDo
+        EndDo
       EndDo
 
       If(sigma_jon_aux.gt.0.d0) then
-         !
-         ! Check logic
-            Write(21,*) 'Sigma_jon'
       Else
-            Write(21,*) 'Sigma_ang' 
-            Do I= 0, Npart_types-1
-               Indx= I *Nrb_sites_max
-               Do J = 0, Nrb_sites(i)-1
-                  write(21,'(F6.3)',advance='no') sigma_jon(indx+j)
-               EndDo
-               write(21,*)
+         Write(21,*) 'Sigma_ang' 
+         Do I= 0, Npart_types-1
+            Indx= I *Nrb_sites_max
+            Do J = 0, Nrb_sites(i)-1
+               write(21,'(F6.3)',advance='no') sigma_jon(indx+j)
             EndDo
-            Write(21,*) 'Sigma_LJ'
-            Do I=0,Npart_types-1
+            write(21,*)
+         EndDo
+
+         Write(21,*) 'Sigma_LJ'
+         Do I=0,Npart_types-1
               Indx = I*Npart_types
               Do J = 0, Npart_types-1
                  Write(21,'(F6.3)',advance='no') sigma_LJ(indx+j)
               EndDo
               Write(21,*) 
-            EndDo
-      End If
-   else if (pot_type ==2) then
-      Write(21,*) "--- TOPOLOGY AND PATCH GEOMETRY DATA for site-site---"
-   else
-      write(21,*) " Error pot_type not supported"
-      stop
-   endif
+         EndDo
+      EndIf
+   End If
+
    Close(21)
 End Subroutine Write_Input_File
 
