@@ -791,7 +791,7 @@ contains
         end if
     end subroutine calc_pair_energy
  
-    attributes(device) subroutine evaluate_cell_interactions( &
+attributes(device) subroutine evaluate_cell_interactions( &
       Nat_target, indx_atm_base, indx_atm_map, ignore_idx, &
       dx_shift, dy_shift, dz_shift, &
       Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z, &
@@ -811,14 +811,14 @@ contains
       real(wp), value :: H11, H12, H13, H21, H22, H23, H31, H32, H33
       real(wp), value :: a, pi, dospi, sigma_tor
 
-      ! === FIX: Remove 'device' attribute so it accepts Shared Memory pointers ===
+      ! === FIX 1: Remove 'device' attribute so it accepts Shared Memory pointers ===
       real(wp), intent(in) :: R1(0:8), R1N(0:8)
 
-      ! Global Device Arrays
-      real(wp), device, intent(in) :: Sphere_Cell(*), patch(*), ref_tor(*), sigma_jon(*)
-      real(wp), device, intent(in) :: sigma_LJ(*), epsilon_LJ(*), rangeP(*), VL0(*), XOP(*)
-      real(wp), device, intent(in) :: tor_angle(*), Vpot_Matrix(*)
-      integer, device, intent(in)  :: List_Cell(*), Npatches(*), Ntor_angle(*)
+      ! === FIX 2: Explicitly restore 0-based indexing (0:*) ===
+      real(wp), device, intent(in) :: Sphere_Cell(0:*), patch(0:*), ref_tor(0:*), sigma_jon(0:*)
+      real(wp), device, intent(in) :: sigma_LJ(0:*), epsilon_LJ(0:*), rangeP(0:*), VL0(0:*), XOP(0:*)
+      real(wp), device, intent(in) :: tor_angle(0:*), Vpot_Matrix(0:*)
+      integer, device, intent(in)  :: List_Cell(0:*), Npatches(0:*), Ntor_angle(0:*)
 
       ! Outputs
       real(dkind), intent(out) :: ener_old_total, ener_new_total
@@ -867,7 +867,6 @@ contains
           end if
       end do
   end subroutine evaluate_cell_interactions
-
   !==============================================================================
   ! KERNEL: subsweep
   ! DESCRIPTION: Master routine for a Monte Carlo sweep (patchy potentials). 
