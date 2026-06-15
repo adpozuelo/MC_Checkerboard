@@ -273,7 +273,7 @@ attributes(device) subroutine accumulate_cell_energy_contribution( &
               jmol  = indx_atm_base + l*7
               jmol2 = indx_atm_map  + l*2
               
-              ! Apply spatial shift dynamically (0.0 for self-cell, dx_neigh for neighbors)
+              ! Apply spatial shift dynamically
               DX = Sphere_Cell(jmol)   - xi + dx_shift
               DY = Sphere_Cell(jmol+1) - yi + dy_shift
               DZ = Sphere_Cell(jmol+2) - zi + dz_shift
@@ -305,12 +305,13 @@ attributes(device) subroutine accumulate_cell_energy_contribution( &
                       energ_total = energ_total + Vrad
                   else
                       Q0j = Sphere_Cell(jmol + 3); Q1j = Sphere_Cell(jmol + 4); Q2j = Sphere_Cell(jmol + 5); Q3j = Sphere_Cell(jmol + 6)
-                      Q202=Q0j*Q0j; Q212=Q1j*Q1j; Q222=Q2j*Q2j; Q232=Q3j*Q3j
-                      Q20Q21=Q0j*Q1j; Q20Q22=Q0j*Q2j; Q20Q23=Q0j*Q3j; Q21Q22=Q1j*Q2j; Q21Q23=Q1j*Q3j; Q22Q23=Q2j*Q3j
+                      Q202 = Q0j*Q0j; Q212 = Q1j*Q1j; Q222 = Q2j*Q2j; Q232 = Q3j*Q3j
+                      Q20Q21 = Q0j*Q1j; Q20Q22 = Q0j*Q2j; Q20Q23 = Q0j*Q3j; Q21Q22 = Q1j*Q2j; Q21Q23 = Q1j*Q3j; Q22Q23 = Q2j*Q3j
                       
+                      ! === FIXES APPLIED HERE: Q20Q21 replaces invalid Q20Q11, Q232 replaces typo Q32 ===
                       R211 = Q202+Q212-Q222-Q232;     R212 = 2.0_wp*(Q21Q22-Q20Q23); R213 = 2.0_wp*(Q21Q23+Q20Q22)
-                      R221 = 2.0_wp*(Q21Q22+Q20Q23); R222 = Q202-Q212+Q222-Q232;     R223 = 2.0_wp*(Q22Q23-Q20Q11)
-                      R231 = 2.0_wp*(Q21Q23-Q20Q22); R232 = 2.0_wp*(Q22Q23+Q20Q21); R233 = Q202-Q212-Q222+Q32
+                      R221 = 2.0_wp*(Q21Q22+Q20Q23); R222 = Q202-Q212+Q222-Q232;     R223 = 2.0_wp*(Q22Q23-Q20Q21)
+                      R231 = 2.0_wp*(Q21Q23-Q20Q22); R232 = 2.0_wp*(Q22Q23+Q20Q21); R233 = Q202-Q212-Q222+Q232
                       CSM1M = -100.0_wp; CSM2M = -100.0_wp
                       
                       do k = 0, Npatches(itypei)-1
@@ -412,6 +413,8 @@ attributes(device) subroutine accumulate_cell_energy_contribution( &
           end if
       end do
   end subroutine accumulate_cell_energy_contribution
+
+
 attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Npatches_max, Ntor_max, Ntypes, &
                                         Npatches, Ntor_angle, tor_angle, patch, ref_tor, range, sigma_jon, sigma_tor, &
                                         sigma_LJ, epsilon_LJ, VL0, XOP, Vpot_Matrix, h, Sphere_Cell, List_Cell, Map_Cell, Nl_Cell, &
