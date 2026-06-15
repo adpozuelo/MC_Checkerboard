@@ -641,22 +641,24 @@ contains
         rangeP, VL0, XOP, tor_angle, Vpot_Matrix, Ntor_angle, &
         e_old_inc, e_new_inc, is_overlap, is_fatal_overlap)
 
-        ! Scalar Inputs
-        integer, intent(in) :: jmol, itypei, itypej, bool_tor, Ntypes, Npatches_max, Ndim, Ntor_max
-        real(wp), intent(in) :: XJ, YJ, ZJ, Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z
-        real(wp), intent(in) :: H11, H12, H13, H21, H22, H23, H31, H32, H33
-        real(wp), intent(in) :: a, pi, dospi, sigma_tor
+        ! === OPTIMIZATION: Pass ALL scalar inputs by VALUE ===
+        integer, value  :: jmol, itypei, itypej, bool_tor, Ntypes, Npatches_max, Ndim, Ntor_max
+        real(wp), value :: XJ, YJ, ZJ, Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z
+        real(wp), value :: H11, H12, H13, H21, H22, H23, H31, H32, H33
+        real(wp), value :: a, pi, dospi, sigma_tor
         
-        ! Array Inputs
+        ! NO 'device' attribute so it safely receives Shared Memory from subsweep
         real(wp), intent(in) :: R1(0:8), R1N(0:8)
+        
+        ! Array Inputs remain as device memory
         real(wp), device, intent(in) :: Sphere_Cell(0:*)
-        integer, device, intent(in) :: Npatches(0:*), Ntor_angle(0:*)
+        integer, device, intent(in)  :: Npatches(0:*), Ntor_angle(0:*)
         real(wp), device, intent(in) :: patch(0:*), ref_tor(0:*), sigma_jon(0:*), sigma_LJ(0:*), epsilon_LJ(0:*)
         real(wp), device, intent(in) :: rangeP(0:*), VL0(0:*), XOP(0:*), tor_angle(0:*), Vpot_Matrix(0:*)
         
-        ! Outputs
+        ! Outputs passed by reference
         real(wp), intent(out) :: e_old_inc, e_new_inc
-        integer, intent(out) :: is_overlap, is_fatal_overlap
+        integer, intent(out)  :: is_overlap, is_fatal_overlap
 
         ! Local Variables
         real(wp) :: Q0j, Q1j, Q2j, Q3j
@@ -788,8 +790,8 @@ contains
             end if
         end if
     end subroutine calc_pair_energy
-  
-  attributes(device) subroutine evaluate_cell_interactions( &
+ 
+    attributes(device) subroutine evaluate_cell_interactions( &
       Nat_target, indx_atm_base, indx_atm_map, ignore_idx, &
       dx_shift, dy_shift, dz_shift, &
       Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z, &
@@ -801,7 +803,7 @@ contains
       Sphere_Cell, List_Cell, &
       ener_old_total, ener_new_total, is_overlap_total, is_fatal_total)
 
-      ! Pass all scalars by VALUE to drastically reduce register pressure/spilling
+      ! Pass all scalars by VALUE
       integer, value  :: Nat_target, indx_atm_base, indx_atm_map, ignore_idx
       integer, value  :: itypei, bool_tor, Ntypes, Npatches_max, Ndim, Ntor_max
       real(wp), value :: dx_shift, dy_shift, dz_shift
@@ -809,8 +811,10 @@ contains
       real(wp), value :: H11, H12, H13, H21, H22, H23, H31, H32, H33
       real(wp), value :: a, pi, dospi, sigma_tor
 
-      ! Arrays passed by reference (device memory)
-      real(wp), device, intent(in) :: R1(0:8), R1N(0:8)
+      ! === FIX: Remove 'device' attribute so it accepts Shared Memory pointers ===
+      real(wp), intent(in) :: R1(0:8), R1N(0:8)
+
+      ! Global Device Arrays
       real(wp), device, intent(in) :: Sphere_Cell(*), patch(*), ref_tor(*), sigma_jon(*)
       real(wp), device, intent(in) :: sigma_LJ(*), epsilon_LJ(*), rangeP(*), VL0(*), XOP(*)
       real(wp), device, intent(in) :: tor_angle(*), Vpot_Matrix(*)
@@ -838,7 +842,6 @@ contains
               ZJ = Sphere_Cell(jmol+2) + dz_shift
               itypej = List_Cell(jmol2+1)
 
-              ! Ensure calc_pair_energy also uses VALUE for its scalar inputs
               call calc_pair_energy( &
                   XJ, YJ, ZJ, jmol, Sphere_Cell, &
                   Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z, &
@@ -864,7 +867,8 @@ contains
           end if
       end do
   end subroutine evaluate_cell_interactions
-  ! ==============================================================================
+
+  ==============================================================================
   ! KERNEL: subsweep
   ! DESCRIPTION: Master routine for a Monte Carlo sweep (patchy potentials). 
   ! Uses a checkerboard spatial decomposition (to prevent race conditions) where 
