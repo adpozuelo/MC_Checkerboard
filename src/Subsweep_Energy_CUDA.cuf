@@ -789,6 +789,81 @@ contains
         end if
     end subroutine calc_pair_energy
   
+  attributes(device) subroutine evaluate_cell_interactions( &
+      Nat_target, indx_atm_base, indx_atm_map, ignore_idx, &
+      dx_shift, dy_shift, dz_shift, &
+      Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z, &
+      R1, R1N, H11, H12, H13, H21, H22, H23, H31, H32, H33, &
+      itypei, bool_tor, a, pi, dospi, &
+      Ntypes, Npatches_max, Ndim, Ntor_max, sigma_tor, &
+      Npatches, patch, ref_tor, sigma_jon, sigma_LJ, epsilon_LJ, &
+      rangeP, VL0, XOP, tor_angle, Vpot_Matrix, Ntor_angle, &
+      Sphere_Cell, List_Cell, &
+      ener_old_total, ener_new_total, is_overlap_total, is_fatal_total)
+
+      ! Pass all scalars by VALUE to drastically reduce register pressure/spilling
+      integer, value  :: Nat_target, indx_atm_base, indx_atm_map, ignore_idx
+      integer, value  :: itypei, bool_tor, Ntypes, Npatches_max, Ndim, Ntor_max
+      real(wp), value :: dx_shift, dy_shift, dz_shift
+      real(wp), value :: Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z
+      real(wp), value :: H11, H12, H13, H21, H22, H23, H31, H32, H33
+      real(wp), value :: a, pi, dospi, sigma_tor
+
+      ! Arrays passed by reference (device memory)
+      real(wp), device, intent(in) :: R1(0:8), R1N(0:8)
+      real(wp), device, intent(in) :: Sphere_Cell(*), patch(*), ref_tor(*), sigma_jon(*)
+      real(wp), device, intent(in) :: sigma_LJ(*), epsilon_LJ(*), rangeP(*), VL0(*), XOP(*)
+      real(wp), device, intent(in) :: tor_angle(*), Vpot_Matrix(*)
+      integer, device, intent(in)  :: List_Cell(*), Npatches(*), Ntor_angle(*)
+
+      ! Outputs
+      real(dkind), intent(out) :: ener_old_total, ener_new_total
+      integer, intent(out)     :: is_overlap_total, is_fatal_total
+
+      ! Local variables
+      integer  :: j, jmol, jmol2, itypej, is_overlap, is_fatal
+      real(wp) :: XJ, YJ, ZJ, e_old_inc, e_new_inc
+
+      ener_old_total = 0.0d0
+      ener_new_total = 0.0d0
+      is_overlap_total = 0
+      is_fatal_total   = 0
+
+      do j = 0, Nat_target - 1
+          if (j /= ignore_idx) then
+              jmol  = indx_atm_base + j*7
+              jmol2 = indx_atm_map  + j*2
+              XJ = Sphere_Cell(jmol)   + dx_shift
+              YJ = Sphere_Cell(jmol+1) + dy_shift
+              ZJ = Sphere_Cell(jmol+2) + dz_shift
+              itypej = List_Cell(jmol2+1)
+
+              ! Ensure calc_pair_energy also uses VALUE for its scalar inputs
+              call calc_pair_energy( &
+                  XJ, YJ, ZJ, jmol, Sphere_Cell, &
+                  Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z, &
+                  R1, R1N, H11, H12, H13, H21, H22, H23, H31, H32, H33, &
+                  itypei, itypej, bool_tor, a, pi, dospi, &
+                  Ntypes, Npatches_max, Ndim, Ntor_max, sigma_tor, &
+                  Npatches, patch, ref_tor, sigma_jon, sigma_LJ, epsilon_LJ, &
+                  rangeP, VL0, XOP, tor_angle, Vpot_Matrix, Ntor_angle, &
+                  e_old_inc, e_new_inc, is_overlap, is_fatal)
+
+              if (is_fatal == 1) then
+                  is_fatal_total = 1
+                  return
+              end if
+
+              if (is_overlap == 1) then
+                  is_overlap_total = 1
+                  ener_new_total = ener_new_total + 9.0e+33_wp
+              end if
+
+              ener_old_total = ener_old_total + e_old_inc
+              ener_new_total = ener_new_total + e_new_inc
+          end if
+      end do
+  end subroutine evaluate_cell_interactions
   ! ==============================================================================
   ! KERNEL: subsweep
   ! DESCRIPTION: Master routine for a Monte Carlo sweep (patchy potentials). 
@@ -896,69 +971,54 @@ contains
 
                     ! Check if the particle translated out of bounds bounds
                     if (abs(Dmove_x) < 0.5_wp*W_RU(0) .and. abs(Dmove_y) < 0.5_wp*W_RU(1) .and. abs(Dmove_z) < 0.5_wp*W_RU(2)) then
-                        ! Thread 0 evaluates self-interactions
-                        if (indx_thread == 0) then
-                            ener_old = 0.0d0; ener_new = 0.0d0; overlap  = 0
-                            do j=0, Nat_Cell_ijk-1
-                                if (j /= indx_test) then
-                                    jmol  = indx_atm_aux  + j*7; jmol2 = indx_atm_aux2 + j*2
-                                    XJ = Sphere_Cell(jmol); YJ = Sphere_Cell(jmol+1); ZJ = Sphere_Cell(jmol+2)
-                                    itypej = List_Cell(jmol2+1)
-                                    
-                                    call calc_pair_energy( &
-                                        XJ, YJ, ZJ, jmol, Sphere_Cell, &
-                                        Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z, &
-                                        R1, R1N, H11, H12, H13, H21, H22, H23, H31, H32, H33, &
-                                        itypei, itypej, bool_tor, a, pi, dospi, &
-                                        Ntypes, Npatches_max, Ndim, Ntor_max, sigma_tor, &
-                                        Npatches, patch, ref_tor, sigma_jon, sigma_LJ, epsilon_LJ, &
-                                        rangeP, VL0, XOP, tor_angle, Vpot_Matrix, Ntor_angle, &
-                                        e_old_inc, e_new_inc, is_overlap, is_fatal_overlap)
-                                        
-                                    if (is_fatal_overlap == 1) then; overlap_error(Indx_Cell) = 1; return; end if
-                                    if (is_overlap == 1) then; overlap = 1; ener_new = ener_new + 9.0e+33_wp; end if
-                                    
-                                    ener_old = ener_old + e_old_inc
-                                    ener_new = ener_new + e_new_inc
-                                end if
-                            end do
-                            entot_old(indx_thread) = ener_old; entot_new(indx_thread) = ener_new; overlap_aux(indx_thread) = overlap
-                        else
-                            ! Threads 1-26 evaluate interactions with the 26 neighboring cells concurrently
-                            ICELL = indx_thread - 1; ener_old = 0.0d0; ener_new = 0.0d0; overlap  = 0
-                            if (ICELL < 26) then
-                                Indx_Cell2 = Indx_Cell*26 + ICELL; Indx_Cell2 = Map_Cell(Indx_Cell2); Nat_Cell_neigh = Nat_Cell(Indx_Cell2)
-                                Indx_Cell3 = Indx_Cell*26*3 + ICELL*3
-                                dx_neigh = DR_Cell(Indx_Cell3); dy_neigh = DR_Cell(Indx_Cell3+1); dz_neigh = DR_Cell(Indx_Cell3+2)
-                                if (Nat_Cell_neigh > 0) then
-                                    indx_neigh_aux2 = Indx_Cell2 * Nat_Cell_Max * 7; indx_neigh_auxp = Indx_Cell2 * Nat_Cell_Max * 2
-                                    do l=0, Nat_Cell_neigh-1
-                                        jmol = indx_neigh_aux2 + l*7; jmol2= indx_neigh_auxp + l*2
-                                        XJ = Sphere_Cell(jmol)   + dx_neigh
-                                        YJ = Sphere_Cell(jmol+1) + dy_neigh
-                                        ZJ = Sphere_Cell(jmol+2) + dz_neigh
-                                        itypej = List_Cell(jmol2 + 1)
-                                        
-                                        call calc_pair_energy( &
-                                            XJ, YJ, ZJ, jmol, Sphere_Cell, &
-                                            Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z, &
-                                            R1, R1N, H11, H12, H13, H21, H22, H23, H31, H32, H33, &
-                                            itypei, itypej, bool_tor, a, pi, dospi, &
-                                            Ntypes, Npatches_max, Ndim, Ntor_max, sigma_tor, &
-                                            Npatches, patch, ref_tor, sigma_jon, sigma_LJ, epsilon_LJ, &
-                                            rangeP, VL0, XOP, tor_angle, Vpot_Matrix, Ntor_angle, &
-                                            e_old_inc, e_new_inc, is_overlap, is_fatal_overlap)
-                                            
-                                        if (is_fatal_overlap == 1) then; overlap_error(Indx_Cell) = 1; return; end if
-                                        if (is_overlap == 1) then; overlap = 1; ener_new = ener_new + 99999999999._wp; end if
-                                        
-                                        ener_old = ener_old + e_old_inc
-                                        ener_new = ener_new + e_new_inc
-                                    end do
-                                end if
-                                entot_new(indx_thread) = ener_new; entot_old(indx_thread) = ener_old; overlap_aux(indx_thread) = overlap
-                            end if
-                        end if
+                      ! Thread 0 evaluates self-interactions
+    if (indx_thread == 0) then
+        call evaluate_cell_interactions( &
+            Nat_Cell_ijk, indx_atm_aux, indx_atm_aux2, indx_test, &
+            0.0_wp, 0.0_wp, 0.0_wp, & ! No neighbor shift for self-cell
+            Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z, &
+            R1, R1N, H11, H12, H13, H21, H22, H23, H31, H32, H33, &
+            itypei, bool_tor, a, pi, dospi, &
+            Ntypes, Npatches_max, Ndim, Ntor_max, sigma_tor, &
+            Npatches, patch, ref_tor, sigma_jon, sigma_LJ, epsilon_LJ, &
+            rangeP, VL0, XOP, tor_angle, Vpot_Matrix, Ntor_angle, &
+            Sphere_Cell, List_Cell, &
+            ener_old, ener_new, overlap, is_fatal_overlap)
+        
+        if (is_fatal_overlap == 1) then; overlap_error(Indx_Cell) = 1; return; end if
+        entot_old(indx_thread) = ener_old; entot_new(indx_thread) = ener_new; overlap_aux(indx_thread) = overlap
+    else
+        ! Threads 1-26 evaluate interactions with the 26 neighboring cells concurrently
+        ICELL = indx_thread - 1
+        ener_old = 0.0d0; ener_new = 0.0d0; overlap = 0
+        
+        if (ICELL < 26) then
+            Indx_Cell2 = Indx_Cell*26 + ICELL; Indx_Cell2 = Map_Cell(Indx_Cell2)
+            Nat_Cell_neigh = Nat_Cell(Indx_Cell2)
+            Indx_Cell3 = Indx_Cell*26*3 + ICELL*3
+            dx_neigh = DR_Cell(Indx_Cell3); dy_neigh = DR_Cell(Indx_Cell3+1); dz_neigh = DR_Cell(Indx_Cell3+2)
+            
+            if (Nat_Cell_neigh > 0) then
+                indx_neigh_aux2 = Indx_Cell2 * Nat_Cell_Max * 7
+                indx_neigh_auxp = Indx_Cell2 * Nat_Cell_Max * 2
+                
+                call evaluate_cell_interactions( &
+                    Nat_Cell_neigh, indx_neigh_aux2, indx_neigh_auxp, -1, & ! -1 ignores nothing in neighbors
+                    dx_neigh, dy_neigh, dz_neigh, &
+                    Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z, &
+                    R1, R1N, H11, H12, H13, H21, H22, H23, H31, H32, H33, &
+                    itypei, bool_tor, a, pi, dospi, &
+                    Ntypes, Npatches_max, Ndim, Ntor_max, sigma_tor, &
+                    Npatches, patch, ref_tor, sigma_jon, sigma_LJ, epsilon_LJ, &
+                    rangeP, VL0, XOP, tor_angle, Vpot_Matrix, Ntor_angle, &
+                    Sphere_Cell, List_Cell, &
+                    ener_old, ener_new, overlap, is_fatal_overlap)
+                
+                if (is_fatal_overlap == 1) then; overlap_error(Indx_Cell) = 1; return; end if
+            end if
+            entot_new(indx_thread) = ener_new; entot_old(indx_thread) = ener_old; overlap_aux(indx_thread) = overlap
+        end if
+    end if
                         call syncthreads()
 
                         ! Collect threaded energies back at thread 0 and apply Metropolis acceptance criterion
