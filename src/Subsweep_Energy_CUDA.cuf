@@ -868,7 +868,7 @@ contains
       end do
   end subroutine evaluate_cell_interactions
 
-  ==============================================================================
+  !==============================================================================
   ! KERNEL: subsweep
   ! DESCRIPTION: Master routine for a Monte Carlo sweep (patchy potentials). 
   ! Uses a checkerboard spatial decomposition (to prevent race conditions) where 
