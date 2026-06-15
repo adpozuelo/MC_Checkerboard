@@ -213,7 +213,87 @@ Subroutine get_per_atom_energies(atom_ener)
    EndDo
 End Subroutine get_per_atom_energies
 
+Subroutine ener(i1, i2, en, overlap)
+      Use set_precision
+      Use configuration
+      Use potential
+      Implicit None
+      
+      ! Parameters
+      Integer, Intent(In)   :: i1, i2
+      Real(wp), Intent(Out) :: en
+      Logical, Intent(Out)  :: overlap
 
+      ! Local setup variables
+      Integer  :: Indxi, Indxj, itypei, itypej, Indx
+      Real(wp) :: X1, Y1, Z1, X2, Y2, Z2, DX, DY, DZ, DXP, DYP, DZP, RSQ, R12
+      Real(wp) :: Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23
+      Real(wp) :: sigma_LJ_aux, eps_LJ_aux, xop_aux, vl0_aux, rangep_aux, r126, r1212
+
+      ! Initialize state conditions standardly
+      en = 0.0_wp
+      overlap = .False.
+
+      ! Gather particle 1 positions and quaternions
+      Indxi = i1*Ndim
+      X1 = r(Indxi); Y1 = r(Indxi+1); Z1 = r(Indxi+2)
+      Indxi = i1*4
+      Q10 = q(Indxi); Q11 = q(Indxi+1); Q12 = q(Indxi+2); Q13 = q(Indxi+3)
+      itypei = itype(i1)
+
+      ! Gather particle 2 positions and quaternions
+      Indxj = i2*Ndim
+      X2 = r(Indxj); Y2 = r(Indxj+1); Z2 = r(Indxj+2)
+      Indxj = i2*4
+      Q20 = q(Indxj); Q21 = q(Indxj+1); Q22 = q(Indxj+2); Q23 = q(Indxj+3)
+      itypej = itype(i2)
+
+      ! Apply Minimum Image Convention (MIC)
+      DX = X2 - X1; DY = Y2 - Y1; DZ = Z2 - Z1
+      DX = DX - NINT(DX); DY = DY - NINT(DY); DZ = DZ - NINT(DZ)
+
+      ! Map to box matrices
+      DXP = H(0)*DX + H(1)*DY + H(2)*DZ
+      DYP = H(3)*DX + H(4)*DY + H(5)*DZ
+      DZP = H(6)*DX + H(7)*DY + H(8)*DZ
+
+      RSQ = DXP**2.0 + DYP**2.0 + DZP**2.0
+      R12 = SQRT(RSQ)
+
+      ! Pull module structural profiles
+      Indx = itypei*Npart_types + itypej
+      sigma_LJ_aux = sigma_LJ(Indx)
+      eps_LJ_aux   = epsilon_LJ(Indx)
+      xop_aux      = xop(Indx)
+      vl0_aux      = vl0(Indx)
+      rangep_aux   = rangep(Indx)
+
+      ! Core Potential Decision Tree
+      IF (R12 < 0.5_wp) THEN
+          ! === FIX: Explicitly assign structural error flag to prevent unassigned memory read ===
+          overlap = .True.
+          en = 9.e+33_wp  
+          Return
+
+      ELSEIF (R12 < 0.9800000_wp * sigma_LJ_aux) THEN
+          r126 = (RSQ / sigma_LJ_aux / sigma_LJ_aux)**3.d0
+          r1212 = r126 * r126
+          en = -4.d0 * eps_LJ_aux * ((r1212 - r126) / (r1212 * r126) + vl0_aux)
+
+      ELSEIF (R12 < rangep_aux) THEN
+          If (NRB_SITES(itypei) <= 1 .or. NRB_SITES(itypej) <= 1) then
+              r126 = (RSQ / sigma_LJ_aux / sigma_LJ_aux)**3.d0
+              r1212 = r126 * r126
+              en = -4.d0 * eps_LJ_aux * ((r1212 - r126) / (r1212 * r126) + vl0_aux)
+              Return
+          End If 
+
+          ! Delegate complex calculations directly to our clean routine
+          Call calculate_patchy_energy(itypei, itypej, r12, rsq, dxp, dyp, dzp, &
+                                       Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
+                                       sigma_LJ_aux, eps_LJ_aux, xop_aux, vl0_aux, en)
+      END IF  
+  End Subroutine ener
 ! ==============================================================================
 ! SUBROUTINE: ener_LJ
 ! ==============================================================================
