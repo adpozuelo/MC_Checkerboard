@@ -29,11 +29,11 @@ Subroutine calculate_patchy_energy(itypei, itypej, r12, rsq, dxp, dyp, dzp, &
       Integer  :: i, k, j3, j4, Indx, Indx2, Indx3, Indx4, IndxT1, IndxT2
 
       ! Stack allocation arrays sized using module parameters
-      Real(wp) :: PX1(0:Nrb_sites_max-1), PY2_ref(0:Nrb_sites_max-1) ! Wait, let's keep array bounds consistent with your module parameters
       Real(wp) :: PX1_ref(0:Nrb_sites_max-1), PX2_ref(0:Nrb_sites_max-1)
       Real(wp) :: PY1_ref(0:Nrb_sites_max-1), PY2_ref(0:Nrb_sites_max-1)
       Real(wp) :: PZ1_ref(0:Nrb_sites_max-1), PZ2_ref(0:Nrb_sites_max-1)
-      Real(wp) :: PX2(0:Nrb_sites_max-1), PY1(0:Nrb_sites_max-1), PY2(0:Nrb_sites_max-1)
+      Real(wp) :: PX1(0:Nrb_sites_max-1), PX2(0:Nrb_sites_max-1)
+      Real(wp) :: PY1(0:Nrb_sites_max-1), PY2(0:Nrb_sites_max-1)
       Real(wp) :: PZ1(0:Nrb_sites_max-1), PZ2(0:Nrb_sites_max-1)
       Real(wp) :: cos1(0:Nrb_sites_max-1), cos2(0:Nrb_sites_max-1)
 
