@@ -1,258 +1,292 @@
+! ==============================================================================
+! CPU ROUTINE: calculate_patchy_energy_angular (pot_int == 1)
+! ==============================================================================
+Subroutine calculate_patchy_energy_angular(itypei, itypej, r12, rsq, dxp, dyp, dzp, &
+                                   Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
+                                   sigma_LJ_aux, eps_LJ_aux, xop_aux, vl0_aux, en_patchy)
+    Use set_precision
+    Use configuration
+    Use potential
+    Implicit None
 
-Subroutine calculate_patchy_energy(itypei, itypej, r12, rsq, dxp, dyp, dzp, &
-                                     Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
-                                     sigma_LJ_aux, eps_LJ_aux, xop_aux, vl0_aux, en_patchy)
-      Use set_precision
-      Use configuration   ! === FIX 1: Added to bring Ndim into scope ===
-      Use potential
-      Implicit None
+    Integer, Intent(In)  :: itypei, itypej
+    Real(wp), Intent(In) :: r12, rsq, dxp, dyp, dzp
+    Real(wp), Intent(In) :: Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23
+    Real(wp), Intent(In) :: sigma_LJ_aux, eps_LJ_aux, xop_aux, vl0_aux
+    Real(wp), Intent(Out) :: en_patchy
 
-      ! Inputs
-      Integer, Intent(In)  :: itypei, itypej
-      Real(wp), Intent(In) :: r12, rsq, dxp, dyp, dzp
-      Real(wp), Intent(In) :: Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23
-      Real(wp), Intent(In) :: sigma_LJ_aux, eps_LJ_aux, xop_aux, vl0_aux
-      
-      ! Output
-      Real(wp), Intent(Out) :: en_patchy
+    Real(wp) :: Q102, Q112, Q122, Q132, Q10Q11, Q10Q12, Q10Q13, Q11Q12, Q11Q13, Q12Q13
+    Real(wp) :: R111, R112, R113, R121, R122, R123, R131, R132, R133
+    Real(wp) :: Q202, Q212, Q222, Q232, Q20Q21, Q20Q22, Q20Q23, Q21Q22, Q21Q23, Q22Q23
+    Real(wp) :: R211, R212, R213, R221, R222, R223, R231, R232, R233
+    Real(wp) :: PX, PY, PZ, PXP, PYP, PZP, CSM1M, CSM2M, CSOMG1, CSOMG2, OMG1, OMG2
+    Real(wp) :: factor_energy, sigma_ij, VANG, VRAD, v1x, v1y, v1z, v2x, v2y, v2z, mod_v1, mod_v2
+    Real(wp) :: cangle, v12x, v12y, v12z, v12b2, torsion, dtor, Utor, Utor_max, Vangtor, Vangtor_max
+    Real(wp) :: FX, FXI, r126, r1212, pi, dospi, a
+    Integer  :: i, k, j3, j4, Indx, Indx2, Indx3, Indx4, IndxT1, IndxT2
 
-      ! Local matrix/vector allocations
-      Real(wp) :: Q102, Q112, Q122, Q132, Q10Q11, Q10Q12, Q10Q13, Q11Q12, Q11Q13, Q12Q13
-      Real(wp) :: R111, R112, R113, R121, R122, R123, R131, R132, R133
-      Real(wp) :: Q202, Q212, Q222, Q232, Q20Q21, Q20Q22, Q20Q23, Q21Q22, Q21Q23, Q22Q23
-      Real(wp) :: R211, R212, R213, R221, R222, R223, R231, R232, R233
-      Real(wp) :: PX, PY, PZ, PXP, PYP, PZP, CSM1, CSM2, CSM1M, CSM2M
-      Real(wp) :: CSOMG1, CSOMG2, OMG1, OMG2, factor_energy, sigma_ij, VANG, VRAD
-      Real(wp) :: v1x, v1y, v1z, v2x, v2y, v2z, mod_v1, mod_v2, cangle
-      Real(wp) :: v12x, v12y, v12z, v12b2, torsion, dtor, Utor, Utor_max
-      Real(wp) :: Vangtor, Vangtor_max, FX, FXI, r126, r1212, pi, dospi, a ! === FIX 2: Added local declaration for 'a' ===
-      Integer  :: i, k, j3, j4, Indx, Indx2, Indx3, Indx4, IndxT1, IndxT2
+    Real(wp) :: PX1(0:Nrb_sites_max-1), PY1(0:Nrb_sites_max-1), PZ1(0:Nrb_sites_max-1)
+    Real(wp) :: PX1_ref(0:Nrb_sites_max-1), PY1_ref(0:Nrb_sites_max-1), PZ1_ref(0:Nrb_sites_max-1)
+    Real(wp) :: PX2_ref(0:Nrb_sites_max-1), PY2_ref(0:Nrb_sites_max-1), PZ2_ref(0:Nrb_sites_max-1)
+    Real(wp) :: cos1(0:Nrb_sites_max-1), cos2(0:Nrb_sites_max-1)
 
-      ! Stack allocation arrays sized using module parameters
-      Real(wp) :: PX1_ref(0:Nrb_sites_max-1), PX2_ref(0:Nrb_sites_max-1)
-      Real(wp) :: PY1_ref(0:Nrb_sites_max-1), PY2_ref(0:Nrb_sites_max-1)
-      Real(wp) :: PZ1_ref(0:Nrb_sites_max-1), PZ2_ref(0:Nrb_sites_max-1)
-      Real(wp) :: PX1(0:Nrb_sites_max-1), PX2(0:Nrb_sites_max-1)
-      Real(wp) :: PY1(0:Nrb_sites_max-1), PY2(0:Nrb_sites_max-1)
-      Real(wp) :: PZ1(0:Nrb_sites_max-1), PZ2(0:Nrb_sites_max-1)
-      Real(wp) :: cos1(0:Nrb_sites_max-1), cos2(0:Nrb_sites_max-1)
+    pi = acos(-1.d0); dospi = 2.d0*pi; a = 1000.d0  
 
-      pi = acos(-1.d0)
-      dospi = 2.d0*pi
-      a = 1000.d0  
+    Q102=Q10*Q10; Q112=Q11*Q11; Q122=Q12*Q12; Q132=Q13*Q13
+    Q10Q11=Q10*Q11; Q10Q12=Q10*Q12; Q10Q13=Q10*Q13; Q11Q12=Q11*Q12; Q11Q13=Q11*Q13; Q12Q13=Q12*Q13
+    R111=Q102+Q112-Q122-Q132;    R112=2.d00*(Q11Q12-Q10Q13); R113=2.d00*(Q11Q13+Q10Q12)
+    R121=2.d00*(Q11Q12+Q10Q13); R122=Q102-Q112+Q122-Q132;    R123=2.d00*(Q12Q13-Q10Q11)
+    R131=2.d00*(Q11Q13-Q10Q12); R132=2.d00*(Q12Q13+Q10Q11); R133=Q102-Q112-Q122+Q132
 
-      ! Compute Rotation Matrix R1 for particle i from quaternions
-      Q102=Q10*Q10; Q112=Q11*Q11; Q122=Q12*Q12; Q132=Q13*Q13
-      Q10Q11=Q10*Q11; Q10Q12=Q10*Q12; Q10Q13=Q10*Q13
-      Q11Q12=Q11*Q12; Q11Q13=Q11*Q13; Q12Q13=Q12*Q13
+    Q202=Q20*Q20; Q212=Q21*Q21; Q222=Q22*Q22; Q232=Q23*Q23
+    Q20Q21=Q20*Q21; Q20Q22=Q20*Q22; Q20Q23=Q20*Q23; Q21Q22=Q21*Q22; Q21Q23=Q21*Q23; Q22Q23=Q22*Q23
+    R211=Q202+Q212-Q222-Q232;    R212=2.d00*(Q21Q22-Q20Q23); R213=2.d00*(Q21Q23+Q20Q22)
+    R221=2.d00*(Q21Q22+Q20Q23); R222=Q202-Q212+Q222-Q232;    R223=2.d00*(Q22Q23-Q20Q21)
+    R231=2.d00*(Q21Q23-Q20Q22); R232=2.d00*(Q22Q23+Q20Q21); R233=Q202-Q212-Q222+Q232
 
-      R111=Q102+Q112-Q122-Q132;    R112=2.d00*(Q11Q12-Q10Q13); R113=2.d00*(Q11Q13+Q10Q12)
-      R121=2.d00*(Q11Q12+Q10Q13); R122=Q102-Q112+Q122-Q132;    R123=2.d00*(Q12Q13-Q10Q11)
-      R131=2.d00*(Q11Q13-Q10Q12); R132=2.d00*(Q12Q13+Q10Q11); R133=Q102-Q112-Q122+Q132
+    CSM1M = -100.d0; CSM2M = -100.d0
 
-      ! Compute Rotation Matrix R2 for particle j from quaternions
-      ! === FIX 3: Fixed the 'Q2j' typo below to use correct 'Q22' argument ===
-      Q202=Q20*Q20; Q212=Q21*Q21; Q222=Q22*Q22; Q232=Q23*Q23
-      Q20Q21=Q20*Q21; Q20Q22=Q20*Q22; Q20Q23=Q20*Q23
-      Q21Q22=Q21*Q22; Q21Q23=Q21*Q23; Q22Q23=Q22*Q23
+    Do i = 0, NRB_SITES(itypei) - 1
+        Indx = Nrb_sites_max*Ndim*itypei + i*Ndim
+        PX=PATCH(Indx); PY=PATCH(Indx+1); PZ=PATCH(Indx+2)
+        PXP = R111*PX + R112*PY + R113*PZ
+        PYP = R121*PX + R122*PY + R123*PZ
+        PZP = R131*PX + R132*PY + R133*PZ
+        PX1(i) = PXP; PY1(i) = PYP; PZ1(i) = PZP
+        CSOMG1 = (PXP*dxp + PYP*dyp + PZP*dzp) / r12
+        COS1(i) = CSOMG1
+        if (CSOMG1 > CSM1M) CSM1M = CSOMG1
+        PX=ref_tor_vec(Indx); PY=ref_tor_vec(Indx+1); PZ=ref_tor_vec(Indx+2)
+        PX1_ref(i) = R111*PX + R112*PY + R113*PZ
+        PY1_ref(i) = R121*PX + R122*PY + R123*PZ
+        PZ1_ref(i) = R131*PX + R132*PY + R133*PZ
+    End Do 
 
-      R211=Q202+Q212-Q222-Q232;    R212=2.d00*(Q21Q22-Q20Q23); R213=2.d00*(Q21Q23+Q20Q22)
-      R221=2.d00*(Q21Q22+Q20Q23); R222=Q202-Q212+Q222-Q232;    R223=2.d00*(Q22Q23-Q20Q21)
-      R231=2.d00*(Q21Q23-Q20Q22); R232=2.d00*(Q22Q23+Q20Q21); R233=Q202-Q212-Q222+Q232
+    Do i = 0, NRB_SITES(itypej) - 1
+        Indx = Nrb_sites_max*Ndim*itypej + i*Ndim
+        PX=PATCH(Indx); PY=PATCH(Indx+1); PZ=PATCH(Indx+2)
+        PXP = R211*PX + R212*PY + R213*PZ
+        PYP = R221*PX + R222*PY + R223*PZ
+        PZP = R231*PX + R232*PY + R233*PZ
+        CSOMG2 = -(PXP*dxp + PYP*dyp + PZP*dzp) / r12
+        COS2(i) = CSOMG2
+        if (CSOMG2 > CSM2M) CSM2M = CSOMG2
+        PX=ref_tor_vec(Indx); PY=ref_tor_vec(Indx+1); PZ=ref_tor_vec(Indx+2)
+        PX2_ref(i) = R211*PX + R212*PY + R213*PZ
+        PY2_ref(i) = R221*PX + R222*PY + R223*PZ
+        PZ2_ref(i) = R231*PX + R232*PY + R233*PZ
+    End Do 
 
-      CSM1M = -100.d0; CSM2M = -100.d0
+    Vangtor_max = -1.d00
+    Do j3 = 0, Nrb_sites(itypei) - 1
+        v1x = PZ1_ref(j3)*dyp - PY1_ref(j3)*dzp
+        v1y = PX1_ref(j3)*dzp - PZ1_ref(j3)*dxp
+        v1z = PY1_ref(j3)*dxp - PX1_ref(j3)*dyp
+        mod_v1 = sqrt(v1x*v1x + v1y*v1y + v1z*v1z)
+        CSOMG1 = cos1(j3)
+        If (abs(CSOMG1) > 1.0) then
+            If (abs(CSOMG1) - 1.0 < 1.d-4) CSOMG1 = sign(1.0, CSOMG1)
+        End If
+        OMG1 = acos(CSOMG1)
 
-      ! Transform local patches to real space for particle i
-      Do i = 0, NRB_SITES(itypei) - 1
-          Indx = Nrb_sites_max*Ndim*itypei + i*Ndim
-          PX=PATCH(Indx); PY=PATCH(Indx+1); PZ=PATCH(Indx+2)
-          PXP = R111*PX + R112*PY + R113*PZ
-          PYP = R121*PX + R122*PY + R123*PZ
-          PZP = R131*PX + R132*PY + R133*PZ
+        Do J4 = 0, Nrb_sites(itypej) - 1
+            Indx2 = itypei * Nrb_sites_max + j3 
+            Indx3 = Indx2 * Nrb_sites_max * Npart_types  
+            Indx4 = Indx3 + itypej * Nrb_sites_max  
+            factor_energy = Vpot_matrix(Indx4 + j4)
 
-          PX1(i) = PXP; PY1(i) = PYP; PZ1(i) = PZP
-          CSM1 = (PXP*dxp + PYP*dyp + PZP*dzp) / r12
-          COS1(i) = CSM1
+            If (factor_energy > 1.d-07) then
+                CSOMG2 = cos2(j4)
+                If (abs(CSOMG2) > 1.0) then
+                    If (abs(CSOMG2) - 1.0 < 1.d-4) CSOMG2 = sign(1.0, CSOMG2)
+                End If  
+                OMG2 = acos(CSOMG2)
+                IndxT1 = Nrb_sites_max*itypei + j3
+                IndxT2 = Nrb_sites_max*itypej + j4
+                sigma_ij = 2.d0 * sigma_jon(IndxT1) * sigma_jon(IndxT2)
+                VANG = dexp(-(OMG1**2.d0 + OMG2**2.d0) / sigma_ij)
 
-          PX=ref_tor_vec(Indx); PY=ref_tor_vec(Indx+1); PZ=ref_tor_vec(Indx+2)
-          PX1_ref(i) = R111*PX + R112*PY + R113*PZ
-          PY1_ref(i) = R121*PX + R122*PY + R123*PZ
-          PZ1_ref(i) = R131*PX + R132*PY + R133*PZ
-      End Do 
+                If (bool_tor == 1 .and. Ntor_angle(IndxT1) > 0 .and. Ntor_angle(IndxT2) > 0) then
+                    v2x = PZ2_ref(j4)*dyp - PY2_ref(j4)*dzp
+                    v2y = PX2_ref(j4)*dzp - PZ2_ref(j4)*dxp
+                    v2z = PY2_ref(j4)*dxp - PX2_ref(j4)*dyp
+                    mod_v2 = sqrt(v2x*v2x + v2y*v2y + v2z*v2z)
 
-      ! Transform local patches to real space for particle j
-      Do i = 0, NRB_SITES(itypej) - 1
-          Indx = Nrb_sites_max*Ndim*itypej + i*Ndim
-          PX=PATCH(Indx); PY=PATCH(Indx+1); PZ=PATCH(Indx+2)
-          PXP = R211*PX + R212*PY + R213*PZ
-          PYP = R221*PX + R222*PY + R223*PZ
-          PZP = R231*PX + R232*PY + R233*PZ
+                    If (mod_v1 /= 0.0 .and. mod_v2 /= 0.0) then
+                        cangle = (v1x*v2x + v1y*v2y + v1z*v2z) / mod_v1 / mod_v2
+                        If (abs(cangle) > 1.0) then
+                            If (abs(cangle) - 1.0 < 1.d-4) cangle = sign(1.0, cangle)
+                        End If
+                        v12x = v1y*v2z - v1z*v2y; v12y = v1z*v2x - v1x*v2z; v12z = v1x*v2y - v1y*v2x
+                        v12b2 = (v12x*dxp + v12y*dyp + v12z*dzp) / r12 / mod_v1 / mod_v2
+                        If (abs(v12b2) > 1.0) then
+                            If (abs(v12b2) - 1.0 < 1.d-4) v12b2 = sign(1.0, v12b2)
+                        End If
+                        torsion = atan2(v12b2, cangle)
+                        Utor_max = -100.d0
 
-          PX2(i) = PXP; PY2(i) = PYP; PZ2(i) = PZP
-          CSM2 = -(PXP*dxp + PYP*dyp + PZP*dzp) / r12
-          COS2(i) = CSM2
+                        Do k = 0, Ntor_angle(IndxT1) - 1
+                            dtor = torsion - tor_angle(IndxT1*Ntor_max + k)
+                            If (dtor > pi) then
+                                dtor = dtor - dospi
+                            Else If (dtor < -pi) then
+                                dtor = dtor + dospi
+                            End If
+                            Utor = dexp(-dtor**2.d0 / sigma_tor_jon)
+                            If (Utor > Utor_max) Utor_max = Utor 
+                        End Do
+                        Vangtor = factor_energy * VANG * Utor_max
+                    End If 
+                Else 
+                    Vangtor = factor_energy * VANG
+                End If
+                If (Vangtor > Vangtor_max) Vangtor_max = Vangtor
+            End If 
+        End Do 
+    End Do 
 
-          PX=ref_tor_vec(Indx); PY=ref_tor_vec(Indx+1); PZ=ref_tor_vec(Indx+2)
-          PX2_ref(i) = R211*PX + R212*PY + R213*PZ
-          PY2_ref(i) = R221*PX + R222*PY + R223*PZ
-          PZ2_ref(i) = R231*PX + R232*PY + R233*PZ
-      End Do 
+    If (Vangtor_max == -1.d00) then
+        en_patchy = 0.0 
+    Else 
+        FX  = (1.d0 + Tanh(a * (-xop_aux + r12))) / 2.d00
+        FXI = (1.d0 - Tanh(a * (-xop_aux + r12))) / 2.d00
+        r126 = (rsq / sigma_LJ_aux / sigma_LJ_aux)**3.d0
+        r1212 = r126 * r126
+        VRAD = -4.d0 * eps_LJ_aux * ((r1212 - r126) / (r1212 * r126) + vl0_aux)
+        en_patchy = VRAD * (FXI + Vangtor_max * FX) 
+    End If
+End Subroutine calculate_patchy_energy_angular
 
-      Vangtor_max = -1.d00
-      
-      ! Evaluate all patch-patch interaction combinations
-      Do j3 = 0, Nrb_sites(itypei) - 1
-          v1x = pz1_ref(j3)*dyp - py1_ref(j3)*dzp
-          v1y = px1_ref(j3)*dzp - pz1_ref(j3)*dxp
-          v1z = py1_ref(j3)*dxp - px1_ref(j3)*dyp
-          mod_v1 = sqrt(v1x*v1x + v1y*v1y + v1z*v1z)
-          CSOMG1 = cos1(j3)
-
-          If (abs(CSOMG1) > 1.0) then
-              If (abs(CSOMG1) - 1.0 < 1.d-4) CSOMG1 = sign(1.0, CSOMG1)
-          End If
-          OMG1 = acos(CSOMG1)
-
-          Do J4 = 0, Nrb_sites(itypej) - 1
-              Indx2 = itypei * Nrb_sites_max + j3 
-              Indx3 = Indx2 * Nrb_sites_max * Npart_types  
-              Indx4 = Indx3 + itypej * Nrb_sites_max  
-              factor_energy = Vpot_matrix(Indx4 + j4)
-
-              If (factor_energy > 1.d-07) then
-                  CSOMG2 = cos2(j4)
-                  If (abs(CSOMG2) > 1.0) then
-                      If (abs(CSOMG2) - 1.0 < 1.d-4) CSOMG2 = sign(1.0, CSOMG2)
-                  End If  
-                  OMG2 = acos(CSOMG2)
-                  IndxT1 = Nrb_sites_max*itypei + j3
-                  IndxT2 = Nrb_sites_max*itypej + j4
-                  sigma_ij = 2.d0 * sigma_jon(IndxT1) * sigma_jon(IndxT2)
-
-                  VANG = dexp(-(OMG1**2.d0 + OMG2**2.d0) / sigma_ij)
-
-                  If (bool_tor == 1 .and. Ntor_angle(IndxT1) > 0 .and. Ntor_angle(IndxT2) > 0) then
-                      v2x = pz2_ref(j4)*dyp - py2_ref(j4)*dzp
-                      v2y = px2_ref(j4)*dzp - pz2_ref(j4)*dxp
-                      v2z = py2_ref(j4)*dxp - px2_ref(j4)*dyp
-                      mod_v2 = sqrt(v2x*v2x + v2y*v2y + v2z*v2z)
-
-                      If (mod_v1 /= 0.0 .and. mod_v2 /= 0.0) then
-                          cangle = (v1x*v2x + v1y*v2y + v1z*v2z) / mod_v1 / mod_v2
-                          If (abs(cangle) > 1.0) then
-                              If (abs(cangle) - 1.0 < 1.d-4) cangle = sign(1.0, cangle)
-                          End If
-
-                          v12x = v1y*v2z - v1z*v2y; v12y = v1z*v2x - v1x*v2z; v12z = v1x*v2y - v1y*v2x
-                          v12b2 = (v12x*dxp + v12y*dyp + v12z*dzp) / r12 / mod_v1 / mod_v2
-
-                          If (abs(v12b2) > 1.0) then
-                              If (abs(v12b2) - 1.0 < 1.d-4) v12b2 = sign(1.0, v12b2)
-                          End If
-                          torsion = atan2(v12b2, cangle)
-                          Utor_max = -100.d0
-
-                          Do k = 0, Ntor_angle(IndxT1) - 1
-                              dtor = torsion - tor_angle(IndxT1*Ntor_max + k)
-                              If (dtor > pi) then
-                                  dtor = dtor - dospi
-                              Else If (dtor < -pi) then
-                                  dtor = dtor + dospi
-                              End If
-                              Utor = dexp(-dtor**2.d0 / sigma_tor_jon)
-                              If (Utor > Utor_max) Utor_max = Utor 
-                          End Do
-                          Vangtor = factor_energy * VANG * Utor_max
-                      End If 
-                  Else 
-                      Vangtor = factor_energy * VANG
-                  End If
-                         
-                  If (Vangtor > Vangtor_max) Vangtor_max = Vangtor
-              End If 
-          End Do 
-      End Do 
-
-      If (Vangtor_max == -1.d00) then
-          en_patchy = 0.0 
-      Else 
-          FX  = (1.d0 + Tanh(a * (-xop_aux + r12))) / 2.d00
-          FXI = (1.d0 - Tanh(a * (-xop_aux + r12))) / 2.d00
-          r126 = (rsq / sigma_LJ_aux / sigma_LJ_aux)**3.d0
-          r1212 = r126 * r126
-          VRAD = -4.d0 * eps_LJ_aux * ((r1212 - r126) / (r1212 * r126) + vl0_aux)
-          en_patchy = VRAD * (FXI + Vangtor_max * FX) 
-      End If
-  End Subroutine calculate_patchy_energy
-
-Subroutine get_per_atom_energies(atom_ener)
+! ==============================================================================
+! CPU ROUTINE: calculate_patchy_energy_sitesite (pot_int == 2)
+! ==============================================================================
+Subroutine calculate_patchy_energy_sitesite(itypei, itypej, dxp, dyp, dzp, &
+                                   Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
+                                   sigma_LJ_aux, en_patches)
+   Use set_precision
    Use configuration
-   Use rundata
+   Use potential
    Implicit None
-   Real(wp), Intent(out) :: atom_ener(0:Natoms-1)
-   Integer :: i, j
-   Real(wp) :: pair_en
-   Logical :: overlap
-   
-   atom_ener(:) = 0.0_wp
-   
-   Do i = 0, Natoms - 2
-      Do j = i + 1, Natoms - 1
-         if (pot_int < 1) then
-            Call ener_LJ(i, j, pair_en, overlap)
-         else
-            Call ener(i, j, pair_en, overlap) 
-         endif
-         if (overlap) then
-            print *,  " *** Fatal error: overlap of particles :", i, j
-            stop
-         endif
-         atom_ener(i) = atom_ener(i) + 0.5_wp * pair_en
-         atom_ener(j) = atom_ener(j) + 0.5_wp * pair_en
-      EndDo
-   EndDo
-End Subroutine get_per_atom_energies
 
+   Integer, Intent(In)  :: itypei, itypej
+   Real(wp), Intent(In) :: dxp, dyp, dzp
+   Real(wp), Intent(In) :: Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23
+   Real(wp), Intent(In) :: sigma_LJ_aux
+   Real(wp), Intent(Out) :: en_patches
+
+   Real(wp) :: Q102, Q112, Q122, Q132, Q10Q11, Q10Q12, Q10Q13, Q11Q12, Q11Q13, Q12Q13
+   Real(wp) :: R111, R112, R113, R121, R122, R123, R131, R132, R133
+   Real(wp) :: Q202, Q212, Q222, Q232, Q20Q21, Q20Q22, Q20Q23, Q21Q22, Q21Q23, Q22Q23
+   Real(wp) :: R211, R212, R213, R221, R222, R223, R231, R232, R233
+   Real(wp) :: PX, PY, PZ, sigma_i, sigma_j, Rmin_ij, sigp, Rcp, factor_energy
+   Real(wp) :: px_i, py_i, pz_i, px_j, py_j, pz_j, dx_patch, dy_patch, dz_patch, dist_patch, pi
+   Integer  :: i, j3, j4, Indx, Indx2, Indx3, Indx4
+   Real(wp) :: PX1(0:Nrb_sites_max-1), PY1(0:Nrb_sites_max-1), PZ1(0:Nrb_sites_max-1)
+   Real(wp) :: PX2(0:Nrb_sites_max-1), PY2(0:Nrb_sites_max-1), PZ2(0:Nrb_sites_max-1)
+
+   pi = acos(-1.d0); en_patches = 0.0_wp
+
+   Q102=Q10*Q10; Q112=Q11*Q11; Q122=Q12*Q12; Q132=Q13*Q13
+   Q10Q11=Q10*Q11; Q10Q12=Q10*Q12; Q10Q13=Q10*Q13; Q11Q12=Q11*Q12; Q11Q13=Q11*Q13; Q12Q13=Q12*Q13
+   R111=Q102+Q112-Q122-Q132;    R112=2.d00*(Q11Q12-Q10Q13); R113=2.d00*(Q11Q13+Q10Q12)
+   R121=2.d00*(Q11Q12+Q10Q13); R122=Q102-Q112+Q122-Q132;    R123=2.d00*(Q12Q13-Q10Q11)
+   R131=2.d00*(Q11Q13-Q10Q12); R132=2.d00*(Q12Q13+Q10Q11); R133=Q102-Q112-Q122+Q132
+
+   Q202=Q20*Q20; Q212=Q21*Q21; Q222=Q22*Q22; Q232=Q23*Q23
+   Q20Q21=Q20*Q21; Q20Q22=Q20*Q22; Q20Q23=Q20*Q23; Q21Q22=Q21*Q22; Q21Q23=Q21*Q23; Q22Q23=Q22*Q23
+   R211=Q202+Q212-Q222-Q232;    R212=2.d00*(Q21Q22-Q20Q23); R213=2.d00*(Q21Q23+Q20Q22)
+   R221=2.d00*(Q21Q22+Q20Q23); R222=Q202-Q212+Q222-Q232;    R223=2.d00*(Q22Q23-Q20Q21)
+   R231=2.d00*(Q21Q23-Q20Q22); R232=2.d00*(Q22Q23+Q20Q21); R233=Q202-Q212-Q222+Q232
+
+   sigma_i = sigma_LJ(itypei * Npart_types + itypei)
+   sigma_j = sigma_LJ(itypej * Npart_types + itypej)
+
+   Rmin_ij = sigma_LJ_aux * 1.122462048309373_wp
+   sigp = 0.1_wp * Rmin_ij
+   Rcp  = 0.3_wp * Rmin_ij
+
+   Do i = 0, NRB_SITES(itypei) - 1
+       Indx = Nrb_sites_max*Ndim*itypei + i*Ndim
+       PX=PATCH(Indx); PY=PATCH(Indx+1); PZ=PATCH(Indx+2)
+       PX1(i) = 0.5_wp * sigma_i * (R111*PX + R112*PY + R113*PZ)
+       PY1(i) = 0.5_wp * sigma_i * (R121*PX + R122*PY + R123*PZ)
+       PZ1(i) = 0.5_wp * sigma_i * (R131*PX + R132*PY + R133*PZ)
+   End Do 
+
+   Do i = 0, NRB_SITES(itypej) - 1
+       Indx = Nrb_sites_max*Ndim*itypej + i*Ndim
+       PX=PATCH(Indx); PY=PATCH(Indx+1); PZ=PATCH(Indx+2)
+       PX2(i) = 0.5_wp * sigma_j * (R211*PX + R212*PY + R213*PZ)
+       PY2(i) = 0.5_wp * sigma_j * (R221*PX + R222*PY + R223*PZ)
+       PZ2(i) = 0.5_wp * sigma_j * (R231*PX + R232*PY + R233*PZ)
+   End Do 
+
+   Do j3 = 0, Nrb_sites(itypei) - 1
+       px_i = PX1(j3); py_i = PY1(j3); pz_i = PZ1(j3)
+       Do j4 = 0, Nrb_sites(itypej) - 1
+           Indx2 = itypei * Nrb_sites_max + j3 
+           Indx3 = Indx2 * Nrb_sites_max * Npart_types  
+           Indx4 = Indx3 + itypej * Nrb_sites_max  
+           factor_energy = Vpot_matrix(Indx4 + j4)
+
+           If (factor_energy > 1.0e-7_wp) then
+               px_j = PX2(j4); py_j = PY2(j4); pz_j = PZ2(j4)
+               dx_patch = dxp + px_j - px_i
+               dy_patch = dyp + py_j - py_i
+               dz_patch = dzp + pz_j - pz_i
+               dist_patch = sqrt(dx_patch**2 + dy_patch**2 + dz_patch**2)
+
+               If (dist_patch < Rcp) then
+                   If (dist_patch <= sigp) then
+                       en_patches = en_patches - factor_energy
+                   Else
+                       en_patches = en_patches - factor_energy * &
+                           cos( pi * (dist_patch - sigp) / (2.0_wp * (Rcp - sigp)) )**2
+                   End If
+               End If
+           End If 
+       End Do 
+   End Do 
+End Subroutine calculate_patchy_energy_sitesite
+
+! ==============================================================================
+! CPU ROUTINE: ener (Master Router)
+! ==============================================================================
 Subroutine ener(i1, i2, en, overlap)
       Use set_precision
       Use configuration
       Use potential
+      Use rundata        
       Implicit None
       
-      ! Parameters
       Integer, Intent(In)   :: i1, i2
       Real(wp), Intent(Out) :: en
       Logical, Intent(Out)  :: overlap
 
-      ! Local setup variables
       Integer  :: Indxi, Indxj, itypei, itypej, Indx
       Real(wp) :: X1, Y1, Z1, X2, Y2, Z2, DX, DY, DZ, DXP, DYP, DZP, RSQ, R12
       Real(wp) :: Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23
       Real(wp) :: sigma_LJ_aux, eps_LJ_aux, xop_aux, vl0_aux, rangep_aux, r126, r1212
+      Real(wp) :: en_patches
 
-      ! Initialize state conditions standardly
       en = 0.0_wp
       overlap = .False.
 
-      ! Gather particle 1 positions and quaternions
       Indxi = i1*Ndim
       X1 = r(Indxi); Y1 = r(Indxi+1); Z1 = r(Indxi+2)
       Indxi = i1*4
       Q10 = q(Indxi); Q11 = q(Indxi+1); Q12 = q(Indxi+2); Q13 = q(Indxi+3)
       itypei = itype(i1)
 
-      ! Gather particle 2 positions and quaternions
       Indxj = i2*Ndim
       X2 = r(Indxj); Y2 = r(Indxj+1); Z2 = r(Indxj+2)
       Indxj = i2*4
       Q20 = q(Indxj); Q21 = q(Indxj+1); Q22 = q(Indxj+2); Q23 = q(Indxj+3)
       itypej = itype(i2)
 
-      ! Apply Minimum Image Convention (MIC)
       DX = X2 - X1; DY = Y2 - Y1; DZ = Z2 - Z1
       DX = DX - NINT(DX); DY = DY - NINT(DY); DZ = DZ - NINT(DZ)
 
-      ! Map to box matrices
       DXP = H(0)*DX + H(1)*DY + H(2)*DZ
       DYP = H(3)*DX + H(4)*DY + H(5)*DZ
       DZP = H(6)*DX + H(7)*DY + H(8)*DZ
@@ -260,7 +294,6 @@ Subroutine ener(i1, i2, en, overlap)
       RSQ = DXP**2.0 + DYP**2.0 + DZP**2.0
       R12 = SQRT(RSQ)
 
-      ! Pull module structural profiles
       Indx = itypei*Npart_types + itypej
       sigma_LJ_aux = sigma_LJ(Indx)
       eps_LJ_aux   = epsilon_LJ(Indx)
@@ -268,34 +301,32 @@ Subroutine ener(i1, i2, en, overlap)
       vl0_aux      = vl0(Indx)
       rangep_aux   = rangep(Indx)
 
-      ! Core Potential Decision Tree
       IF (R12 < 0.5_wp) THEN
-          ! === FIX: Explicitly assign structural error flag to prevent unassigned memory read ===
           overlap = .True.
           en = 9.e+33_wp  
           Return
-
-      ELSEIF (R12 < 0.9800000_wp * sigma_LJ_aux) THEN
+      ELSEIF (R12 < rangep_aux) THEN
           r126 = (RSQ / sigma_LJ_aux / sigma_LJ_aux)**3.d0
           r1212 = r126 * r126
           en = -4.d0 * eps_LJ_aux * ((r1212 - r126) / (r1212 * r126) + vl0_aux)
 
-      ELSEIF (R12 < rangep_aux) THEN
-          If (NRB_SITES(itypei) <= 1 .or. NRB_SITES(itypej) <= 1) then
-              r126 = (RSQ / sigma_LJ_aux / sigma_LJ_aux)**3.d0
-              r1212 = r126 * r126
-              en = -4.d0 * eps_LJ_aux * ((r1212 - r126) / (r1212 * r126) + vl0_aux)
-              Return
+          If (NRB_SITES(itypei) > 0 .and. NRB_SITES(itypej) > 0) then
+              If (pot_int == 1) then
+                  Call calculate_patchy_energy_angular(itypei, itypej, r12, rsq, dxp, dyp, dzp, &
+                                               Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
+                                               sigma_LJ_aux, eps_LJ_aux, xop_aux, vl0_aux, en)
+              Else if (pot_int == 2) then
+                  Call calculate_patchy_energy_sitesite(itypei, itypej, dxp, dyp, dzp, &
+                                               Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
+                                               sigma_LJ_aux, en_patches)
+                  en = en + en_patches
+              End If
           End If 
-
-          ! Delegate complex calculations directly to our clean routine
-          Call calculate_patchy_energy(itypei, itypej, r12, rsq, dxp, dyp, dzp, &
-                                       Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
-                                       sigma_LJ_aux, eps_LJ_aux, xop_aux, vl0_aux, en)
       END IF  
-  End Subroutine ener
+End Subroutine ener
+
 ! ==============================================================================
-! SUBROUTINE: ener_LJ
+! CPU ROUTINE: ener_LJ
 ! ==============================================================================
 Subroutine ener_LJ(i1, i2, en, overlap)
    Use set_precision
@@ -334,10 +365,9 @@ Subroutine ener_LJ(i1, i2, en, overlap)
 
    en = 0.0_wp
    overlap = .false.
- 
    Indx = itypei * Npart_types + itypej
    sigma_LJ_aux = sigma_LJ(Indx)
-   eps_LJ_aux   = epsilon_LJ(Indx)   ! <--- FETCH EPSILON
+   eps_LJ_aux   = epsilon_LJ(Indx)
    rangep_aux   = rangep(Indx)
    vl0_aux      = vl0(Indx)       
 
@@ -347,7 +377,6 @@ Subroutine ener_LJ(i1, i2, en, overlap)
    ELSEIF (R12 < rangep_aux) THEN
         R126  = (RSQ / (sigma_LJ_aux * sigma_LJ_aux))**3.d0
         R1212 = R126 * R126
-        ! <--- MULTIPLY BY EPSILON
         en = -4.0_wp * eps_LJ_aux * ((R1212 - R126)/(R1212 * R126) + vl0_aux)
    END IF
 End Subroutine ener_LJ
