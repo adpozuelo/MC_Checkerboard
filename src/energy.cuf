@@ -306,10 +306,18 @@ Subroutine ener(i1, i2, en, overlap)
           en = 9.e+33_wp  
           Return
       ELSEIF (R12 < rangep_aux) THEN
-          r126 = (RSQ / sigma_LJ_aux / sigma_LJ_aux)**3.d0
-          r1212 = r126 * r126
-          en = -4.d0 * eps_LJ_aux * ((r1212 - r126) / (r1212 * r126) + vl0_aux)
-
+        ! --------------------------------------------------------
+          ! ROUTE CORE POTENTIAL
+          ! --------------------------------------------------------
+          If (pot_int == 2) then
+              ! Site-Site uses Palaia WCA + Cosine Tail. 
+              ! We pass vl0_aux as the 'epsp' patch depth parameter.
+              Call vlj_palaia(RSQ, sigma_LJ_aux, eps_LJ_aux, vl0_aux, en)
+          Else if (pot_int == 1) then)
+            r126 = (RSQ / sigma_LJ_aux / sigma_LJ_aux)**3.d0
+            r1212 = r126 * r126
+            en = -4.d0 * eps_LJ_aux * ((r1212 - r126) / (r1212 * r126) + vl0_aux)
+          endif
           If (NRB_SITES(itypei) > 0 .and. NRB_SITES(itypej) > 0) then
               If (pot_int == 1) then
                   Call calculate_patchy_energy_angular(itypei, itypej, r12, rsq, dxp, dyp, dzp, &
@@ -380,3 +388,34 @@ Subroutine ener_LJ(i1, i2, en, overlap)
         en = -4.0_wp * eps_LJ_aux * ((R1212 - R126)/(R1212 * R126) + vl0_aux)
    END IF
 End Subroutine ener_LJ
+
+! ==============================================================================
+! CPU ROUTINE: vlj_palaia
+! DESCRIPTION: WCA repulsive core + attractive cosine-squared tail.
+! Maps to the core 'Patchy' class in libpot.py.
+! ==============================================================================
+Subroutine vlj_palaia(rsq, sigma, eps, epsp, Vrad)
+    Use set_precision
+    Implicit None
+    
+    Real(wp), Intent(In)  :: rsq, sigma, eps, epsp
+    Real(wp), Intent(Out) :: Vrad
+    
+    Real(wp) :: r, r2inv, r6inv, Rc, pi
+    
+    pi = acos(-1.0_wp)
+    Rc = sigma * 1.122462048309373_wp  ! 2^(1/6) * sigma (Position of LJ minimum)
+    r = sqrt(rsq)
+    
+    if (r <= Rc) then
+        ! WCA Repulsive Core
+        r2inv = 1.0_wp / rsq
+        r6inv = (Rc * Rc * r2inv)**3
+        Vrad = -epsp + eps * (r6inv * r6inv - 2.0_wp * r6inv + 1.0_wp)
+    else if (r <= 2.0_wp * Rc) then
+        ! Attractive Cosine-Squared Tail
+        Vrad = -epsp * cos( pi * (r - Rc) / (2.0_wp * Rc) )**2
+    else
+        Vrad = 0.0_wp
+    end if
+End Subroutine vlj_palaia

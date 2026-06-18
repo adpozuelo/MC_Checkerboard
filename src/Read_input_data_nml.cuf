@@ -183,7 +183,35 @@ Subroutine Read_Input_Data
       write(*,'(/A,"*** Fatal error: interaction ", A, " not implemented ***",A)')c_red, trim(model), c_reset
       stop  
    end if
-   
+  
+   ! ==============================================================================
+! SANITY CHECK: Palaia 2022 Patchy Potential Cutoff
+! Ensure rangeP is large enough to capture the full cosine-squared tail (2 * Rc)
+! ==============================================================================
+If (pot_int == 2) Then
+    Do i = 0, Npart_types - 1
+        Do j = 0, Npart_types - 1
+            Indx = i * Npart_types + j
+            
+            ! Calculate Rc = 2^(1/6) * sigma
+            Rmin_ij = sigma_LJ(Indx) * 1.122462048309373_wp 
+            
+            ! The tail completely decays at exactly 2 * Rmin_ij
+            If (rangeP(Indx) < 2.0_wp * Rmin_ij) Then
+                Print *, c_red, "======================================================"
+                Print *, " FATAL ERROR: CUTOFF TOO SHORT FOR PALAIA PATCHY MODEL"
+                Print *, "======================================================"
+                Print *, "Particle Types : ", i, " and ", j
+                Print *, "Current rangeP : ", rangeP(Indx)
+                Print *, "Required rangeP: ", 2.0_wp * Rmin_ij, " (or greater)"
+                Print *, "Reason: The attractive cosine tail extends to 2 * Rc."
+                Print *, "Please increase 'rangep' in your datos.nml file."
+                Print *, "======================================================",c_reset
+                Stop 1
+            End If
+        End Do
+    End Do
+End If
    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
    write(*,'(A)') c_cyan // '                              SIMULATION PARAMETERS LOADED                              ' // c_reset
    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset

@@ -99,6 +99,30 @@ contains
   end subroutine vlj
 
   ! ==============================================================================
+  ! DEVICE FUNCTION: vlj_palaia (pot_int == 2)
+  ! DESCRIPTION: WCA core + Cosine tail. Replaces standard LJ for site-site models.
+  ! ==============================================================================
+  attributes(device) subroutine vlj_palaia(RSQ, sigma, eps, epsp, Vrad)
+    real(wp), intent(in), value :: RSQ, sigma, eps, epsp
+    real(wp), intent(out) :: Vrad
+    real(wp) :: r, r2inv, r6inv, Rc, pi
+    
+    pi = acos(-1.0_wp)
+    Rc = sigma * 1.122462048309373_wp  ! 2^(1/6)
+    r = sqrt(RSQ)
+    
+    if (r <= Rc) then
+        r2inv = 1.0_wp / RSQ
+        r6inv = (Rc * Rc * r2inv)**3
+        Vrad = -epsp + eps * (r6inv * r6inv - 2.0_wp * r6inv + 1.0_wp)
+    else if (r <= 2.0_wp * Rc) then
+        Vrad = -epsp * cos( pi * (r - Rc) / (2.0_wp * Rc) )**2
+    else
+        Vrad = 0.0_wp
+    end if
+  end subroutine vlj_palaia
+
+  ! ==============================================================================
   ! DEVICE FUNCTION: get_torsion
   ! DESCRIPTION: Computes the cross product (torsion vector) of a patch vector (P)
   ! and the distance vector (D) between two particles.
@@ -464,7 +488,8 @@ contains
                   is_overlap = 1
                   return
               else if (RSQ < range_aux*range_aux) then
-                  call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
+                  ! ---> CHANGED: Call Palaia potential and pass VL0_aux as epsp
+                  call vlj_palaia(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
                   energ_total = energ_total + Vrad
               end if
               
@@ -1468,11 +1493,11 @@ attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, N
         if (RSQn < 0.250000_wp) then; is_overlap = 1; end if
 
         if (RSQ < rangeP_aux*rangeP_aux) then
-            call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
+            call vlj_palaia(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
             e_old_inc = e_old_inc + Vrad
         end if
         if (RSQn < rangeP_aux*rangeP_aux) then
-            call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, VradN)
+            call vlj_palaia(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, VradN)
             e_new_inc = e_new_inc + VradN
         end if
 
