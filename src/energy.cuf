@@ -313,7 +313,7 @@ Subroutine ener(i1, i2, en, overlap)
               ! Site-Site uses Palaia WCA + Cosine Tail. 
               ! We pass vl0_aux as the 'epsp' patch depth parameter.
               Call vlj_palaia(RSQ, sigma_LJ_aux, eps_LJ_aux, vl0_aux, en)
-          Else if (pot_int == 1) then)
+          Else if (pot_int == 1) then
             r126 = (RSQ / sigma_LJ_aux / sigma_LJ_aux)**3.d0
             r1212 = r126 * r126
             en = -4.d0 * eps_LJ_aux * ((r1212 - r126) / (r1212 * r126) + vl0_aux)

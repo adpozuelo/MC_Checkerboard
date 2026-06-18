@@ -122,10 +122,10 @@ Subroutine netcdf_init_trajectory(filename, natoms)
    ! Define per-atom energy
    ierr = nf90_def_var(ncid, 'c_ener', NF90_FLOAT, [atom_dimid, frame_dimid], c_ener_varid)
    
-   ! Define per-atom stress (not inplemented yet)
-   ! CORRECT
-   !ierr = nf90_def_var(ncid, 'c_stress', NF90_FLOAT, [voigt_dimid, atom_dimid, frame_dimid], &
-   !                 c_stress_varid)
+   ! Define per-atom stress
+   ierr = nf90_def_var(ncid, 'c_stress', NF90_FLOAT, [voigt_dimid, atom_dimid, frame_dimid], &
+                       c_stress_varid)
+   
    ! Define quaternions
    ierr = nf90_def_var(ncid, 'c_quatw', NF90_FLOAT, [atom_dimid, frame_dimid], c_quatw_varid)
    ierr = nf90_def_var(ncid, 'c_quati', NF90_FLOAT, [atom_dimid, frame_dimid], c_quati_varid)

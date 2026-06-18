@@ -2663,7 +2663,12 @@ attributes(device) subroutine evaluate_cell_interactions( &
 ! ==========================================================
     ! Route to the proper highly-optimized Device Kernel
     ! ==========================================================
-    if (pot_int == 1) then
+    if (pot_int < 1) then
+        ! [NEW] Pure LJ Route
+        call enerGPU_LJ<<<nblock, NTHREAD>>>(Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, &
+                                          range_dev, sigma_LJ_dev, epsilon_LJ_dev, VL0_dev, hdev, Sphere_Celldev, &
+                                          List_Cell_dev, Map_Cell_dev, Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, energydev)
+    else if (pot_int == 1) then
         call enerGPU_angular<<<nblock, NTHREAD>>>(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Npatches_max, Ntor_max, Ntypes, &
                                           Npatches_dev, Ntor_angle_dev, tor_angle_dev, patchdev, ref_tor_dev, range_dev, &
                                           sigma_jon_dev, sigma_tor_jon, sigma_LJ_dev, epsilon_LJ_dev, VL0_dev, XOP_dev, &
@@ -2852,19 +2857,14 @@ attributes(device) subroutine evaluate_cell_interactions( &
     if (allocated(Offset_dev))         deallocate(Offset_dev)
     if (allocated(Nl_Cell_dev))        deallocate(Nl_Cell_dev)
     if (allocated(Nat_Cell_dev))       deallocate(Nat_Cell_dev)
-    if (allocated(Npatches_dev))       deallocate(Npatches_dev)
-    if (allocated(Ntor_angle_dev))     deallocate(Ntor_angle_dev)
     if (allocated(List_Cell_dev))      deallocate(List_Cell_dev)
     if (allocated(W_RU_dev))           deallocate(W_RU_dev)
-    if (allocated(patchdev))           deallocate(patchdev)
     if (allocated(hdev))               deallocate(hdev)
     if (allocated(DR_Cell_dev))        deallocate(DR_Cell_dev)
     if (allocated(Sphere_Celldev))     deallocate(Sphere_Celldev)
     if (allocated(energydev))          deallocate(energydev)
-    if (allocated(ref_tor_dev))        deallocate(ref_tor_dev)
-    if (allocated(tor_angle_dev))      deallocate(tor_angle_dev)
-    if (allocated(Vpot_Matrix_dev))    deallocate(Vpot_Matrix_dev)
-    if (allocated(epsilon_LJ_dev))     deallocate(epsilon_LJ_dev) 
+    init_subsweep = 0
+    init_shift = 0
   end subroutine clean
   
   ! ==============================================================================
