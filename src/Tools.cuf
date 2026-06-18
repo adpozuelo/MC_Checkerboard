@@ -70,7 +70,7 @@ Subroutine System_energy(overlap)
    Use set_precision
    Use configuration
    Use properties, Only : en_tot
-   Use rundata, Only: istep_fin, pure_LJ
+   Use rundata, Only: istep_fin, pot_int
    Implicit None
    Integer :: i, j
    Real(wp) :: en, ener_part(0:natoms-1), en_tot1
@@ -81,7 +81,7 @@ Subroutine System_energy(overlap)
    overlap=.false.
    en_tot=0.e0
    ener_part=0
-   if (pure_LJ) then
+   if (pot_int < 1) then
       Do I=0,Natoms-2
          Do J=i+1,Natoms-1
           call ener_LJ(I,J,en,overlap)

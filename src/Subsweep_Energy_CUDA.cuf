@@ -1368,12 +1368,12 @@ attributes(device) subroutine evaluate_cell_interactions( &
   ! first time it is run (or on reset). Launches the correct energy evaluation 
   ! kernel (Pure LJ vs Patchy) across available device blocks.
   ! ==============================================================================
-  subroutine computeenergygpu(pure_LJ, bool_tor, init, Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, Npatches_max, Ntor_max, &
+  subroutine computeenergygpu(pot_int, bool_tor, init, Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, Npatches_max, Ntor_max, &
                               Npatches, patch, ref_tor_vec, sigma_jon, sigma_tor_jon, sigma_LJ, epsilon_LJ, range, VL0, XOP, &
                               Ntor_angle, tor_angle, Vpot_Matrix, h, Sphere_Cell, List_Cell, Map_Cell, Nl_Cell, Nat_Cell, &
                               DR_Cell, En_tot)
     integer, intent(in) :: bool_tor
-    logical, intent(in) :: pure_LJ
+    integer, intent(in) :: pot_int
     integer, intent(inout) :: init
     integer, intent(in) :: Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, Npatches_max, Ntor_max
     integer, intent(in) :: Npatches(0:Ntypes-1), Ntor_angle(0:Ntypes*Npatches_max-1)
@@ -1509,7 +1509,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
   ! DESCRIPTION: Wrapper for `subsweep_LJ` and `subsweep`. It prepares device data, 
   ! manages random number state memory, and passes the offset for checkerboard sweeps.
   ! ==============================================================================
-  subroutine subsweepgpu(pure_LJ, bool_tor, seed, No_tras_ac, No_rot_ac, Ndim, Nmove, Nat_Cell_Max, Ntot_Cell, Nsubset_Cell, &
+  subroutine subsweepgpu(pot_int, bool_tor, seed, No_tras_ac, No_rot_ac, Ndim, Nmove, Nat_Cell_Max, Ntot_Cell, Nsubset_Cell, &
                          Npatches_max, Ntor_max, Npart_types, Npatches, patch, ref_tor_vec, sigma_jon, sigma_tor, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, &
                          Ntor_angle, tor_angle, Vpot_Matrix, h, beta, hmax, omax, Sphere_Cell, List_Cell, Map_Cell, Nl_Cell, Nat_Cell, DR_Cell, W_RU, Offset_CB, En_tot)
     integer, intent(in) :: bool_tor
@@ -1536,7 +1536,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
     integer(kind=8) :: seed_dev, offset
     real(dkind) :: Total_energy
     integer :: No_tras_ac_subsweep, No_rot_ac_subsweep
-    logical, intent(in) :: pure_LJ
+    integer, intent(in) :: pot_int
     
     if (init_subsweep == 0) then
       nblock = (10*Nsubset_Cell)/NTHREAD
@@ -1573,7 +1573,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
     if (Ntot_jobs < Nsubset_Cell) nblock = nblock + 1
 
     ! Host side routing implementation
-    if (pure_LJ) then
+    if (pot_int < 1) then
         call subsweep_LJ<<<nblock,NTHREAD>>>(RND_States, TOTAL_THREADS, overlap_error_dev, bool_tor, Ndim, Nmove, Nat_Cell_Max, &
                                           Ntot_Cell, Nsubset_Cell, Npatches_max, Ntor_max, Npart_types, &
                                           Npatches_dev, patchdev, ref_tor_dev, sigma_jon_dev, sigma_tor, sigma_LJ_dev, epsilon_LJ_dev, range_dev, VL0_dev, XOP_dev, &
@@ -2130,12 +2130,12 @@ attributes(device) subroutine evaluate_cell_interactions( &
   ! HOST WRAPPER: compute_per_atom_energy_gpu 
   ! DESCRIPTION: Uses the appropriate per-atom energy evaluation kernel (Patchy vs Pure LJ).
   ! ==============================================================================
-  subroutine compute_per_atom_energy_gpu(pure_LJ, bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, Npatches_max, Ntor_max, &
+  subroutine compute_per_atom_energy_gpu(pot_int, bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, Npatches_max, Ntor_max, &
                                          sigma_tor_jon, Natoms_in, atom_energies_host)
     ! >>> Pull the CPU cell list data to safely mirror it to the GPU
     use cell, only : Sphere_Cell, List_Cell, Nat_Cell, DR_Cell
     
-    logical, intent(in) :: pure_LJ
+    integer, intent(in) :: pot_int
     integer, intent(in) :: bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, Npatches_max, Ntor_max, Natoms_in
     real(wp), intent(in) :: sigma_tor_jon
     real(wp), intent(out) :: atom_energies_host(0:Natoms_in-1)
@@ -2161,7 +2161,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
     ! We map One Thread to One Cell, matching enerGPU perfectly
     nblock = (Ntot_Cell + NTHREAD - 1) / NTHREAD
 
-    If (pure_LJ) Then
+    If (pot_int < 1) Then
        call cell_per_atom_enerGPU_LJ<<<nblock, NTHREAD>>>(Ndim, Natoms_in, Nat_Cell_Max, Ntot_Cell, Ntypes, &
                                          range_dev, sigma_LJ_dev, VL0_dev, hdev, Sphere_Cell_dev, List_Cell_dev, Map_Cell_dev, Nl_Cell_dev, &
                                          Nat_Cell_dev, DR_Cell_dev, atom_ener_dev)

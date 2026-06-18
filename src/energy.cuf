@@ -198,7 +198,7 @@ Subroutine get_per_atom_energies(atom_ener)
    
    Do i = 0, Natoms - 2
       Do j = i + 1, Natoms - 1
-         if (pure_LJ) then
+         if (pot_int < 1) then
             Call ener_LJ(i, j, pair_en, overlap)
          else
             Call ener(i, j, pair_en, overlap) 
