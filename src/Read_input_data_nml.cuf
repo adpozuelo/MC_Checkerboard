@@ -156,7 +156,7 @@ Subroutine Read_Input_Data
    Implicit None
    Integer :: i, j, k, l, m, Indx, Indx1, Indx2, ios, Indx_tor, Indx_tor2
    Integer :: i_fila, i_columna
-   Real(wp) :: norm, px, py, pz, sigma_jon_ij, xopp
+   Real(wp) :: norm, px, py, pz, sigma_jon_ij, xopp, Rmin_ij
    real(wp), Allocatable :: Matrix(:,:)
    Character(len=256) :: line
 
