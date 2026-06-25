@@ -26,10 +26,11 @@
 !
 ! AUTHORS:
 !   Eva González Noya      - eva.noya@iqf.csic.es
+!   Enrique Lomba          - e.lomba@iqf.csic.es
 !   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
 !
 ! DATE:
-!   February 2026
+!   June 2026
 !   to Convert_CB_RU and reinitialize routines.
 ! ==============================================================================
 Subroutine Update_checkerboard(Nl_aux)
