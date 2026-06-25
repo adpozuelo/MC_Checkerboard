@@ -106,17 +106,19 @@ contains
     real(wp), intent(in), value :: RSQ, sigma, eps, epsp
     real(wp), intent(out) :: Vrad
     real(wp) :: r, r2inv, r6inv, Rc, pi
+    real(wp) :: abs_epsp
     
     pi = acos(-1.0_wp)
     Rc = sigma * 1.122462048309373_wp  ! 2^(1/6)
     r = sqrt(RSQ)
+    abs_epsp = abs(epsp)
     
     if (r <= Rc) then
         r2inv = 1.0_wp / RSQ
         r6inv = (Rc * Rc * r2inv)**3
-        Vrad = -epsp + eps * (r6inv * r6inv - 2.0_wp * r6inv + 1.0_wp)
+        Vrad = -abs_epsp + eps * (r6inv * r6inv - 2.0_wp * r6inv + 1.0_wp)
     else if (r <= 2.0_wp * Rc) then
-        Vrad = -epsp * cos( pi * (r - Rc) / (2.0_wp * Rc) )**2
+        Vrad = -abs_epsp * cos( pi * (r - Rc) / (2.0_wp * Rc) )**2
     else
         Vrad = 0.0_wp
     end if
@@ -3154,7 +3156,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
                   is_overlap = 1
                   return
               else if (RSQ < range_aux*range_aux) then
-                  call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
+                  call vlj_palaia(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
                   en_i = en_i + 0.5_wp * Vrad
               end if
               

@@ -320,11 +320,14 @@ End If
                    Read(20,*) 
                EndIf
             End Do
-         ElseIf( Nrb_sites(J) == 1) Then
-               Read(20,'(3F12.8)')  ( patch( Indx+K ), K = 0, Ndim -1 )
-               norm= sqrt(px*px+py*py+pz*pz)
-               patch( Indx2 ) =Px/norm; patch( Indx2+1 ) =Py/norm; patch( Indx2+2 ) =Pz/norm
-         Endif
+          ElseIf( Nrb_sites(J) == 1) Then
+                Indx2 = Indx
+                Read(20,'(3F12.8)') px, py, pz
+                norm = sqrt(px*px+py*py+pz*pz)
+                patch( Indx2 ) = px/norm
+                patch( Indx2+1 ) = py/norm
+                patch( Indx2+2 ) = pz/norm
+          Endif
       EndDo
 
       If ( Maxval(Ntor_angle) > Ntor_max) stop 'Error: max torsional angles exceeded'
