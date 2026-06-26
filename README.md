@@ -195,6 +195,11 @@ See `examples/LJG/` directory for example input filesi for LJG patchy systems.
   - `sigma_jon_aux` - Angular interaction width
   - `sigma_tor_jon` - Torsional interaction width
   - `rangepp` - Interaction cutoff
+- **SSP (Site-Site Patchy / Palaia Potential)**: Uses WCA core + attractive cosine tail
+  - `sigp_factor` - Patch radius scaling factor (default: `0.1`)
+  - `Rcp_factor` - Patch cutoff scaling factor (default: `0.3`)
+  - `Rc_factor` - Core tail cutoff scaling factor (default: `2.0`)
+
 
 ---
 
@@ -284,9 +289,14 @@ Computing resources provided by CSIC.
 
 ## Version History
 
+- **V1.4** (June 2026) Configurable patchy potential scaling and bug fixes
+  - Added namelist potential scaling parameters (`sigp_factor`, `Rcp_factor`, `Rc_factor`) for the Palaia site-site potential model.
+  - Relocated initialization sanity checks to prevent Segmentation Fault during startup.
+
 - **V1.3** (June 2026) Support for LJ mixture
   - Removed unneeded moves for simple systems
   - Output info adapted to LJ mixture
+
 
 - **v1.2** (May 2026) Added compatibility with trj_analysis tool.
   - Input files transformed to namelist

@@ -362,10 +362,12 @@ Subroutine Read_Input_Data
       EndIf
    End If
 
-   ! ==============================================================================
-   ! SANITY CHECK: Palaia 2022 Patchy Potential Cutoff
-   ! Ensure rangeP is large enough to capture the full cosine-squared tail (Rc_factor * Rc)
-   ! ==============================================================================
+    ! ==============================================================================
+    ! SANITY CHECK: Palaia 2022 Patchy Potential Cutoff
+    ! Ensure rangeP is large enough to capture the full cosine-squared tail (Rc_factor * Rc)
+    ! NOTE (V1.4): Moved to the end of Read_Input_Data to prevent Segmentation Faults. 
+    ! This ensures arrays sigma_LJ and rangeP have already been allocated and populated.
+    ! ==============================================================================
    If (pot_int == 2) Then
        If (Allocated(sigma_LJ) .and. Allocated(rangeP)) Then
            Do i = 0, Npart_types - 1
