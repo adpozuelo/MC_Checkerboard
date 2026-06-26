@@ -37,7 +37,8 @@ Subroutine CB_system_energy_GPU(state)
    Real (dkind) ::  Ener_tot
 
    call computeenergygpu(pot_int, bool_tor, state, Ndim, Nat_cell_max, Ntot_Cell, Npart_types, &
-                     &   Nrb_sites_max, Ntor_max, Nrb_sites, patch, ref_tor_vec, &
+                     &   Nrb_sites_max, Ntor_max, sigp_factor, Rcp_factor, Rc_factor, &
+                     &   Nrb_sites, patch, ref_tor_vec, &
                      &   sigma_jon, sigma_tor_jon, sigma_LJ, epsilon_LJ, &
                      &   rangeP, VL0, xop, &
                      &   Ntor_angle, tor_angle, Vpot_Matrix, &
@@ -45,4 +46,3 @@ Subroutine CB_system_energy_GPU(state)
    En_tot = Ener_tot
 
 End Subroutine CB_system_energy_GPU
-

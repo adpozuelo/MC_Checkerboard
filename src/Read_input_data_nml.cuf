@@ -50,6 +50,9 @@ Subroutine Write_Input_File(istep)
    Write(21,*) "  sigma_tor_jon = ", dsqrt(sigma_tor_jon/2.d0), ","
    Write(21,*) "  rangepp = ", rangepp, ","
    Write(21,*) "  Bool_tor = ", Bool_tor, ","
+   Write(21,*) "  sigp_factor = ", sigp_factor, ","
+   Write(21,*) "  Rcp_factor = ", Rcp_factor, ","
+   Write(21,*) "  Rc_factor = ", Rc_factor, ","
    Write(21,*) "/"
 
    ! =========================================================================
@@ -163,11 +166,13 @@ Subroutine Read_Input_Data
   
    Namelist /Control_Params/ istep_ini, istep_fin, Neq, Nmove, Nsave, Nsave2, Nrestart, imovie, traj_format, Npart_types, Ecpu_check
    Namelist /MC_Params/ hmax, omax, vmax, displ_update, temp0, temp1, npt, iscale, pres, seed
-   Namelist /Potential_Params/ model, cosmax_KF, ctor_max_KF, delta_KF, Bool_tor, sigma_jon_aux, sigma_tor_jon, rangepp 
+   Namelist /Potential_Params/ model, cosmax_KF, ctor_max_KF, delta_KF, Bool_tor, sigma_jon_aux, sigma_tor_jon, rangepp, &
+                                sigp_factor, Rcp_factor, Rc_factor 
 
    traj_format = 'netcdf'; 
    imovie = .false.; displ_update = .false.; npt = .false.; 
    sigma_jon_aux = 0.0_wp; sigma_tor_jon = 0.0_wp; rangepp = 0.0_wp
+   sigp_factor = 0.1_wp; Rcp_factor = 0.3_wp; Rc_factor = 2.0_wp
 
    Open(20,file=input_filename, status='old')
    Read(20, NML=Control_Params)
@@ -184,34 +189,7 @@ Subroutine Read_Input_Data
       stop  
    end if
   
-   ! ==============================================================================
-! SANITY CHECK: Palaia 2022 Patchy Potential Cutoff
-! Ensure rangeP is large enough to capture the full cosine-squared tail (2 * Rc)
-! ==============================================================================
-If (pot_int == 2) Then
-    Do i = 0, Npart_types - 1
-        Do j = 0, Npart_types - 1
-            Indx = i * Npart_types + j
-            
-            ! Calculate Rc = 2^(1/6) * sigma
-            Rmin_ij = sigma_LJ(Indx) * 1.122462048309373_wp 
-            
-            ! The tail completely decays at exactly 2 * Rmin_ij
-            If (rangeP(Indx) < 2.0_wp * Rmin_ij) Then
-                Print *, c_red, "======================================================"
-                Print *, " FATAL ERROR: CUTOFF TOO SHORT FOR PALAIA PATCHY MODEL"
-                Print *, "======================================================"
-                Print *, "Particle Types : ", i, " and ", j
-                Print *, "Current rangeP : ", rangeP(Indx)
-                Print *, "Required rangeP: ", 2.0_wp * Rmin_ij, " (or greater)"
-                Print *, "Reason: The attractive cosine tail extends to 2 * Rc."
-                Print *, "Please increase 'rangep' in your datos.nml file."
-                Print *, "======================================================",c_reset
-                Stop 1
-            End If
-        End Do
-    End Do
-End If
+
    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
    write(*,'(A)') c_cyan // '                              SIMULATION PARAMETERS LOADED                              ' // c_reset
    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
@@ -237,6 +215,11 @@ End If
    Else
       write(*,'(A,A)')  '  -> Potential Model:         ', trim(model)
       if( trim(model) == 'LJG') sigma_tor_jon = 2.d0*sigma_tor_jon*sigma_tor_jon
+      if (pot_int == 2) then
+          write(*,'(A,F10.4)') '     - Patch radius factor:   ', sigp_factor
+          write(*,'(A,F10.4)') '     - Patch cutoff factor:   ', Rcp_factor
+          write(*,'(A,F10.4)') '     - Core tail factor:      ', Rc_factor
+      end if
    EndIf
    write(*,'(A,I5)') '  -> Number of Particle Types:', Npart_types
    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
@@ -378,6 +361,34 @@ End If
          EndDo
       EndIf
    End If
+
+   ! ==============================================================================
+   ! SANITY CHECK: Palaia 2022 Patchy Potential Cutoff
+   ! Ensure rangeP is large enough to capture the full cosine-squared tail (Rc_factor * Rc)
+   ! ==============================================================================
+   If (pot_int == 2) Then
+       If (Allocated(sigma_LJ) .and. Allocated(rangeP)) Then
+           Do i = 0, Npart_types - 1
+               Do j = 0, Npart_types - 1
+                   Indx = i * Npart_types + j
+                   Rmin_ij = sigma_LJ(Indx) * 1.122462048309373_wp
+                   If (rangeP(Indx) < Rc_factor * Rmin_ij) Then
+                       Print *, c_red, "======================================================"
+                       Print *, " FATAL ERROR: CUTOFF TOO SHORT FOR PALAIA PATCHY MODEL"
+                       Print *, "======================================================"
+                       Print *, "Particle Types : ", i, " and ", j
+                       Print *, "Current rangeP : ", rangeP(Indx)
+                       Print *, "Required rangeP: ", Rc_factor * Rmin_ij, " (or greater)"
+                       Print *, "Reason: The attractive cosine tail extends to Rc_factor * Rc."
+                       Print *, "Please increase 'rangep' in your datos.nml file."
+                       Print *, "======================================================",c_reset
+                       Stop 1
+                   End If
+               End Do
+           End Do
+       End If
+   End If
+
    close(20)
 End Subroutine Read_input_data! =
 !=============================================================================

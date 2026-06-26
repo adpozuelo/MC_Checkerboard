@@ -102,8 +102,8 @@ contains
   ! DEVICE FUNCTION: vlj_palaia (pot_int == 2)
   ! DESCRIPTION: WCA core + Cosine tail. Replaces standard LJ for site-site models.
   ! ==============================================================================
-  attributes(device) subroutine vlj_palaia(RSQ, sigma, eps, epsp, Vrad)
-    real(wp), intent(in), value :: RSQ, sigma, eps, epsp
+  attributes(device) subroutine vlj_palaia(RSQ, sigma, eps, epsp, Rc_factor, Vrad)
+    real(wp), intent(in), value :: RSQ, sigma, eps, epsp, Rc_factor
     real(wp), intent(out) :: Vrad
     real(wp) :: r, r2inv, r6inv, Rc, pi
     real(wp) :: abs_epsp
@@ -117,8 +117,8 @@ contains
         r2inv = 1.0_wp / RSQ
         r6inv = (Rc * Rc * r2inv)**3
         Vrad = -abs_epsp + eps * (r6inv * r6inv - 2.0_wp * r6inv + 1.0_wp)
-    else if (r <= 2.0_wp * Rc) then
-        Vrad = -abs_epsp * cos( pi * (r - Rc) / (2.0_wp * Rc) )**2
+    else if (r <= Rc_factor * Rc) then
+        Vrad = -abs_epsp * cos( pi * (r - Rc) / (2.0_wp * (Rc_factor - 1.0_wp) * Rc) )**2
     else
         Vrad = 0.0_wp
     end if
@@ -423,7 +423,7 @@ contains
                           FX  = (1.0_wp + tanh( a*(-XOP_aux + dist) ))/2.0_wp
                           FXI = (1.0_wp - tanh( a*(-XOP_aux + dist) ))/2.0_wp
                           call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
-                          energ_total = energ_total - Vrad + Vrad * ( FXI + Vangtor_max * FX )
+                          energ_total = energ_total + Vrad * ( FXI + Vangtor_max * FX )
                       end if
                   end if
               end if
@@ -439,6 +439,7 @@ contains
       Nat_target, indx_atm_base, indx_atm_map, ignore_idx, &
       dx_shift, dy_shift, dz_shift, xi, yi, zi, itypei, R1, &
       H11, H12, H13, H21, H22, H23, H31, H32, H33, pi, &
+      sigp_factor, Rcp_factor, Rc_factor, &
       Ntypes, Npatches_max, Ndim, &
       Sphere_Cell, List_Cell, Npatches, patch, range, &
       sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, &
@@ -446,6 +447,7 @@ contains
 
       integer, value  :: Nat_target, indx_atm_base, indx_atm_map, ignore_idx, itypei, Ntypes, Npatches_max, Ndim
       real(wp), value :: dx_shift, dy_shift, dz_shift, xi, yi, zi, H11, H12, H13, H21, H22, H23, H31, H32, H33, pi
+      real(wp), value :: sigp_factor, Rcp_factor, Rc_factor
       
       real(wp), intent(in) :: R1(0:8)
       
@@ -492,7 +494,7 @@ contains
                   return
               else if (RSQ < range_aux*range_aux) then
                   ! ---> CHANGED: Call Palaia potential and pass VL0_aux as epsp
-                  call vlj_palaia(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
+                  call vlj_palaia(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Rc_factor, Vrad)
                   energ_total = energ_total + Vrad
               end if
               
@@ -500,8 +502,8 @@ contains
                   sigma_i = sigma_LJ(itypei * Ntypes + itypei)
                   sigma_j = sigma_LJ(itypej * Ntypes + itypej)
                   Rmin_ij = s_LJ_aux * 1.122462048309373_wp
-                  sigp = 0.1_wp * Rmin_ij
-                  Rcp  = 0.3_wp * Rmin_ij
+                  sigp = sigp_factor * Rmin_ij
+                  Rcp  = Rcp_factor * Rmin_ij
                   
                   Q0j = Sphere_Cell(jmol + 3); Q1j = Sphere_Cell(jmol + 4); Q2j = Sphere_Cell(jmol + 5); Q3j = Sphere_Cell(jmol + 6)
                   R211 = Q0j*Q0j + Q1j*Q1j - Q2j*Q2j - Q3j*Q3j
@@ -653,9 +655,11 @@ contains
   ! KERNEL: enerGPU_sitesite
   ! ==============================================================================
   attributes(global) subroutine enerGPU_sitesite(Ndim, Nat_Cell_Max, Ntot_Cell, Npatches_max, Ntypes, &
+                                        sigp_factor, Rcp_factor, Rc_factor, &
                                         Npatches, patch, range, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, &
                                         h, Sphere_Cell, List_Cell, Map_Cell, Nl_Cell, Nat_Cell, DR_Cell, energy)
     integer, intent(in), value :: Ndim, Nat_Cell_Max, Ntot_Cell, Npatches_max, Ntypes
+    real(wp), intent(in), value :: sigp_factor, Rcp_factor, Rc_factor
     integer, intent(in), device :: Npatches(0:Ntypes-1)
     real(wp), intent(in), device :: patch(0:Ntypes*Npatches_max*Ndim-1)
     real(wp), intent(in), device :: range(0:Ntypes*Ntypes-1)
@@ -708,6 +712,7 @@ contains
                     Nat_Cell_ijk, indx_atm_aux, indx_atm_aux2, m, &
                     0.0_wp, 0.0_wp, 0.0_wp, xi, yi, zi, itypei, R1, &
                     H11, H12, H13, H21, H22, H23, H31, H32, H33, pi, &
+                    sigp_factor, Rcp_factor, Rc_factor, &
                     Ntypes, Npatches_max, Ndim, &
                     Sphere_Cell, List_Cell, Npatches, patch, range, &
                     sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, &
@@ -728,6 +733,7 @@ contains
                             Nat_Cell_neigh, indx_neigh_aux2, indx_neigh_auxp, -1, & 
                             dx_neigh, dy_neigh, dz_neigh, xi, yi, zi, itypei, R1, &
                             H11, H12, H13, H21, H22, H23, H31, H32, H33, pi, &
+                            sigp_factor, Rcp_factor, Rc_factor, &
                             Ntypes, Npatches_max, Ndim, &
                             Sphere_Cell, List_Cell, Npatches, patch, range, &
                             sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, &
@@ -1429,7 +1435,7 @@ attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, N
                     if (Vangtor_max /= -1.0_wp) then
                         FX  = (1.0_wp + tanh(a*(-XOP_aux + dist )))/2.0_wp; FXI = (1.0_wp - tanh(a*(-XOP_aux + dist )))/2.0_wp
                         call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
-                        e_old_inc = e_old_inc - Vrad + Vrad * (FXI + Vangtor_max * FX)
+                        e_old_inc = e_old_inc + Vrad * (FXI + Vangtor_max * FX)
                     end if
                 end if
                 
@@ -1439,7 +1445,7 @@ attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, N
                     if (Vangtor_max_n /= -1.0_wp) then
                         FX  = (1.0_wp + tanh(a*(-XOP_aux + distn)))/2.0_wp; FXI = (1.0_wp - tanh(a*(-XOP_aux + distn)))/2.0_wp
                         call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, VradN)
-                        e_new_inc = e_new_inc - VradN + VradN * (FXI + Vangtor_max_n * FX)
+                        e_new_inc = e_new_inc + VradN * (FXI + Vangtor_max_n * FX)
                     end if
                 end if
             end if
@@ -1454,6 +1460,7 @@ attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, N
         XJ, YJ, ZJ, jmol, Sphere_Cell, &
         Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z, &
         R1, R1N, H11, H12, H13, H21, H22, H23, H31, H32, H33, pi, &
+        sigp_factor, Rcp_factor, Rc_factor, &
         itypei, itypej, Ntypes, Npatches_max, Ndim, &
         Npatches, patch, sigma_LJ, epsilon_LJ, &
         rangeP, VL0, Vpot_Matrix, &
@@ -1462,6 +1469,7 @@ attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, N
         integer, value  :: jmol, itypei, itypej, Ntypes, Npatches_max, Ndim
         real(wp), value :: XJ, YJ, ZJ, Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z
         real(wp), value :: H11, H12, H13, H21, H22, H23, H31, H32, H33, pi
+        real(wp), value :: sigp_factor, Rcp_factor, Rc_factor
         
         real(wp), intent(in) :: R1(0:8), R1N(0:8)
         
@@ -1498,11 +1506,11 @@ attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, N
         if (RSQn < 0.250000_wp) then; is_overlap = 1; end if
 
         if (RSQ < rangeP_aux*rangeP_aux) then
-            call vlj_palaia(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
+            call vlj_palaia(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Rc_factor, Vrad)
             e_old_inc = e_old_inc + Vrad
         end if
         if (RSQn < rangeP_aux*rangeP_aux) then
-            call vlj_palaia(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, VradN)
+            call vlj_palaia(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Rc_factor, VradN)
             e_new_inc = e_new_inc + VradN
         end if
 
@@ -1512,8 +1520,8 @@ attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, N
             sigma_j = sigma_LJ(itypej * Ntypes + itypej)
             
             Rmin_ij = sigma_LJ_aux * 1.122462048309373_wp
-            sigp = 0.1_wp * Rmin_ij
-            Rcp  = 0.3_wp * Rmin_ij
+            sigp = sigp_factor * Rmin_ij
+            Rcp  = Rcp_factor * Rmin_ij
             
             Q0j = Sphere_Cell(jmol+3); Q1j = Sphere_Cell(jmol+4); Q2j = Sphere_Cell(jmol+5); Q3j = Sphere_Cell(jmol+6)
             call rot_matrix(Q0j,Q1j,Q2j,Q3j,R2)
@@ -1852,7 +1860,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
   attributes(global) subroutine subsweep_sitesite(RND_state, nstates, overlap_error, Ndim, Nmove, Nat_Cell_Max, &
                                              Ntot_Cell, Nsubset_Cell, Npatches_max, Ntypes, &
                                              Npatches, patch, sigma_LJ, epsilon_LJ, rangeP, VL0, Vpot_Matrix, &
-                                             h, beta, hmax, omax, Sphere_Cell, List_Cell, Map_Cell, &
+                                             h, beta, hmax, omax, sigp_factor, Rcp_factor, Rc_factor, &
+                                             Sphere_Cell, List_Cell, Map_Cell, &
                                              Nl_Cell, Nat_Cell, DR_Cell, Offset_CB, W_RU, Delta_energy, Ntras_ac, Nrot_ac)
         type(curandStateXORWOW), intent(inout) :: RND_state(0:nstates-1)
         integer, value :: nstates
@@ -1868,7 +1877,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
         real(wp), device, intent(in) :: Vpot_Matrix(0:Ntypes*Npatches_max*Ntypes*Npatches_max-1)
         real(wp), device, intent(in) :: h(0:Ndim*Ndim-1), DR_Cell(0:Ntot_Cell*26*3-1)
         real(dkind), device, intent(in) :: W_RU(0:Ndim-1)
-        real(wp), value :: beta, hmax, omax
+        real(wp), value :: beta, hmax, omax, sigp_factor, Rcp_factor, Rc_factor
         real(wp), device, intent(inout) :: Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1)
         real(dkind), device, intent(out) :: Delta_energy(0:Ntot_Cell-1)
 
@@ -1955,6 +1964,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
                                         XJ, YJ, ZJ, jmol, Sphere_Cell, &
                                         Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z, &
                                         R1, R1N, H11, H12, H13, H21, H22, H23, H31, H32, H33, pi, &
+                                        sigp_factor, Rcp_factor, Rc_factor, &
                                         itypei, itypej, Ntypes, Npatches_max, Ndim, &
                                         Npatches, patch, sigma_LJ, epsilon_LJ, &
                                         rangeP, VL0, Vpot_Matrix, &
@@ -1987,6 +1997,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
                                             XJ, YJ, ZJ, jmol, Sphere_Cell, &
                                             Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z, &
                                             R1, R1N, H11, H12, H13, H21, H22, H23, H31, H32, H33, pi, &
+                                            sigp_factor, Rcp_factor, Rc_factor, &
                                             itypei, itypej, Ntypes, Npatches_max, Ndim, &
                                             Npatches, patch, sigma_LJ, epsilon_LJ, &
                                             rangeP, VL0, Vpot_Matrix, &
@@ -2550,6 +2561,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
   ! kernel (Pure LJ vs Patchy) across available device blocks.
   ! ==============================================================================
   subroutine computeenergygpu(pot_int, bool_tor, init, Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, Npatches_max, Ntor_max, &
+                              sigp_factor, Rcp_factor, Rc_factor, &
                               Npatches, patch, ref_tor_vec, sigma_jon, sigma_tor_jon, sigma_LJ, epsilon_LJ, range, VL0, XOP, &
                               Ntor_angle, tor_angle, Vpot_Matrix, h, Sphere_Cell, List_Cell, Map_Cell, Nl_Cell, Nat_Cell, &
                               DR_Cell, En_tot)
@@ -2557,6 +2569,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
     integer, intent(in) :: pot_int
     integer, intent(inout) :: init
     integer, intent(in) :: Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, Npatches_max, Ntor_max
+    real(wp), intent(in) :: sigp_factor, Rcp_factor, Rc_factor
     integer, intent(in) :: Npatches(0:Ntypes-1), Ntor_angle(0:Ntypes*Npatches_max-1)
     real(wp), intent(in) :: patch(0:Ntypes*Npatches_max*Ndim-1), ref_tor_vec(0:Ntypes*Npatches_max*Ndim-1)
     real(wp), intent(in) :: sigma_jon(0:Ntypes*Npatches_max-1), sigma_tor_jon
@@ -2681,6 +2694,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
                                           Map_Cell_dev, Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, energydev)
     else if (pot_int == 2) then
         call enerGPU_sitesite<<<nblock, NTHREAD>>>(Ndim, Nat_Cell_Max, Ntot_Cell, Npatches_max, Ntypes, &
+                                          sigp_factor, Rcp_factor, Rc_factor, &
                                           Npatches_dev, patchdev, range_dev, sigma_LJ_dev, epsilon_LJ_dev, VL0_dev, &
                                           Vpot_Matrix_dev, hdev, Sphere_Celldev, List_Cell_dev, &
                                           Map_Cell_dev, Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, energydev)
@@ -2706,7 +2720,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
   ! ==============================================================================
   subroutine subsweepgpu(pot_int, bool_tor, seed, No_tras_ac, No_rot_ac, Ndim, Nmove, Nat_Cell_Max, Ntot_Cell, Nsubset_Cell, &
                          Npatches_max, Ntor_max, Npart_types, Npatches, patch, ref_tor_vec, sigma_jon, sigma_tor, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, &
-                         Ntor_angle, tor_angle, Vpot_Matrix, h, beta, hmax, omax, Sphere_Cell, List_Cell, Map_Cell, Nl_Cell, Nat_Cell, DR_Cell, W_RU, Offset_CB, En_tot)
+                         Ntor_angle, tor_angle, Vpot_Matrix, h, beta, hmax, omax, sigp_factor, Rcp_factor, Rc_factor, &
+                         Sphere_Cell, List_Cell, Map_Cell, Nl_Cell, Nat_Cell, DR_Cell, W_RU, Offset_CB, En_tot)
     integer, intent(in) :: bool_tor
     integer(kind=8), intent(in) :: seed
     integer, intent(inout) :: No_tras_ac, No_rot_ac
@@ -2718,7 +2733,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
     real(wp), intent(in) :: sigma_LJ(0:Npart_types*Npart_types-1), epsilon_LJ(0:Npart_types*Npart_types-1), rangeP(0:Npart_types*Npart_types-1)
     real(wp), intent(in) :: VL0(0:Npart_types*Npart_types-1), XOP(0:Npart_types*Npart_types-1)
     real(wp), intent(in) :: tor_angle(0:Npart_types*Npatches_max*Ntor_max-1), Vpot_Matrix(0:Npart_types*Npatches_max*Npart_types*Npatches_max-1)
-    real(wp), intent(in) :: h(0:Ndim*Ndim-1), beta, hmax, omax
+    real(wp), intent(in) :: h(0:Ndim*Ndim-1), beta, hmax, omax, sigp_factor, Rcp_factor, Rc_factor
     real(wp), intent(inout) :: Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1)
     integer, intent(in) :: List_Cell(0:Ntot_Cell*Nat_Cell_Max*2-1), Map_Cell(0:Ntot_Cell*26-1)
     integer, intent(in) :: Nl_Cell(0:Ndim-1), Nat_Cell(0:Ntot_Cell-1)
@@ -2784,7 +2799,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
         call subsweep_sitesite<<<nblock,NTHREAD>>>(RND_States, TOTAL_THREADS, overlap_error_dev, Ndim, Nmove, Nat_Cell_Max, &
                                           Ntot_Cell, Nsubset_Cell, Npatches_max, Npart_types, &
                                           Npatches_dev, patchdev, sigma_LJ_dev, epsilon_LJ_dev, range_dev, VL0_dev, Vpot_Matrix_dev, &
-                                          hdev, beta, hmax, omax, Sphere_Celldev, List_Cell_dev, Map_Cell_dev, &
+                                          hdev, beta, hmax, omax, sigp_factor, Rcp_factor, Rc_factor, Sphere_Celldev, List_Cell_dev, Map_Cell_dev, &
                                           Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Offset_dev, W_RU_dev, Delta_E_dev, Ntras_ac_dev, Nrot_ac_dev)
     end if
     
@@ -3108,6 +3123,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
       Nat_target, indx_atm_base, indx_atm_map, ignore_idx, &
       dx_shift, dy_shift, dz_shift, xi, yi, zi, itypei, R1, &
       H11, H12, H13, H21, H22, H23, H31, H32, H33, pi, &
+      sigp_factor, Rcp_factor, Rc_factor, &
       Ntypes, Npatches_max, Ndim, &
       Sphere_Cell, List_Cell, Npatches, patch, range, &
       sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, &
@@ -3115,6 +3131,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
       integer, value  :: Nat_target, indx_atm_base, indx_atm_map, ignore_idx, itypei, Ntypes, Npatches_max, Ndim
       real(wp), value :: dx_shift, dy_shift, dz_shift, xi, yi, zi, H11, H12, H13, H21, H22, H23, H31, H32, H33, pi
+      real(wp), value :: sigp_factor, Rcp_factor, Rc_factor
       
       real(wp), intent(in) :: R1(0:8)
       
@@ -3160,7 +3177,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
                   is_overlap = 1
                   return
               else if (RSQ < range_aux*range_aux) then
-                  call vlj_palaia(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
+                  call vlj_palaia(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Rc_factor, Vrad)
                   en_i = en_i + 0.5_wp * Vrad
               end if
               
@@ -3168,8 +3185,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
                   sigma_i = sigma_LJ(itypei * Ntypes + itypei)
                   sigma_j = sigma_LJ(itypej * Ntypes + itypej)
                   Rmin_ij = s_LJ_aux * 1.122462048309373_wp
-                  sigp = 0.1_wp * Rmin_ij
-                  Rcp  = 0.3_wp * Rmin_ij
+                  sigp = sigp_factor * Rmin_ij
+                  Rcp  = Rcp_factor * Rmin_ij
                   
                   Q0j = Sphere_Cell(jmol + 3); Q1j = Sphere_Cell(jmol + 4); Q2j = Sphere_Cell(jmol + 5); Q3j = Sphere_Cell(jmol + 6)
                   R211 = Q0j*Q0j + Q1j*Q1j - Q2j*Q2j - Q3j*Q3j
@@ -3322,9 +3339,11 @@ attributes(device) subroutine evaluate_cell_interactions( &
   ! KERNEL: cell_per_atom_enerGPU_sitesite
   ! ==============================================================================
   attributes(global) subroutine cell_per_atom_enerGPU_sitesite(Ndim, Natoms, Nat_Cell_Max, Ntot_Cell, Npatches_max, Ntypes, &
+                                        sigp_factor, Rcp_factor, Rc_factor, &
                                         Npatches, patch, range, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, h, &
                                         Sphere_Cell, List_Cell, Map_Cell, Nl_Cell, Nat_Cell, DR_Cell, atom_energy)
     integer, intent(in), value :: Ndim, Natoms, Nat_Cell_Max, Ntot_Cell, Npatches_max, Ntypes
+    real(wp), intent(in), value :: sigp_factor, Rcp_factor, Rc_factor
     integer, intent(in), device :: Npatches(0:*), List_Cell(0:*), Map_Cell(0:*), Nl_Cell(0:2), Nat_Cell(0:*)
     real(wp), intent(in), device :: patch(0:*), range(0:*), sigma_LJ(0:*), epsilon_LJ(0:*), VL0(0:*), Vpot_Matrix(0:*)
     real(wp), intent(in), device :: h(0:8), Sphere_Cell(0:*), DR_Cell(0:*)
@@ -3371,6 +3390,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
                 Nat_Cell_ijk, indx_atm_aux, indx_atm_aux2, m, &
                 0.0_wp, 0.0_wp, 0.0_wp, xi, yi, zi, itypei, R1, &
                 H11, H12, H13, H21, H22, H23, H31, H32, H33, pi, &
+                sigp_factor, Rcp_factor, Rc_factor, &
                 Ntypes, Npatches_max, Ndim, &
                 Sphere_Cell, List_Cell, Npatches, patch, range, &
                 sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, &
@@ -3391,6 +3411,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
                     Nat_Cell_neigh, indx_neigh_aux2, indx_neigh_auxp, -1, &
                     dx_neigh, dy_neigh, dz_neigh, xi, yi, zi, itypei, R1, &
                     H11, H12, H13, H21, H22, H23, H31, H32, H33, pi, &
+                    sigp_factor, Rcp_factor, Rc_factor, &
                     Ntypes, Npatches_max, Ndim, &
                     Sphere_Cell, List_Cell, Npatches, patch, range, &
                     sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, &
@@ -3808,13 +3829,13 @@ attributes(device) subroutine evaluate_cell_interactions( &
   ! DESCRIPTION: Uses the appropriate per-atom energy evaluation kernel (Patchy vs Pure LJ).
   ! ==============================================================================
   subroutine compute_per_atom_energy_gpu(pot_int, bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, Npatches_max, Ntor_max, &
-                                         sigma_tor_jon, Natoms_in, atom_energies_host)
+                                         sigma_tor_jon, sigp_factor, Rcp_factor, Rc_factor, Natoms_in, atom_energies_host)
     ! >>> Pull the CPU cell list data to safely mirror it to the GPU
     use cell, only : Sphere_Cell, List_Cell, Nat_Cell, DR_Cell
     
     integer, intent(in) :: pot_int
     integer, intent(in) :: bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, Npatches_max, Ntor_max, Natoms_in
-    real(wp), intent(in) :: sigma_tor_jon
+    real(wp), intent(in) :: sigma_tor_jon, sigp_factor, Rcp_factor, Rc_factor
     real(wp), intent(out) :: atom_energies_host(0:Natoms_in-1)
 
     ! Explicitly declare our local device coordinate cell list
@@ -3849,6 +3870,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
                                          Nat_Cell_dev, DR_Cell_dev, atom_ener_dev)
     Else if (pot_int == 2) Then
        call cell_per_atom_enerGPU_sitesite<<<nblock, NTHREAD>>>(Ndim, Natoms_in, Nat_Cell_Max, Ntot_Cell, Npatches_max, Ntypes, &
+                                         sigp_factor, Rcp_factor, Rc_factor, &
                                          Npatches_dev, patchdev, range_dev, sigma_LJ_dev, epsilon_LJ_dev, VL0_dev, Vpot_Matrix_dev, &
                                          hdev, Sphere_Cell_dev, List_Cell_dev, Map_Cell_dev, Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, atom_ener_dev)
     End If

@@ -59,7 +59,7 @@ Subroutine MCsweep()
           & Nrb_sites, patch, ref_tor_vec, sigma_jon, sigma_tor_jon, sigma_LJ,&
           & epsilon_LJ, rangeP, VL0, xop, &
           & Ntor_angle, tor_angle, Vpot_Matrix, & 
-          & h, beta, hmax, omax, Sphere_Cell, List_Cell, &
+          & h, beta, hmax, omax, sigp_factor, Rcp_factor, Rc_factor, Sphere_Cell, List_Cell, &
           & Map_Cell, Nl_Cell, Nat_Cell, DR_Cell, W_RU, Offset, En_tot)
 
      EndDo

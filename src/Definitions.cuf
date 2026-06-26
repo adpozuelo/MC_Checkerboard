@@ -123,6 +123,7 @@ MODULE potential
    Integer    ::   Bool_tor                            ! Flag for including torsional potential
 
    Real(wp) :: cosmax_KF, delta_KF, ctor_max_KF        ! Kern-Frenkel model parameters
+   Real(wp) :: sigp_factor, Rcp_factor, Rc_factor      ! Palaia patchy potential configuration factors
    Real(wp) :: rangepp                                 ! Interaction range parameter
    Real(wp) :: sigma_jon_aux,sigma_tor_jon, rcut_jon   ! Angular and torsional interaction widths
    real(wp), Allocatable :: patch(:)                   ! Patch direction vectors (unit vectors)

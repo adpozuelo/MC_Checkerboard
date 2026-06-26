@@ -202,8 +202,8 @@ Subroutine calculate_patchy_energy_sitesite(itypei, itypej, dxp, dyp, dzp, &
    sigma_j = sigma_LJ(itypej * Npart_types + itypej)
 
    Rmin_ij = sigma_LJ_aux * 1.122462048309373_wp
-   sigp = 0.1_wp * Rmin_ij
-   Rcp  = 0.3_wp * Rmin_ij
+   sigp = sigp_factor * Rmin_ij
+   Rcp  = Rcp_factor * Rmin_ij
 
    Do i = 0, NRB_SITES(itypei) - 1
        Indx = Nrb_sites_max*Ndim*itypei + i*Ndim
@@ -396,6 +396,7 @@ End Subroutine ener_LJ
 ! ==============================================================================
 Subroutine vlj_palaia(rsq, sigma, eps, epsp, Vrad)
     Use set_precision
+    Use potential, Only : Rc_factor
     Implicit None
     
     Real(wp), Intent(In)  :: rsq, sigma, eps, epsp
@@ -414,9 +415,9 @@ Subroutine vlj_palaia(rsq, sigma, eps, epsp, Vrad)
         r2inv = 1.0_wp / rsq
         r6inv = (Rc * Rc * r2inv)**3
         Vrad = -abs_epsp + eps * (r6inv * r6inv - 2.0_wp * r6inv + 1.0_wp)
-    else if (r <= 2.0_wp * Rc) then
+    else if (r <= Rc_factor * Rc) then
         ! Attractive Cosine-Squared Tail
-        Vrad = -abs_epsp * cos( pi * (r - Rc) / (2.0_wp * Rc) )**2
+        Vrad = -abs_epsp * cos( pi * (r - Rc) / (2.0_wp * (Rc_factor - 1.0_wp) * Rc) )**2
     else
         Vrad = 0.0_wp
     end if
