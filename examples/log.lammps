@@ -1,0 +1,240 @@
+LAMMPS (10 Sep 2025)
+  using 2 OpenMP thread(s) per MPI task
+package gpu 1 neigh no
+# ==============================================================================
+# LAMMPS Input Script: 5-site Site-Site Patchy model in reduced LJ units
+# ==============================================================================
+
+units          lj
+atom_style     molecular
+dimension      3
+boundary       p p p
+
+# Read the molecular configuration containing coordinates and molecule IDs
+read_data      data.atoms_lammps_reduced
+Reading data file ...
+  orthogonal box = (-11.540205 -11.540205 -11.540205) to (11.540205 11.540205 11.540205)
+  1 by 1 by 1 MPI processor grid
+  reading atoms ...
+  38475 atoms
+Finding 1-2 1-3 1-4 neighbors ...
+  special bond factors lj:    0        0        0       
+  special bond factors coul:  0        0        0       
+     0 = max # of 1-2 neighbors
+     0 = max # of 1-3 neighbors
+     0 = max # of 1-4 neighbors
+     1 = max # of special neighbors
+  special bonds CPU = 0.002 seconds
+  read_data CPU = 0.061 seconds
+
+# Define interaction potential styles
+pair_style     hybrid/overlay lj/cut 1.1224620483 cosine/squared 2.2449240966
+include        forcefield.lj
+# ==============================================================================
+# LAMMPS Forcefield for Site-Site Patchy model in reduced LJ units
+# ==============================================================================
+#
+# Particle types mapping:
+#   Type 1: Colloid A center (Ac)
+#   Type 2: Colloid A patches (Ap)
+#   Type 3: Colloid B center (Bc)
+#   Type 4: Colloid B patches (Bp)
+#
+# Hybrid pair style setup:
+#   pair_style hybrid lj/cut 1.1224620483 cosine/squared 2.2449240966
+# ==============================================================================
+
+# Default: disable all interactions to prevent unconfigured overlaps
+pair_coeff             * * cosine/squared 0.000000 0.522500 0.522500 wca
+WARNING: Cosine/squared set to WCA only (cutoff = sigma)
+For more information see https://docs.lammps.org/err0021 (src/EXTRA-PAIR/pair_cosine_squared.cpp:158)
+
+# Colloid center-center WCA core interaction (depth 1.0, sigma 1.0)
+pair_coeff             1 1 lj/cut 1.0 1.0 1.1224620483
+pair_coeff             3 3 lj/cut 1.0 1.0 1.1224620483
+pair_coeff             1 3 lj/cut 1.0 1.0 1.1224620483
+
+# Colloid center-center attractive cosine tail (depth 0.2, Rc = 2^(1/6), Rcut = 2 * Rc)
+pair_coeff             1 1 cosine/squared 0.2 1.1224620483 2.2449240966
+pair_coeff             3 3 cosine/squared 0.2 1.1224620483 2.2449240966
+pair_coeff             1 3 cosine/squared 0.2 1.1224620483 2.2449240966
+
+# Colloid A patch (type 2) - Colloid B patch (type 4) attractive interaction
+# Depth = 1.0, Rc = 0.1 * 2^(1/6) ≈ 0.112242, Rcut = 0.3 * 2^(1/6) ≈ 0.336727
+pair_coeff             2 4 cosine/squared 1.0 0.1122424700 0.3367274100
+
+pair_modify    shift yes
+WARNING: pair_modify shift has no effect on pair_style cosine/squared (src/EXTRA-PAIR/pair_cosine_squared.cpp:219)
+
+variable tstep equal 0.0025
+variable Tdamp equal 100*${tstep}
+variable Tdamp equal 100*0.0025
+
+timestep ${tstep}
+timestep 0.0025
+variable Text equal 0.154
+variable Text2 equal 0.154
+# Treat each 5-site cluster (1 center + 4 patches sharing the same molecule ID)
+# as a single rigid body using the rigid/small fix.
+fix integrate all rigid/nvt/small molecule temp ${Text2} ${Text} ${Tdamp}
+fix integrate all rigid/nvt/small molecule temp 0.154 ${Text} ${Tdamp}
+fix integrate all rigid/nvt/small molecule temp 0.154 0.154 ${Tdamp}
+fix integrate all rigid/nvt/small molecule temp 0.154 0.154 0.25
+Fix rigid/nvt/small setup ...
+  create bodies CPU = 0.003 seconds
+  7695 rigid bodies with 38475 atoms
+  0.50000001 = max distance from body owner to body atom
+# Neighbor list settings
+neighbor       0.3 bin
+neigh_modify   every 1 delay 0 check yes
+
+# Thermo output style: show step, temperature, pair energy, total energy, pressure, volume
+thermo         100
+thermo_style   custom step temp epair emol etotal press vol
+
+# MD Run Settings
+run            2000
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+Your simulation uses code contributions which should be cited:
+
+- GPU package (short-range, long-range and three-body potentials): doi:10.1016/j.cpc.2010.12.021, doi:10.1016/j.cpc.2011.10.012, doi:10.1016/j.cpc.2013.08.002, doi:10.1016/j.commatsci.2014.10.068, doi:10.1016/j.cpc.2016.10.020, doi:10.3233/APC200086
+
+@Article{Brown11,
+ author = {W. M. Brown and P. Wang and S. J. Plimpton and A. N. Tharrington},
+ title = {Implementing Molecular Dynamics on Hybrid High Performance Computers---Short Range Forces},
+ journal = {Comput.\ Phys.\ Commun.},
+ year =    2011,
+ volume =  182,
+ pages =   {898--911},
+ doi =     {10.1016/j.cpc.2010.12.021}
+}
+
+@Article{Brown12,
+ author = {W. M. Brown and A. Kohlmeyer and S. J. Plimpton and A. N. Tharrington},
+ title = {Implementing Molecular Dynamics on Hybrid High Performance Computers - Particle-Particle Particle-Mesh},
+ journal = {Comput.\ Phys.\ Commun.},
+ year =    2012,
+ volume =  183,
+ doi =     {10.1016/j.cpc.2011.10.012},
+ pages =   {449--459}
+}
+
+@Article{Brown13,
+ author = {W. M. Brown and Y. Masako},
+ title = {Implementing Molecular Dynamics on Hybrid High Performance Computers---Three-Body Potentials},
+ journal = {Comput.\ Phys.\ Commun.},
+ year =    2013,
+ volume =  184,
+ pages =   {2785--2793},
+ doi =     {10.1016/j.cpc.2013.08.002},
+}
+
+@Article{Trung15,
+ author = {T. D. Nguyen and S. J. Plimpton},
+ title = {Accelerating Dissipative Particle Dynamics Simulations for Soft Matter Systems},
+ journal = {Comput.\ Mater.\ Sci.},
+ year =    2015,
+ doi =     {10.1016/j.commatsci.2014.10.068},
+ volume =  100,
+ pages =   {173--180}
+}
+
+@Article{Trung17,
+ author = {T. D. Nguyen},
+ title = {{GPU}-Accelerated {T}ersoff Potentials for Massively Parallel
+    Molecular Dynamics Simulations},
+ journal = {Comput.\ Phys.\ Commun.},
+ year =    2017,
+ doi =     {10.1016/j.cpc.2016.10.020},
+ volume =  212,
+ pages =   {113--122}
+}
+
+@inproceedings{Nikolskiy19,
+ author = {V. Nikolskiy and V. Stegailov},
+ title = {{GPU} Acceleration of Four-Site Water Models in {LAMMPS}},
+ booktitle = {Proceedings of the International Conference on Parallel
+    Computing (ParCo 2019), Prague, Czech Republic},
+ doi =     {10.3233/APC200086},
+ year =    2019
+}
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+Generated 0 of 6 mixed pair_coeff terms from geometric mixing rule
+Neighbor list info ...
+  update: every = 1 steps, delay = 0 steps, check = yes
+  max neighbors/atom: 2000, page size: 100000
+  master list distance cutoff = 2.5449241
+  ghost atom cutoff = 2.5449241
+  binsize = 1.272462, bins = 19 19 19
+  3 neighbor lists, perpetual/occasional/extra = 3 0 0
+  (1) pair lj/cut, perpetual, skip from (3)
+      attributes: full, newton on
+      pair build: skip
+      stencil: none
+      bin: none
+  (2) pair cosine/squared, perpetual, half/full from (3)
+      attributes: half, newton on, cut 2.5449240966
+      pair build: halffull/newton
+      stencil: none
+      bin: none
+  (3) neighbor class addition, perpetual
+      attributes: full, newton on
+      pair build: full/bin
+      stencil: full/bin/3d
+      bin: standard
+Per MPI rank memory allocation (min/avg/max) = 61.03 | 61.03 | 61.03 Mbytes
+   Step          Temp          E_pair         E_mol          TotEng         Press          Volume    
+         0   0             -0.26525021     0             -0.26525021    -1.058316       12295.057    
+       100   0.015199667   -0.27321599     0             -0.26409678    -0.77840575     12295.057    
+       200   0.017095397   -0.27273683     0             -0.26248026    -0.7404365      12295.057    
+       300   0.020798583   -0.27316285     0             -0.26068451    -0.5764721      12295.057    
+       400   0.024556282   -0.27341803     0             -0.25868522    -0.56470376     12295.057    
+       500   0.030187474   -0.27442304     0             -0.25631173    -0.53543237     12295.057    
+       600   0.037192394   -0.27575704     0             -0.25344306    -0.53371914     12295.057    
+       700   0.045273117   -0.27716935     0             -0.25000725    -0.52356863     12295.057    
+       800   0.052338131   -0.27744728     0             -0.24604644    -0.44485509     12295.057    
+       900   0.062162185   -0.2789331      0             -0.24163821    -0.43159115     12295.057    
+      1000   0.072034682   -0.27998101     0             -0.23676301    -0.39219802     12295.057    
+      1100   0.081414611   -0.28035367     0             -0.23150808    -0.36176415     12295.057    
+      1200   0.091838399   -0.28106379     0             -0.22596433    -0.30145706     12295.057    
+      1300   0.10114553    -0.28097466     0             -0.22029129    -0.27745651     12295.057    
+      1400   0.1101044     -0.28067073     0             -0.21461238    -0.20823601     12295.057    
+      1500   0.11892027    -0.28042072     0             -0.20907319    -0.18841419     12295.057    
+      1600   0.12785065    -0.28057818     0             -0.20387278    -0.15087065     12295.057    
+      1700   0.1359069     -0.28070216     0             -0.19916332    -0.15091842     12295.057    
+      1800   0.14281976    -0.28094803     0             -0.19526174    -0.13964707     12295.057    
+      1900   0.14694533    -0.28054605     0             -0.19238458    -0.13103123     12295.057    
+      2000   0.15098816    -0.28142934     0             -0.19084233    -0.14089372     12295.057    
+Loop time of 47.2084 on 2 procs for 2000 steps with 38475 atoms
+
+Performance: 9150.914 tau/day, 42.365 timesteps/s, 1.630 Matom-step/s
+99.8% CPU use with 1 MPI tasks x 2 OpenMP threads
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 11.091     | 11.091     | 11.091     |   0.0 | 23.49
+Bond    | 0.00022283 | 0.00022283 | 0.00022283 |   0.0 |  0.00
+Neigh   | 30.003     | 30.003     | 30.003     |   0.0 | 63.56
+Comm    | 0.37771    | 0.37771    | 0.37771    |   0.0 |  0.80
+Output  | 0.0020267  | 0.0020267  | 0.0020267  |   0.0 |  0.00
+Modify  | 5.4713     | 5.4713     | 5.4713     |   0.0 | 11.59
+Other   |            | 0.2627     |            |       |  0.56
+
+Nlocal:          38475 ave       38475 max       38475 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:          32005 ave       32005 max       32005 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:         301563 ave      301563 max      301563 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 301563
+Ave neighs/atom = 7.8378947
+Ave special neighs/atom = 0
+Neighbor list builds = 260
+Dangerous builds = 0
+Total wall time: 0:00:47

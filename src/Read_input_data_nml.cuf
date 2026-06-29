@@ -53,6 +53,7 @@ Subroutine Write_Input_File(istep)
    Write(21,*) "  sigp_factor = ", sigp_factor, ","
    Write(21,*) "  Rcp_factor = ", Rcp_factor, ","
    Write(21,*) "  Rc_factor = ", Rc_factor, ","
+   Write(21,*) "  epsp_factor = ", epsp_factor, ","
    Write(21,*) "/"
 
    ! =========================================================================
@@ -167,12 +168,12 @@ Subroutine Read_Input_Data
    Namelist /Control_Params/ istep_ini, istep_fin, Neq, Nmove, Nsave, Nsave2, Nrestart, imovie, traj_format, Npart_types, Ecpu_check
    Namelist /MC_Params/ hmax, omax, vmax, displ_update, temp0, temp1, npt, iscale, pres, seed
    Namelist /Potential_Params/ model, cosmax_KF, ctor_max_KF, delta_KF, Bool_tor, sigma_jon_aux, sigma_tor_jon, rangepp, &
-                                sigp_factor, Rcp_factor, Rc_factor 
+                                sigp_factor, Rcp_factor, Rc_factor, epsp_factor 
 
    traj_format = 'netcdf'; 
    imovie = .false.; displ_update = .false.; npt = .false.; 
    sigma_jon_aux = 0.0_wp; sigma_tor_jon = 0.0_wp; rangepp = 0.0_wp
-   sigp_factor = 0.1_wp; Rcp_factor = 0.3_wp; Rc_factor = 2.0_wp
+   sigp_factor = 0.1_wp; Rcp_factor = 0.3_wp; Rc_factor = 2.0_wp; epsp_factor = -1.0_wp
 
    Open(20,file=input_filename, status='old')
    Read(20, NML=Control_Params)
@@ -219,6 +220,11 @@ Subroutine Read_Input_Data
           write(*,'(A,F10.4)') '     - Patch radius factor:   ', sigp_factor
           write(*,'(A,F10.4)') '     - Patch cutoff factor:   ', Rcp_factor
           write(*,'(A,F10.4)') '     - Core tail factor:      ', Rc_factor
+          if (epsp_factor >= 0.0_wp) then
+              write(*,'(A,F10.4)') '     - Colloid tail depth:    ', epsp_factor
+          else
+              write(*,'(A)')       '     - Colloid tail depth:    Calculated (WCA-consistent)'
+          end if
       end if
    EndIf
    write(*,'(A,I5)') '  -> Number of Particle Types:', Npart_types
@@ -390,6 +396,16 @@ Subroutine Read_Input_Data
            End Do
        End If
    End If
+
+    ! ==============================================================================
+    ! OVERRIDE ATTRACTIVE TAIL DEPTH (V1.4): If epsp_factor is specified (>= 0.0)
+    ! in the namelist Potential_Params, override VL0 to be -epsp_factor.
+    ! ==============================================================================
+    If (pot_int == 2 .and. epsp_factor >= 0.0_wp) Then
+        If (Allocated(VL0)) Then
+            VL0 = -epsp_factor
+        End If
+    End If
 
    close(20)
 End Subroutine Read_input_data! =

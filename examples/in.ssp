@@ -1,0 +1,37 @@
+# ==============================================================================
+# LAMMPS Input Script: 5-site Site-Site Patchy model in reduced LJ units
+# ==============================================================================
+
+units          lj
+atom_style     molecular
+dimension      3
+boundary       p p p
+
+# Read the molecular configuration containing coordinates and molecule IDs
+read_data      data.atoms_lammps_reduced
+
+# Define interaction potential styles
+pair_style     hybrid/overlay lj/cut 1.1224620483 cosine/squared 2.2449240966
+include        forcefield.lj
+
+pair_modify    shift yes
+
+variable tstep equal 0.0025
+variable Tdamp equal 100*${tstep}
+
+timestep ${tstep}
+variable Text equal 0.154
+variable Text2 equal 0.154
+# Treat each 5-site cluster (1 center + 4 patches sharing the same molecule ID) 
+# as a single rigid body using the rigid/small fix.
+fix integrate all rigid/nvt/small molecule temp ${Text2} ${Text} ${Tdamp}
+# Neighbor list settings
+neighbor       0.3 bin
+neigh_modify   every 1 delay 0 check yes
+
+# Thermo output style: show step, temperature, pair energy, total energy, pressure, volume
+thermo         100
+thermo_style   custom step temp epair emol etotal press vol
+
+# MD Run Settings
+run            2000

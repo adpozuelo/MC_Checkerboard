@@ -1,0 +1,30 @@
+# ==============================================================================
+# LAMMPS Forcefield for Site-Site Patchy model in reduced LJ units
+# ==============================================================================
+# 
+# Particle types mapping:
+#   Type 1: Colloid A center (Ac)
+#   Type 2: Colloid A patches (Ap)
+#   Type 3: Colloid B center (Bc)
+#   Type 4: Colloid B patches (Bp)
+#
+# Hybrid pair style setup:
+#   pair_style hybrid lj/cut 1.1224620483 cosine/squared 2.2449240966
+# ==============================================================================
+
+# Default: disable all interactions to prevent unconfigured overlaps
+pair_coeff             * * cosine/squared 0.000000 0.522500 0.522500 wca
+
+# Colloid center-center WCA core interaction (depth 1.0, sigma 1.0)
+pair_coeff             1 1 lj/cut 1.0 1.0 1.1224620483
+pair_coeff             3 3 lj/cut 1.0 1.0 1.1224620483
+pair_coeff             1 3 lj/cut 1.0 1.0 1.1224620483
+
+# Colloid center-center attractive cosine tail (depth 0.2, Rc = 2^(1/6), Rcut = 2 * Rc)
+pair_coeff             1 1 cosine/squared 0.2 1.1224620483 2.2449240966
+pair_coeff             3 3 cosine/squared 0.2 1.1224620483 2.2449240966
+pair_coeff             1 3 cosine/squared 0.2 1.1224620483 2.2449240966
+
+# Colloid A patch (type 2) - Colloid B patch (type 4) attractive interaction
+# Depth = 1.0, Rc = 0.1 * 2^(1/6) ≈ 0.112242, Rcut = 0.3 * 2^(1/6) ≈ 0.336727
+pair_coeff             2 4 cosine/squared 1.0 0.1122424700 0.3367274100
