@@ -9,6 +9,7 @@ module cuda_fortran
   use curand_device
   use libm
   use set_precision
+  use potential_functions
   implicit none
 
   ! ----------------------------------------------------------------------------
@@ -83,46 +84,6 @@ contains
       if (Indx_Cell <= nstates) call curand_init(seed, Indx_Cell, offset, state(Indx_Cell))
   end subroutine setup_random_kernel
 
-  ! ==============================================================================
-  ! DEVICE FUNCTION: vlj
-  ! DESCRIPTION: Calculates the Lennard-Jones potential interaction given the 
-  ! squared distance (RSQ) between two particles.
-  ! ==============================================================================
-  attributes(device) subroutine vlj(RSQ, sigma, eps, VL0, Vrad)
-    real(wp), intent(in), value :: RSQ, sigma, eps, VL0
-    real(wp), intent(out) :: Vrad
-    real(wp) :: R126, R1212
-    R126 = (RSQ / (sigma * sigma))**3
-    R1212 = R126 * R126
-    ! Standard 12-6 LJ form shifted by VL0
-    Vrad = -4.0_wp * eps * ( (R1212 - R126)/(R1212*R126) + VL0 )
-  end subroutine vlj
-
-  ! ==============================================================================
-  ! DEVICE FUNCTION: vlj_palaia (pot_int == 2)
-  ! DESCRIPTION: WCA core + Cosine tail. Replaces standard LJ for site-site models.
-  ! ==============================================================================
-  attributes(device) subroutine vlj_palaia(RSQ, sigma, eps, epsp, Rc_factor, Vrad)
-    real(wp), intent(in), value :: RSQ, sigma, eps, epsp, Rc_factor
-    real(wp), intent(out) :: Vrad
-    real(wp) :: r, r2inv, r6inv, Rc, pi
-    real(wp) :: abs_epsp
-    
-    pi = acos(-1.0_wp)
-    Rc = sigma * 1.122462048309373_wp  ! 2^(1/6)
-    r = sqrt(RSQ)
-    abs_epsp = abs(epsp)
-    
-    if (r <= Rc) then
-        r2inv = 1.0_wp / RSQ
-        r6inv = (Rc * Rc * r2inv)**3
-        Vrad = -abs_epsp + eps * (r6inv * r6inv - 2.0_wp * r6inv + 1.0_wp)
-    else if (r <= Rc_factor * Rc) then
-        Vrad = -abs_epsp * cos( pi * (r - Rc) / (2.0_wp * (Rc_factor - 1.0_wp) * Rc) )**2
-    else
-        Vrad = 0.0_wp
-    end if
-  end subroutine vlj_palaia
 
   ! ==============================================================================
   ! DEVICE FUNCTION: get_torsion
@@ -278,15 +239,10 @@ contains
       real(wp), intent(inout) :: energ_total
       integer, intent(out)    :: is_overlap
 
-      integer  :: l, jmol, jmol2, itypej, Indx, j3, j4, kpatch, kpatch2, Indx2, Indx3, Indx4, IndxT1, IndxT2, k
+      integer  :: l, jmol, jmol2, itypej, Indx
       real(wp) :: DX, DY, DZ, DXP, DYP, DZP, RSQ, dist, s_LJ_aux, eps_LJ_aux, range_aux, VL0_aux, XOP_aux, Vrad
-      real(wp) :: px_j, py_j, pz_j
-      real(wp) :: Q0j, Q1j, Q2j, Q3j, R211, R212, R213, R221, R222, R223, R231, R232, R233
-      real(wp) :: PX, PY, PZ, PX2, PY2, PZ2, factor_energy
-      real(wp) :: PX1(0:19), PY1(0:19), PZ1(0:19), COS2(0:19)
-      real(wp) :: CSM1M, CSM2M, CSOMG1, CSOMG2, OMG1, OMG2, sigma_jon_ij, Vang, v1x, v1y, v1z, mod_v1
-      real(wp) :: cangle, v12x, v12y, v12z, v12b2, torsion, Utor_max, Utor, dtor, v2x, v2y, v2z, mod_v2
-      real(wp) :: Vangtor_max, Vangtor, FX, FXI
+      real(wp) :: Q0j, Q1j, Q2j, Q3j, R2(0:8)
+      real(wp) :: Vangtor_max, FX, FXI
 
       is_overlap = 0
 
@@ -326,98 +282,20 @@ contains
                       energ_total = energ_total + Vrad
                   else
                       Q0j = Sphere_Cell(jmol + 3); Q1j = Sphere_Cell(jmol + 4); Q2j = Sphere_Cell(jmol + 5); Q3j = Sphere_Cell(jmol + 6)
-                      R211 = Q0j*Q0j + Q1j*Q1j - Q2j*Q2j - Q3j*Q3j
-                      R212 = 2.0_wp*(Q1j*Q2j - Q0j*Q3j)
-                      R213 = 2.0_wp*(Q1j*Q3j + Q0j*Q2j)
-                      R221 = 2.0_wp*(Q1j*Q2j + Q0j*Q3j)
-                      R222 = Q0j*Q0j - Q1j*Q1j + Q2j*Q2j - Q3j*Q3j
-                      R223 = 2.0_wp*(Q2j*Q3j - Q0j*Q1j)
-                      R231 = 2.0_wp*(Q1j*Q3j - Q0j*Q2j)
-                      R232 = 2.0_wp*(Q2j*Q3j + Q0j*Q1j)
-                      R233 = Q0j*Q0j - Q1j*Q1j - Q2j*Q2j + Q3j*Q3j
+                      R2(0) = Q0j*Q0j + Q1j*Q1j - Q2j*Q2j - Q3j*Q3j
+                      R2(1) = 2.0_wp*(Q1j*Q2j - Q0j*Q3j)
+                      R2(2) = 2.0_wp*(Q1j*Q3j + Q0j*Q2j)
+                      R2(3) = 2.0_wp*(Q1j*Q2j + Q0j*Q3j)
+                      R2(4) = Q0j*Q0j - Q1j*Q1j + Q2j*Q2j - Q3j*Q3j
+                      R2(5) = 2.0_wp*(Q2j*Q3j - Q0j*Q1j)
+                      R2(6) = 2.0_wp*(Q1j*Q3j - Q0j*Q2j)
+                      R2(7) = 2.0_wp*(Q2j*Q3j + Q0j*Q1j)
+                      R2(8) = Q0j*Q0j - Q1j*Q1j - Q2j*Q2j + Q3j*Q3j
                       
-                      CSM1M = -100.0_wp; CSM2M = -100.0_wp
-                      do j3 = 0, Npatches(itypei)-1
-                          kpatch = Npatches_max*Ndim*itypei + j3*Ndim
-                          PX = patch(kpatch); PY = patch(kpatch+1); PZ = patch(kpatch+2)
-                          PX1(j3) = R1(0)*PX + R1(1)*PY + R1(2)*PZ
-                          PY1(j3) = R1(3)*PX + R1(4)*PY + R1(5)*PZ
-                          PZ1(j3) = R1(6)*PX + R1(7)*PY + R1(8)*PZ
-                          CSOMG1 = (PX1(j3)*DX + PY1(j3)*DY + PZ1(j3)*DZ)/dist
-                          if (CSOMG1 > CSM1M) CSM1M = CSOMG1
-                      end do
-                      
-                      do j4 = 0, Npatches(itypej)-1
-                          kpatch2 = Npatches_max*Ndim*itypej + j4*Ndim
-                          PX2 = patch(kpatch2); PY2 = patch(kpatch2+1); PZ2 = patch(kpatch2+2)
-                          px_j = R211*PX2 + R212*PY2 + R213*PZ2
-                          py_j = R221*PX2 + R222*PY2 + R223*PZ2
-                          pz_j = R231*PX2 + R232*PY2 + R233*PZ2
-                          CSOMG2 = -(px_j*DX + py_j*DY + pz_j*DZ)/dist
-                          COS2(j4) = CSOMG2
-                          if (CSOMG2 > CSM2M) CSM2M = CSOMG2
-                      end do
-                      
-                      Vangtor_max = -1.0_wp
-                      do j3 = 0, Npatches(itypei)-1
-                          v1x = PZ1(j3)*DY - PY1(j3)*DZ
-                          v1y = PX1(j3)*DZ - PZ1(j3)*DX
-                          v1z = PY1(j3)*DX - PX1(j3)*DY
-                          mod_v1 = sqrt(v1x*v1x + v1y*v1y + v1z*v1z)
-                          CSOMG1 = (PX1(j3)*DX + PY1(j3)*DY + PZ1(j3)*DZ)/dist
-                          if (abs(CSOMG1) > 1.0_wp) then
-                              if (abs(CSOMG1) - 1.0_wp < 1.0e-4_wp) CSOMG1 = sign(1.0_wp, CSOMG1)
-                          end if
-                          OMG1 = acos(CSOMG1)
-                          
-                          do j4 = 0, Npatches(itypej)-1
-                              Indx2 = itypei*Npatches_max + j3; Indx3 = Indx2 * Npatches_max * Ntypes; Indx4 = Indx3 + itypej * Npatches_max
-                              factor_energy = Vpot_Matrix(Indx4 + j4)
-                              if (factor_energy > 1.0e-6_wp) then
-                                  CSOMG2 = COS2(j4)
-                                  if (abs(CSOMG2) > 1.0_wp) then
-                                      if (abs(CSOMG2) - 1.0_wp < 1.0e-4_wp) CSOMG2 = sign(1.0_wp, CSOMG2)
-                                  end if
-                                  OMG2 = acos(CSOMG2)
-                                  IndxT1 = Npatches_max*itypei + j3; IndxT2 = Npatches_max*itypej + j4
-                                  sigma_jon_ij = 2.0_wp*sigma_jon(IndxT1)*sigma_jon(IndxT2)
-                                  Vang = exp( -(OMG1*OMG1 + OMG2*OMG2)/sigma_jon_ij )
-                                  
-                                  if (bool_tor == 1 .and. Ntor_angle(IndxT1) > 0 .and. Ntor_angle(IndxT2) > 0) then
-                                      v2x = (R231*patch(Npatches_max*Ndim*itypej + j4*Ndim) + R232*patch(Npatches_max*Ndim*itypej + j4*Ndim+1) + R233*patch(Npatches_max*Ndim*itypej + j4*Ndim+2))*DY &
-                                          - (R221*patch(Npatches_max*Ndim*itypej + j4*Ndim) + R222*patch(Npatches_max*Ndim*itypej + j4*Ndim+1) + R223*patch(Npatches_max*Ndim*itypej + j4*Ndim+2))*DZ
-                                      v2y = (R211*patch(Npatches_max*Ndim*itypej + j4*Ndim) + R212*patch(Npatches_max*Ndim*itypej + j4*Ndim+1) + R213*patch(Npatches_max*Ndim*itypej + j4*Ndim+2))*DZ &
-                                          - (R231*patch(Npatches_max*Ndim*itypej + j4*Ndim) + R232*patch(Npatches_max*Ndim*itypej + j4*Ndim+1) + R233*patch(Npatches_max*Ndim*itypej + j4*Ndim+2))*DX
-                                      v2z = (R221*patch(Npatches_max*Ndim*itypej + j4*Ndim) + R222*patch(Npatches_max*Ndim*itypej + j4*Ndim+1) + R223*patch(Npatches_max*Ndim*itypej + j4*Ndim+2))*DX &
-                                          - (R211*patch(Npatches_max*Ndim*itypej + j4*Ndim) + R212*patch(Npatches_max*Ndim*itypej + j4*Ndim+1) + R213*patch(Npatches_max*Ndim*itypej + j4*Ndim+2))*DY
-                                      mod_v2 = sqrt(v2x*v2x + v2y*v2y + v2z*v2z)
-                                      
-                                      if (mod_v1 /= 0.0_wp .and. mod_v2 /= 0.0_wp) then
-                                          cangle= (v1x*v2x + v1y*v2y + v1z*v2z)/mod_v1/mod_v2
-                                          if (abs(cangle) > 1.0_wp) then
-                                              if (abs(cangle) - 1.0_wp < 1.0e-4_wp) cangle = sign(1.0_wp, cangle)
-                                          end if
-                                          v12x = v1y*v2z - v1z*v2y; v12y = v1z*v2x - v1x*v2z; v12z = v1x*v2y - v1y*v2x
-                                          v12b2 = (v12x*DX + v12y*DY + v12z*DZ)/dist/mod_v1/mod_v2
-                                          if (abs(v12b2) > 1.0_wp) then
-                                              if (abs(v12b2) - 1.0_wp < 1.0e-4_wp) v12b2 = sign(1.0_wp, v12b2)
-                                          end if
-                                          torsion = atan2(v12b2, cangle); Utor_max = -100.0_wp
-                                          do k=0, Ntor_angle(IndxT1)-1
-                                              dtor = torsion - tor_angle(IndxT1*Ntor_max + k)
-                                              if (dtor > pi) then; dtor = dtor - dospi; else if (dtor < -pi) then; dtor = dtor + dospi; end if
-                                              Utor = exp( -dtor*dtor/sigma_tor )
-                                              if (Utor > Utor_max) Utor_max = Utor
-                                          end do
-                                          Vangtor = factor_energy*Vang*Utor_max
-                                      end if
-                                  else
-                                      Vangtor = factor_energy*Vang
-                                  end if
-                                  if (Vangtor > Vangtor_max) Vangtor_max = Vangtor
-                              end if
-                          end do
-                      end do
+                      call vpatch_angular(DX, DY, DZ, dist, &
+                           R1, R2, bool_tor, Ntypes, Npatches_max, Ndim, Ntor_max, a, pi, dospi, sigma_tor, &
+                           Npatches, patch, sigma_jon, Vpot_Matrix, Ntor_angle, tor_angle, &
+                           itypei, itypej, Vangtor_max)
                       
                       if (Vangtor_max /= -1.0_wp) then
                           FX  = (1.0_wp + tanh( a*(-XOP_aux + dist) ))/2.0_wp
@@ -457,12 +335,9 @@ contains
       real(wp), intent(inout) :: energ_total
       integer, intent(out)    :: is_overlap
 
-      integer  :: l, jmol, jmol2, itypej, Indx, j3, j4, kpatch, kpatch2, Indx2, Indx3, Indx4
+      integer  :: l, jmol, jmol2, itypej, Indx
       real(wp) :: DX, DY, DZ, DXP, DYP, DZP, RSQ, dist, s_LJ_aux, eps_LJ_aux, range_aux, VL0_aux, Vrad
-      real(wp) :: Q0j, Q1j, Q2j, Q3j, R211, R212, R213, R221, R222, R223, R231, R232, R233
-      real(wp) :: PX, PY, PZ, PX2, PY2, PZ2, factor_energy, sigma_i, sigma_j, Rmin_ij, sigp, Rcp
-      real(wp) :: px_i, py_i, pz_i, px_j, py_j, pz_j, dx_patch, dy_patch, dz_patch, dist_patch
-      real(wp) :: PX1(0:19), PY1(0:19), PZ1(0:19)
+      real(wp) :: Q0j, Q1j, Q2j, Q3j, R2(0:8), e_patches
 
       is_overlap = 0
 
@@ -493,63 +368,26 @@ contains
                   is_overlap = 1
                   return
               else if (RSQ < range_aux*range_aux) then
-                  ! ---> CHANGED: Call Palaia potential and pass VL0_aux as epsp
                   call vlj_palaia(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Rc_factor, Vrad)
                   energ_total = energ_total + Vrad
               end if
               
               if (Npatches(itypei) > 0 .and. Npatches(itypej) > 0 .and. dist < range_aux) then
-                  sigma_i = sigma_LJ(itypei * Ntypes + itypei)
-                  sigma_j = sigma_LJ(itypej * Ntypes + itypej)
-                  Rmin_ij = s_LJ_aux * 1.122462048309373_wp
-                  sigp = sigp_factor * Rmin_ij
-                  Rcp  = Rcp_factor * Rmin_ij
-                  
                   Q0j = Sphere_Cell(jmol + 3); Q1j = Sphere_Cell(jmol + 4); Q2j = Sphere_Cell(jmol + 5); Q3j = Sphere_Cell(jmol + 6)
-                  R211 = Q0j*Q0j + Q1j*Q1j - Q2j*Q2j - Q3j*Q3j
-                  R212 = 2.0_wp*(Q1j*Q2j - Q0j*Q3j)
-                  R213 = 2.0_wp*(Q1j*Q3j + Q0j*Q2j)
-                  R221 = 2.0_wp*(Q1j*Q2j + Q0j*Q3j)
-                  R222 = Q0j*Q0j - Q1j*Q1j + Q2j*Q2j - Q3j*Q3j
-                  R223 = 2.0_wp*(Q2j*Q3j - Q0j*Q1j)
-                  R231 = 2.0_wp*(Q1j*Q3j - Q0j*Q2j)
-                  R232 = 2.0_wp*(Q2j*Q3j + Q0j*Q1j)
-                  R233 = Q0j*Q0j - Q1j*Q1j - Q2j*Q2j + Q3j*Q3j
+                  R2(0) = Q0j*Q0j + Q1j*Q1j - Q2j*Q2j - Q3j*Q3j
+                  R2(1) = 2.0_wp*(Q1j*Q2j - Q0j*Q3j)
+                  R2(2) = 2.0_wp*(Q1j*Q3j + Q0j*Q2j)
+                  R2(3) = 2.0_wp*(Q1j*Q2j + Q0j*Q3j)
+                  R2(4) = Q0j*Q0j - Q1j*Q1j + Q2j*Q2j - Q3j*Q3j
+                  R2(5) = 2.0_wp*(Q2j*Q3j - Q0j*Q1j)
+                  R2(6) = 2.0_wp*(Q1j*Q3j - Q0j*Q2j)
+                  R2(7) = 2.0_wp*(Q2j*Q3j + Q0j*Q1j)
+                  R2(8) = Q0j*Q0j - Q1j*Q1j - Q2j*Q2j + Q3j*Q3j
                   
-                  do j3 = 0, Npatches(itypei)-1
-                      kpatch = Npatches_max*Ndim*itypei + j3*Ndim
-                      PX = patch(kpatch); PY = patch(kpatch+1); PZ = patch(kpatch+2)
-                      PX1(j3) = 0.5_wp * sigma_i * (R1(0)*PX + R1(1)*PY + R1(2)*PZ)
-                      PY1(j3) = 0.5_wp * sigma_i * (R1(3)*PX + R1(4)*PY + R1(5)*PZ)
-                      PZ1(j3) = 0.5_wp * sigma_i * (R1(6)*PX + R1(7)*PY + R1(8)*PZ)
-                      
-                      do j4 = 0, Npatches(itypej)-1
-                          kpatch2 = Npatches_max*Ndim*itypej + j4*Ndim
-                          PX2 = patch(kpatch2); PY2 = patch(kpatch2+1); PZ2 = patch(kpatch2+2)
-                          px_j = 0.5_wp * sigma_j * (R211*PX2 + R212*PY2 + R213*PZ2)
-                          py_j = 0.5_wp * sigma_j * (R221*PX2 + R222*PY2 + R223*PZ2)
-                          pz_j = 0.5_wp * sigma_j * (R231*PX2 + R232*PY2 + R233*PZ2)
-                          
-                          dx_patch = DX + px_j - PX1(j3)
-                          dy_patch = DY + py_j - PY1(j3)
-                          dz_patch = DZ + pz_j - PZ1(j3)
-                          dist_patch = sqrt(dx_patch**2 + dy_patch**2 + dz_patch**2)
-                          
-                          Indx2 = itypei * Npatches_max + j3
-                          Indx3 = Indx2 * Npatches_max * Ntypes
-                          Indx4 = Indx3 + itypej * Npatches_max
-                          factor_energy = Vpot_Matrix(Indx4 + j4)
-                          
-                          if (factor_energy > 1.0e-7_wp .and. dist_patch < Rcp) then
-                              if (dist_patch <= sigp) then
-                                  energ_total = energ_total - factor_energy
-                              else
-                                  energ_total = energ_total - factor_energy * &
-                                      cos( pi * (dist_patch - sigp) / (2.0_wp * (Rcp - sigp)) )**2
-                              end if
-                          end if
-                      end do
-                  end do
+                  call vpatch_sitesite(DX, DY, DZ, R1, R2, sigp_factor, Rcp_factor, &
+                       itypei, itypej, Ntypes, Npatches_max, Ndim, &
+                       Npatches, patch, sigma_LJ, Vpot_Matrix, e_patches)
+                  energ_total = energ_total + e_patches
               end if
           end if
       end do
@@ -1484,12 +1322,8 @@ attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, N
         real(wp) :: Q0j, Q1j, Q2j, Q3j, R2(0:8)
         real(wp) :: DX, DY, DZ, DXn, DYn, DZn, RSQ, dist, RSQn, distn, Vrad, VradN
         real(wp) :: sigma_LJ_aux, eps_LJ_aux, VL0_aux, rangeP_aux
-        real(wp) :: PX, PY, PZ, PX2, PY2, PZ2
-        real(wp) :: sigma_i, sigma_j, Rmin_ij, sigp, Rcp, factor_energy
-        real(wp) :: px_i_old, py_i_old, pz_i_old, px_i_new, py_i_new, pz_i_new
-        real(wp) :: px_j, py_j, pz_j, dx_patch, dy_patch, dz_patch, dist_patch
-        real(wp) :: dx_patch_n, dy_patch_n, dz_patch_n, dist_patch_n
-        integer :: Indxk, Npatchesi, Npatchesj, kpatch, kpatch2, j3, j4, Indx2, Indx3, Indx4
+        real(wp) :: e_old_inc_patch, e_new_inc_patch
+        integer :: Indxk, Npatchesi, Npatchesj
 
         e_old_inc = 0.0_wp; e_new_inc = 0.0_wp
         is_overlap = 0; is_fatal_overlap = 0
@@ -1516,76 +1350,22 @@ attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, N
 
         Npatchesi = Npatches(itypei); Npatchesj = Npatches(itypej)
         if (Npatchesi > 0 .and. Npatchesj > 0 .and. (dist < rangeP_aux .or. distn < rangeP_aux)) then
-            sigma_i = sigma_LJ(itypei * Ntypes + itypei)
-            sigma_j = sigma_LJ(itypej * Ntypes + itypej)
-            
-            Rmin_ij = sigma_LJ_aux * 1.122462048309373_wp
-            sigp = sigp_factor * Rmin_ij
-            Rcp  = Rcp_factor * Rmin_ij
-            
             Q0j = Sphere_Cell(jmol+3); Q1j = Sphere_Cell(jmol+4); Q2j = Sphere_Cell(jmol+5); Q3j = Sphere_Cell(jmol+6)
             call rot_matrix(Q0j,Q1j,Q2j,Q3j,R2)
             
-            do j3 = 0, Npatchesi-1
-                kpatch = Npatches_max*Ndim*itypei + j3*Ndim
-                PX = patch(kpatch); PY = patch(kpatch+1); PZ = patch(kpatch+2)
-                
-                px_i_old = 0.5_wp * sigma_i * (R1(0)*PX + R1(1)*PY + R1(2)*PZ)
-                py_i_old = 0.5_wp * sigma_i * (R1(3)*PX + R1(4)*PY + R1(5)*PZ)
-                pz_i_old = 0.5_wp * sigma_i * (R1(6)*PX + R1(7)*PY + R1(8)*PZ)
-                
-                px_i_new = 0.5_wp * sigma_i * (R1N(0)*PX + R1N(1)*PY + R1N(2)*PZ)
-                py_i_new = 0.5_wp * sigma_i * (R1N(3)*PX + R1N(4)*PY + R1N(5)*PZ)
-                pz_i_new = 0.5_wp * sigma_i * (R1N(6)*PX + R1N(7)*PY + R1N(8)*PZ)
-                
-                do j4 = 0, Npatchesj-1
-                    Indx2 = itypei * Npatches_max + j3
-                    Indx3 = Indx2 * Npatches_max * Ntypes
-                    Indx4 = Indx3 + itypej * Npatches_max
-                    factor_energy = Vpot_Matrix(Indx4 + j4)
-                    
-                    if (factor_energy > 1.0e-7_wp) then
-                        kpatch2 = Npatches_max*Ndim*itypej + j4*Ndim
-                        PX2 = patch(kpatch2); PY2 = patch(kpatch2+1); PZ2 = patch(kpatch2+2)
-                        
-                        px_j = 0.5_wp * sigma_j * (R2(0)*PX2 + R2(1)*PY2 + R2(2)*PZ2)
-                        py_j = 0.5_wp * sigma_j * (R2(3)*PX2 + R2(4)*PY2 + R2(5)*PZ2)
-                        pz_j = 0.5_wp * sigma_j * (R2(6)*PX2 + R2(7)*PY2 + R2(8)*PZ2)
-                        
-                        if (dist < rangeP_aux) then
-                            dx_patch = DX + px_j - px_i_old
-                            dy_patch = DY + py_j - py_i_old
-                            dz_patch = DZ + pz_j - pz_i_old
-                            dist_patch = sqrt(dx_patch**2 + dy_patch**2 + dz_patch**2)
-                            
-                            if (dist_patch < Rcp) then
-                                if (dist_patch <= sigp) then
-                                    e_old_inc = e_old_inc - factor_energy
-                                else
-                                    e_old_inc = e_old_inc - factor_energy * &
-                                        cos( pi * (dist_patch - sigp) / (2.0_wp * (Rcp - sigp)) )**2
-                                end if
-                            end if
-                        end if
-                        
-                        if (distn < rangeP_aux) then
-                            dx_patch_n = DXn + px_j - px_i_new
-                            dy_patch_n = DYn + py_j - py_i_new
-                            dz_patch_n = DZn + pz_j - pz_i_new
-                            dist_patch_n = sqrt(dx_patch_n**2 + dy_patch_n**2 + dz_patch_n**2)
-                            
-                            if (dist_patch_n < Rcp) then
-                                if (dist_patch_n <= sigp) then
-                                    e_new_inc = e_new_inc - factor_energy
-                                else
-                                    e_new_inc = e_new_inc - factor_energy * &
-                                        cos( pi * (dist_patch_n - sigp) / (2.0_wp * (Rcp - sigp)) )**2
-                                end if
-                            end if
-                        end if
-                    end if
-                end do
-            end do
+            if (dist < rangeP_aux) then
+                call vpatch_sitesite(DX, DY, DZ, R1, R2, sigp_factor, Rcp_factor, &
+                     itypei, itypej, Ntypes, Npatches_max, Ndim, &
+                     Npatches, patch, sigma_LJ, Vpot_Matrix, e_old_inc_patch)
+                e_old_inc = e_old_inc + e_old_inc_patch
+            end if
+            
+            if (distn < rangeP_aux) then
+                call vpatch_sitesite(DXn, DYn, DZn, R1N, R2, sigp_factor, Rcp_factor, &
+                     itypei, itypej, Ntypes, Npatches_max, Ndim, &
+                     Npatches, patch, sigma_LJ, Vpot_Matrix, e_new_inc_patch)
+                e_new_inc = e_new_inc + e_new_inc_patch
+            end if
         end if
   end subroutine calc_pair_energy_sitesite
 

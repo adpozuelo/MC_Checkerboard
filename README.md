@@ -256,6 +256,18 @@ To simulate this model in LAMMPS, we represent each colloid-patch assembly as a 
 * **WCA Shift**: To reproduce the $+1.0\epsilon$ shift in the core $V_{\text{core}}(r)$ equation, you must add **`pair_modify shift yes`** in the LAMMPS input script. This shifts the truncated `lj/cut` core interaction so that the energy goes smoothly to $0$ at the cutoff $R_c = 2^{1/6}\sigma$.
 
 
+#### Implementing New Interactions
+
+The codebase has a decoupled potential architecture that allows developers to easily add new interactions (CPU and GPU) in a single place:
+
+1. **Namelist Input**: Add any new potential parameters to the `Potential_Params` namelist in [Read_input_data_nml.cuf](MC_Checkerboard/src/Read_input_data_nml.cuf).
+2. **Mathematical Definition**: Define the potential math inside [potential_functions.cuf](MC_Checkerboard/src/potential_functions.cuf):
+   * Implement a new subroutine declared with `attributes(device, host)` so it can compile for both CPU and GPU execution.
+   * To keep it pure and thread-safe, pass all coordinate/orientation arrays and parameter matrices directly as dummy arguments (rather than referencing module globals).
+3. **Routing**:
+   * **CPU Routing**: In [energy.cuf](MC_Checkerboard/src/energy.cuf), update the master router `ener` to delegate calls to your new potential function based on `pot_int`.
+   * **GPU Routing**: In [Subsweep_Energy_CUDA.cuf](MC_Checkerboard/src/Subsweep_Energy_CUDA.cuf), delegate calls inside the helper subroutines (such as `calc_pair_energy_sitesite` or `accumulate_cell_energy_sitesite`) to your new GPU device function.
+
 ---
 
 ## Checkerboard Decomposition
@@ -295,7 +307,7 @@ This scheme enables efficient GPU parallelization while maintaining detailed bal
 If you use this code in your research, please cite:
 
 ```
-Eva González Noya, Enrique Lomba, and Antonio Díaz Pozuelo, "GPU-Accelerated Monte Carlo for Patchy Particles: A high-performance GPU-accelerated Monte Carlo simulation code for patchy particle systems with anisotropic interactions and simple mixtures in NVT and NpT ensembles.", CSIC-Madrid (2026)
+Eva González Noya, Enrique Lomba, and Antonio Díaz Pozuelo, "GPU-Accelerated Monte Carlo for Simple Fluid and Patchy Particle mixtures: A high-performance GPU-accelerated Monte Carlo simulation code for patchy particle systems with anisotropic interactions and simple mixtures in NVT and NpT ensembles.", CSIC-Madrid (2026)
 ```
 
 ---
@@ -351,7 +363,6 @@ Computing resources provided by CSIC.
 - **V1.3** (June 2026) Support for LJ mixture
   - Removed unneeded moves for simple systems
   - Output info adapted to LJ mixture
-
 
 - **v1.2** (May 2026) Added compatibility with trj_analysis tool.
   - Input files transformed to namelist
