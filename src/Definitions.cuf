@@ -90,6 +90,7 @@ MODULE rundata
    integer :: pot_int                                  ! Flag for 
    ! interaction potential, if <=0 radial potentials, angular patches if 1, site-site patches if 2
    Logical :: Ecpu_check=.false.                       ! If .true. Energies a twice computed in the CPU for checking
+   Character(len=256) :: data_file = 'data.atoms'      ! Configuration file name
 
 
 

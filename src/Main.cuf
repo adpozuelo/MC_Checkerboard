@@ -111,7 +111,7 @@ Program GPU_MC
  write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
 
  call gpucount(ngpus)
- if (devNum >0) Then
+ if (devNum >= 0) Then
    call choosegpu(devNum)
  endif
  write(*,"(A,i2,A)") c_cyan // ' *** GPU Devices Available: ' // c_reset, ngpus, ' ***'
@@ -195,8 +195,8 @@ Program GPU_MC
 
  ! Trajectory files setup
  If (trim(traj_format) == 'plain' .or. trim(traj_format) == 'both') Then
-    open(133,file='movie.xyz',access='append')
-    open(674,file='trajectory.lammpstrj',access='append')
+    open(133,file='movie.xyz',status='replace')
+    open(674,file='trajectory.lammpstrj',status='replace')
  EndIf
  If (trim(traj_format) == 'netcdf' .or. trim(traj_format) == 'both') Then
     Call netcdf_init_trajectory('trajectory.nc', Natoms)

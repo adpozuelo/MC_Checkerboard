@@ -165,12 +165,12 @@ Subroutine Read_Input_Data
    Character(len=256) :: line
 
   
-   Namelist /Control_Params/ istep_ini, istep_fin, Neq, Nmove, Nsave, Nsave2, Nrestart, imovie, traj_format, Npart_types, Ecpu_check
+   Namelist /Control_Params/ istep_ini, istep_fin, Neq, Nmove, Nsave, Nsave2, Nrestart, imovie, traj_format, Npart_types, Ecpu_check, data_file
    Namelist /MC_Params/ hmax, omax, vmax, displ_update, temp0, temp1, npt, iscale, pres, seed
    Namelist /Potential_Params/ model, cosmax_KF, ctor_max_KF, delta_KF, Bool_tor, sigma_jon_aux, sigma_tor_jon, rangepp, &
                                 sigp_factor, Rcp_factor, Rc_factor, epsp_factor 
 
-   traj_format = 'netcdf'; 
+   traj_format = 'netcdf'; data_file = 'data.atoms'
    imovie = .false.; displ_update = .false.; npt = .false.; 
    sigma_jon_aux = 0.0_wp; sigma_tor_jon = 0.0_wp; rangepp = 0.0_wp
    sigp_factor = 0.1_wp; Rcp_factor = 0.3_wp; Rc_factor = 2.0_wp; epsp_factor = -1.0_wp
@@ -426,7 +426,7 @@ Subroutine Read_init_conf
    Integer :: ios, n_types_in_file
 
    write(*,'(A)') char(27)//'[1;33m' // ' >>> Reading initial configuration (LAMMPS data format)...' // char(27)//'[0m'
-   Open(21, file='data.atoms', status='old', action='read')
+   Open(21, file=trim(data_file), status='old', action='read')
    h(:) = 0.0_wp
 
    Do
@@ -444,7 +444,7 @@ Subroutine Read_init_conf
             Print *, " *** FATAL SECURITY ERROR: Mismatch in Particle Types! ***"
             Print *, "=========================================================================="
             Print *, " -> Npart_types defined in input namelist : ", Npart_types
-            Print *, " -> 'atom types' defined in data.atoms    : ", n_types_in_file
+            Print *, " -> 'atom types' defined in ", trim(data_file), "    : ", n_types_in_file
             Print *, ""
             Print *, " Please ensure your input namelist matches your configuration file."
             Print *, " Simulation aborted to prevent reckless behavior."

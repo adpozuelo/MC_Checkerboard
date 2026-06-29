@@ -146,8 +146,11 @@ netcdf
 ### Running a Simulation
 
 ```bash
-mc_gpu.exe filename.nml GPUid (optional)
+# Run using the default GPU device (ID 0):
+mc_gpu.exe filename.nml
 
+# Run using a specific GPU device (e.g., GPU 1):
+mc_gpu.exe filename.nml 1
 ```
 
 ### Example Input Structure
@@ -178,6 +181,7 @@ See `examples/LJG/` directory for example input filesi for LJG patchy systems.
 - `Nmove` - MC moves per sweep per particle
 - `Nsave`, `Nsave2` - Output frequencies
 - `Nrestart` - Restart file frequency
+- `data_file` - Path to the initial configuration file in LAMMPS format (default: `data.atoms`)
 
 ### Thermodynamic Parameters
 - `temp0`, `temp1` - Initial and final temperatures (Kelvin)
