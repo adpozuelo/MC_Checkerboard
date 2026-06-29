@@ -195,10 +195,39 @@ See `examples/LJG/` directory for example input filesi for LJG patchy systems.
   - `sigma_jon_aux` - Angular interaction width
   - `sigma_tor_jon` - Torsional interaction width
   - `rangepp` - Interaction cutoff
-- **SSP (Site-Site Patchy / Palaia Potential)**: Uses WCA core + attractive cosine tail
+- **SSP (Site-Site Patchy / Palaia Potential)**: Uses Weeks-Chandler-Andersen (WCA) core + attractive cosine-squared tail.
   - `sigp_factor` - Patch radius scaling factor (default: `0.1`)
   - `Rcp_factor` - Patch cutoff scaling factor (default: `0.3`)
   - `Rc_factor` - Core tail cutoff scaling factor (default: `2.0`)
+  - `epsp_factor` - Core attractive tail depth $\epsilon_{\text{tail}}$ (overrides default core tail depth)
+
+#### Mathematical Formulation of SSP
+
+1. **Colloid Core-Core interaction**:
+   For colloid-colloid center-center distance $r$:
+   * $r \le R_c = 2^{1/6}\sigma$ (WCA Core):
+     $$V_{\text{core}}(r) = -\epsilon_{\text{tail}} + 4\epsilon \left[ \left(\frac{\sigma}{r}\right)^{12} - \left(\frac{\sigma}{r}\right)^6 + \frac{1}{4} \right]$$
+   * $R_c < r \le R_c \cdot Rc\_factor$ (Attractive Cosine-Squared Tail):
+     $$V_{\text{core}}(r) = -\epsilon_{\text{tail}} \cos^2\left( \frac{\pi (r - R_c)}{2 (Rc\_factor - 1) R_c} \right)$$
+   * $r > R_c \cdot Rc\_factor$:
+     $$V_{\text{core}}(r) = 0$$
+
+2. **Patch-Patch interaction**:
+   For distance $d_p$ between patch $\alpha$ on particle $i$ and patch $\beta$ on particle $j$:
+   * $d_p \le r_{\text{patch}}$:
+     $$V_{\text{patch}}(d_p) = -V_{\alpha\beta}$$
+   * $r_{\text{patch}} < d_p \le R_{cp}$ (Attractive Cosine-Squared Tail):
+     $$V_{\text{patch}}(d_p) = -V_{\alpha\beta} \cos^2\left( \frac{\pi (d_p - r_{\text{patch}})}{2 (R_{cp} - r_{\text{patch}})} \right)$$
+   * $d_p > R_{cp}$:
+     $$V_{\text{patch}}(d_p) = 0$$
+   Where $r_{\text{patch}} = sigp\_factor \cdot R_c$ is the patch radius, $R_{cp} = Rcp\_factor \cdot R_c$ is the patch interaction cutoff, and $V_{\alpha\beta}$ is the interaction strength defined in the `Vpot_matrix`.
+
+#### Mapping SSP to LAMMPS
+
+To simulate this model in LAMMPS, we represent each colloid-patch assembly as a rigid molecule (with 1 center site + 4 patch sites) and configure a hybrid pair style:
+* **Rigid Bodies**: Use `atom_style molecular` and define the rigid bodies via `fix rigid/nvt/small molecule` (or `fix rigid/small molecule`).
+* **Pair Potential**: Use `pair_style hybrid/overlay` to overlay `lj/cut` and `cosine/squared` interactions.
+* **WCA Shift**: To reproduce the $+1.0\epsilon$ shift in the core $V_{\text{core}}(r)$ equation, you must add **`pair_modify shift yes`** in the LAMMPS input script. This shifts the truncated `lj/cut` core interaction so that the energy goes smoothly to $0$ at the cutoff $R_c = 2^{1/6}\sigma$.
 
 
 ---
