@@ -191,15 +191,41 @@ See `examples/LJG/` directory for example input filesi for LJG patchy systems.
 - `displ_update` - Enable adaptive adjustment
 
 ### Potential Model
-- **LJG (Lennard-Jones-Gauss)**: Supports multiple particle types with patches
+- **LJ (Lennard-Jones)**: Isotropic potential for simple systems/mixtures (without patches).
+- **LJG (Lennard-Jones-Gauss)**: Anisotropic potential with Kern-Frenkel type angular (and optional torsional) patch-patch modulations.
   - `sigma_jon_aux` - Angular interaction width
   - `sigma_tor_jon` - Torsional interaction width
   - `rangepp` - Interaction cutoff
+  - `xop` - Radial distance where the angular modulation switch activates
 - **SSP (Site-Site Patchy / Palaia Potential)**: Uses Weeks-Chandler-Andersen (WCA) core + attractive cosine-squared tail.
   - `sigp_factor` - Patch radius scaling factor (default: `0.1`)
   - `Rcp_factor` - Patch cutoff scaling factor (default: `0.3`)
   - `Rc_factor` - Core tail cutoff scaling factor (default: `2.0`)
   - `epsp_factor` - Core attractive tail depth $\epsilon_{\text{tail}}$ (overrides default core tail depth)
+
+#### Mathematical Formulation of LJ
+For distance $r$:
+$$V(r) = 4\epsilon \left[ \left(\frac{\sigma}{r}\right)^{12} - \left(\frac{\sigma}{r}\right)^6 - \text{shift\_offset} \right]$$
+Where $\text{shift\_offset} = (\sigma/r_{\text{cutoff}})^{12} - (\sigma/r_{\text{cutoff}})^6$ shifts the potential to exactly $0.0$ at the cutoff $r_{\text{cutoff}} = rangepp \cdot \sigma$.
+
+#### Mathematical Formulation of LJG
+For colloid distance $r$:
+$$E_{ij}(r, \Omega_i, \Omega_j) = V_{\text{LJ}}(r) \cdot \left[ F^-(r) + V_{\text{ang,tor}}^{\max}(\Omega_i, \Omega_j) F^+(r) \right]$$
+Where:
+1. **Lennard-Jones Potential**:
+   $$V_{\text{LJ}}(r) = 4\epsilon \left[ \left(\frac{\sigma}{r}\right)^{12} - \left(\frac{\sigma}{r}\right)^6 - \text{shift\_offset} \right]$$
+2. **Radial Switch Functions**:
+   $$F^-(r) = \frac{1 - \tanh[a(r - \sigma_{op})]}{2}$$
+   $$F^+(r) = \frac{1 + \tanh[a(r - \sigma_{op})]}{2}$$
+   Here, $\sigma_{op} = xop \cdot \sigma$ is the distance where angular patch modulation switches on (with sharpness $a = 1000$). For $r < \sigma_{op}$, $F^-(r) \approx 1$ and $F^+(r) \approx 0$ (isotropic repulsion); for $r > \sigma_{op}$, $F^-(r) \approx 0$ and $F^+(r) \approx 1$ (anisotropic attraction).
+3. **Angular and Torsional Modulation**:
+   $$V_{\text{ang,tor}}^{\max}(\Omega_i, \Omega_j) = \max_{\alpha, \beta} \left\{ V_{\alpha\beta} \cdot V_{\text{ang}}(\theta_1, \theta_2) \cdot V_{\text{tor}}(\phi) \right\}$$
+   * **Angular Alignment**:
+     $$V_{\text{ang}}(\theta_1, \theta_2) = \exp\left( -\frac{\theta_1^2 + \theta_2^2}{\sigma_{ij}^{\text{ang}}} \right)$$
+     Where $\theta_1$ (or $\theta_2$) is the angle between patch unit vector $\vec{p}_{i,\alpha}$ (or $\vec{p}_{j,\beta}$) and the intercolloid unit vector $\hat{r}_{ij}$ (or $-\hat{r}_{ij}$), and $\sigma_{ij}^{\text{ang}} = 2 \sigma_{\alpha}^{\text{ang}} \sigma_{\beta}^{\text{ang}}$ is the combined width.
+   * **Torsional Alignment** (if `bool_tor == 1`):
+     $$V_{\text{tor}}(\phi) = \max_k \left\{ \exp\left( -\frac{(\phi - \phi_{\alpha, k}^{\text{ref}})^2}{\sigma_{\text{tor}}} \right) \right\}$$
+     Where $\phi$ is the dihedral angle between the reference orientation vectors of patch $\alpha$ and patch $\beta$ projected onto the perpendicular plane, and $\phi_{\alpha, k}^{\text{ref}}$ are allowed torsional alignment angles.
 
 #### Mathematical Formulation of SSP
 
