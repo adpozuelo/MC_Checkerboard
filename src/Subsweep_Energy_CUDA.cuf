@@ -433,7 +433,7 @@ contains
     
     if (jcell_x < Nl0 .and. jcell_y < Nl1 .and. jcell_z < Nl2) then
         Nat_Cell_ijk = Nat_Cell(Indx_Cell)
-        energ = -6.0e-7_wp; energy(Indx_Cell) = energ
+        energ = 0.0_wp; energy(Indx_Cell) = energ
         
         if (Nat_Cell_ijk > 0) then
             H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
@@ -528,7 +528,7 @@ contains
     
     if (jcell_x < Nl0 .and. jcell_y < Nl1 .and. jcell_z < Nl2) then
         Nat_Cell_ijk = Nat_Cell(Indx_Cell)
-        energ = -6.0e-7_wp; energy(Indx_Cell) = energ
+        energ = 0.0_wp; energy(Indx_Cell) = energ
         
         if (Nat_Cell_ijk > 0) then
             H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
@@ -814,7 +814,7 @@ attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, N
     
     if (jcell_x < Nl0 .and. jcell_y < Nl1 .and. jcell_z < Nl2) then
         Nat_Cell_ijk = Nat_Cell(Indx_Cell)
-        energ = -6.0e-7_wp; energy(Indx_Cell) = energ
+        energ = 0.0_wp; energy(Indx_Cell) = energ
         
         if (Nat_Cell_ijk > 0) then
             H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
@@ -904,7 +904,7 @@ attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, N
     
     if (jcell_x < Nl0 .and. jcell_y < Nl1 .and. jcell_z < Nl2) then
         Nat_Cell_ijk = Nat_Cell(Indx_Cell)
-        energ = -6.0e-7_wp; energy(Indx_Cell) = energ
+        energ = 0.0_wp; energy(Indx_Cell) = energ
         
         if (Nat_Cell_ijk > 0) then
           H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
