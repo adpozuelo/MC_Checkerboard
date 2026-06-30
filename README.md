@@ -125,7 +125,7 @@ The simulation requires two input files:
    - Particle type definitions
    - Patch geometries and interaction matrix
 
-2. **`data.atoms`** - Initial configuration (Lammps compatible `atom_style ellipsoid`
+2. **`data.atoms`** - Initial configuration (Lammps compatible `atom_style ellipsoid`)
    - Number of particles
    - Box matrix (h tensor)
    - Particle positions and types

@@ -393,9 +393,8 @@ Program GPU_MC
               Call Write_movie(i)
               Call Write_final_conf2(i)
            EndIf
-           
            If (trim(traj_format) == 'netcdf' .or. trim(traj_format) == 'both') Then
-               Call netcdf_write_frame(i, Natoms, r, q, itype, h, beta, atom_energies_host)
+                Call netcdf_write_frame(i, Natoms, r, q, itype, h, beta, atom_energies_host)
            EndIf
       EndIf
       
@@ -408,6 +407,17 @@ Program GPU_MC
            En_tot_old=En_tot
            Call CB_system_energy_gpu(1)
            write(*,'(A,i10,A,f18.8)') c_green // '     [CHECKPOINT] Saved at step: ' // c_reset, i, ' | En_tot = ', En_tot
+      EndIf
+
+      ! Reset counters and timers at the end of the equilibration phase to prevent accumulation in printed statistics
+      If (i == Ieq) Then
+           no_mc_real = 0
+           ntrans_ac = 0
+           nrot_ac = 0
+           nvol = 0
+           nvol_accept = 0
+           Call cpu_time(last_cpu_time)
+           istat = cudaEventRecord(startEvent, 0)
       EndIf
 
  End Do
