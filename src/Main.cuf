@@ -464,6 +464,11 @@ Program GPU_MC
 
       ! Reset counters and timers at the end of the equilibration phase to prevent accumulation in printed statistics
       If (i == Ieq) Then
+           write(*,*)
+           write(*,'(A)') c_green // ' =================================================================================================================================' // c_reset
+           write(*,'(A,i10,A)') c_green // ' >>> EQUILIBRATION PHASE FINISHED AT STEP: ', i, ' - PRODUCTION PHASE STARTED <<<' // c_reset
+           write(*,'(A)') c_green // ' =================================================================================================================================' // c_reset
+           write(*,*)
            no_mc_real = 0
            ntrans_ac = 0
            nrot_ac = 0
