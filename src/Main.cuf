@@ -376,6 +376,59 @@ Program GPU_MC
            ! Since the terminal freeze happened above, this completely discards the pause!
            istat = cudaEventRecord(startEvent, 0)
       EndIf
+
+      ! Print statistics during equilibration phase
+      If( (i <= Ieq) .AND. (mod(i,Nsave2)==0) ) Then
+           If (pot_int < 1) Then 
+               Ntrans = no_mc_real*Nmove  
+           Else
+               Ntrans = no_mc_real*Nmove/2  
+               Nrot = no_mc_real*Nmove/2
+           EndIf
+           prob_trans = dble(ntrans_ac)/dble(ntrans)
+           prob_rot = dble(nrot_ac)/dble(nrot)
+           prob_vol = dble(nvol_accept)/dble(nvol)
+
+           ! --- Compute Periodic Timers ---
+           call cpu_time(cpu_time_now)
+           diff_cpu_time = cpu_time_now - last_cpu_time
+           last_cpu_time = cpu_time_now
+           
+           istat = cudaEventRecord(stopEvent, 0)
+           istat = cudaEventSynchronize(stopEvent)
+           istat = cudaEventElapsedTime(diff_gpu_time_ms, startEvent, stopEvent)
+           
+           total_gpu_time = total_gpu_time + (real(diff_gpu_time_ms, wp) / 1000.0_wp)
+           istat = cudaEventElapsedTime(gpu_time_ms, startEvent, stopEvent)
+           last_gpu_time_ms = gpu_time_ms
+
+           ! --- Format terminal output based on ensemble ---
+           If (NpT) Then
+               If (pot_int < 1) Then
+                   write(*,'(i10, f18.8, f11.4, i11, 2f13.6, f11.4, f11.6, i13, 2f11.3)') &
+                      i, En_tot/real(natoms), prob_trans, ntrans/Nsave2, real(ntrans)/real(Nsave2*natoms), hmax*box(0), prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               Else
+                   write(*,'(i10, f18.8, 2f11.4, i11, 3f13.6, f11.4, f11.6, i13, 2f11.3)') &
+                      i, En_tot/real(natoms), prob_trans, prob_rot, ntrans/Nsave2, real(ntrans)/real(Nsave2*natoms), hmax*box(0), omax, prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               EndIf
+           Else
+               If (pot_int < 1) Then
+                   write(*,'(i10, f18.8, f11.4, i11, 2f13.6, i13, 2f11.3)') &
+                      i, En_tot/real(natoms), prob_trans, ntrans/Nsave2,  real(ntrans)/real(Nsave2*natoms), hmax*box(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               Else
+                   write(*,'(i10, f18.8, 2f11.4, i11, 3f13.6, i13, 2f11.3)') &
+                      i, En_tot/real(natoms), prob_trans, prob_rot, ntrans/Nsave2,  real(ntrans)/real(Nsave2*natoms), hmax*box(0), omax, Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               EndIf
+           EndIf
+        
+           no_mc_real=0
+           ntrans_ac=0
+           nrot_ac=0
+           nvol=0
+           nvol_accept=0
+
+           istat = cudaEventRecord(startEvent, 0)
+      EndIf
       
       ! Write trajectory snapshots
       If( (i > Ieq) .AND. (mod(i,Nsave2)==0) ) Then
