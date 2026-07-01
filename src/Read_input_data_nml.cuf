@@ -525,7 +525,7 @@ Subroutine Write_final_conf
       Else
          Write(21, '(A)') "Atoms # ellipsoid"
       End If
-      Write(22, *) ""
+      Write(21, *) ""
    Do I=0, natoms-1
       Indx = I * ndim
       If (pot_int < 1) Then
@@ -558,27 +558,32 @@ Subroutine Write_final_conf2(istep)
    Integer, Intent(in) :: istep
    Integer :: i, Indx, Indxq
    Real(wp) :: xlo, xhi, ylo, yhi, zlo, zhi
+   Logical :: is_open
 
    xlo = -h(0)/2.0_wp; xhi = h(0)/2.0_wp; ylo = -h(4)/2.0_wp; yhi = h(4)/2.0_wp; zlo = -h(8)/2.0_wp; zhi = h(8)/2.0_wp
-   write(674,'(A)') "ITEM: TIMESTEP"; write(674,'(I12)') istep
-   write(674,'(A)') "ITEM: NUMBER OF ATOMS"; write(674,'(I12)') natoms
-   write(674,'(A)') "ITEM: BOX BOUNDS pp pp pp"; write(674,'(2F15.6)') xlo, xhi; write(674,'(2F15.6)') ylo, yhi; write(674,'(2F15.6)') zlo, zhi
-   
-   If (pot_int < 1) Then
-      write(674,'(A)') "ITEM: ATOMS id type x y z"
-   Else
-      write(674,'(A)') "ITEM: ATOMS id type x y z quatw quati quatj quatk"
+
+   inquire(unit=674, opened=is_open)
+   If (is_open) Then
+      write(674,'(A)') "ITEM: TIMESTEP"; write(674,'(I12)') istep
+      write(674,'(A)') "ITEM: NUMBER OF ATOMS"; write(674,'(I12)') natoms
+      write(674,'(A)') "ITEM: BOX BOUNDS pp pp pp"; write(674,'(2F15.6)') xlo, xhi; write(674,'(2F15.6)') ylo, yhi; write(674,'(2F15.6)') zlo, zhi
+      
+      If (pot_int < 1) Then
+         write(674,'(A)') "ITEM: ATOMS id type x y z"
+      Else
+         write(674,'(A)') "ITEM: ATOMS id type x y z quatw quati quatj quatk"
+      End If
+      
+      Do i=0, natoms-1
+           Indx = i*Ndim
+           If (pot_int < 1) Then
+               write(674,'(I8,x,I4,x,3F16.8)') i+1, itype(i)+1, r(Indx), r(Indx+1), r(Indx+2)
+           Else
+               Indxq = i*4
+               write(674,'(I8,x,I4,x,3F16.8,x,4F16.8)') i+1, itype(i)+1, r(Indx), r(Indx+1), r(Indx+2), q(Indxq), q(Indxq+1), q(Indxq+2), q(Indxq+3)
+           End If
+      End Do
    End If
-   
-   Do i=0, natoms-1
-        Indx = i*Ndim
-        If (pot_int < 1) Then
-            write(674,'(I8,x,I4,x,3F16.8)') i+1, itype(i)+1, r(Indx), r(Indx+1), r(Indx+2)
-        Else
-            Indxq = i*4
-            write(674,'(I8,x,I4,x,3F16.8,x,4F16.8)') i+1, itype(i)+1, r(Indx), r(Indx+1), r(Indx+2), q(Indxq), q(Indxq+1), q(Indxq+2), q(Indxq+3)
-        End If
-   End Do
 
    ! Write to last_conf.lammpstrj
    open(675, file='last_conf.lammpstrj', status='unknown')
