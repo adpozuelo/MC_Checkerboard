@@ -168,6 +168,8 @@ See `examples/LJG/` directory for example input filesi for LJG patchy systems.
 - `run-data.dat` - Time series of properties (energy, pressure, box dimensions)
 - `data.restart` - Restart file configuration
 - `input-restart.nml` - Restart input file with current parameters
+- `clusevol_mc.dat` - Time evolution of clusters showing step, total clusters, maximum cluster size, total number of clustered particles, and percentage of clustered particles.
+
 
 **Standard Output**: Energy, acceptance rates, timing information
 
@@ -182,6 +184,10 @@ See `examples/LJG/` directory for example input filesi for LJG patchy systems.
 - `Nsave`, `Nsave2` - Output frequencies
 - `Nrestart` - Restart file frequency
 - `data_file` - Path to the initial configuration file in LAMMPS format (default: `data.atoms`)
+- `ncluster` - Perform cluster analysis every `ncluster` steps (default: `0`, which disables clustering)
+- `rcl` - Cutoff distance for clustering (default: `1.8`)
+- `minPts` - Minimum number of neighbors for a core node in DBSCAN (default: `3`)
+- `cluster_types` - Integer array of up to 10 types of sites to include in cluster analysis. If all are `0` (default), it automatically targets colloid center types `1` and `3`.
 
 ### Thermodynamic Parameters
 - `temp0`, `temp1` - Initial and final temperatures (Kelvin)
@@ -359,6 +365,12 @@ Computing resources provided by CSIC.
 ---
 
 ## Version History
+
+- **V1.5** (July 2026) GPU-accelerated DBSCAN Cluster Analysis
+  - Added GPU-accelerated DBSCAN cluster identification using neighbor search and parallel BFS kernels.
+  - Periodic cluster analysis triggered via namelist configuration (`ncluster`, `rcl`, `minPts`, `cluster_types`).
+  - Output metrics printed to stdout and saved to `clusevol_mc.dat`.
+  - Resolved background cell-grid energy accumulation bug.
 
 - **V1.4** (June 2026) Configurable patchy potential scaling and bug fixes
   - Added namelist potential scaling parameters (`sigp_factor`, `Rcp_factor`, `Rc_factor`) for the Palaia site-site potential model.

@@ -91,8 +91,10 @@ MODULE rundata
    ! interaction potential, if <=0 radial potentials, angular patches if 1, site-site patches if 2
    Logical :: Ecpu_check=.false.                       ! If .true. Energies a twice computed in the CPU for checking
    Character(len=256) :: data_file = 'data.atoms'      ! Configuration file name
-
-
+   Real(wp) :: rcl = 1.8_wp                            ! Cutoff distance for clustering
+   Integer :: minPts = 3                               ! Min points for core nodes in DBSCAN
+   Integer :: ncluster = 0                             ! Cluster analysis periodicity (0 = disabled)
+   Integer :: cluster_types(10) = 0                    ! Site types to include in cluster search
 
 END MODULE rundata
 

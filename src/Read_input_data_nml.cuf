@@ -165,7 +165,8 @@ Subroutine Read_Input_Data
    Character(len=256) :: line
 
   
-   Namelist /Control_Params/ istep_ini, istep_fin, Neq, Nmove, Nsave, Nsave2, Nrestart, imovie, traj_format, Npart_types, Ecpu_check, data_file
+   Namelist /Control_Params/ istep_ini, istep_fin, Neq, Nmove, Nsave, Nsave2, Nrestart, imovie, traj_format, Npart_types, Ecpu_check, data_file, &
+                              rcl, minPts, ncluster, cluster_types
    Namelist /MC_Params/ hmax, omax, vmax, displ_update, temp0, temp1, npt, iscale, pres, seed
    Namelist /Potential_Params/ model, cosmax_KF, ctor_max_KF, delta_KF, Bool_tor, sigma_jon_aux, sigma_tor_jon, rangepp, &
                                 sigp_factor, Rcp_factor, Rc_factor, epsp_factor 
@@ -174,6 +175,7 @@ Subroutine Read_Input_Data
    imovie = .false.; displ_update = .false.; npt = .false.; 
    sigma_jon_aux = 0.0_wp; sigma_tor_jon = 0.0_wp; rangepp = 0.0_wp
    sigp_factor = 0.1_wp; Rcp_factor = 0.3_wp; Rc_factor = 2.0_wp; epsp_factor = -1.0_wp
+   rcl = 1.8_wp; minPts = 3; ncluster = 0; cluster_types(:) = 0
 
    Open(20,file=input_filename, status='old')
    Read(20, NML=Control_Params)

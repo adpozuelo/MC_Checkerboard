@@ -21,7 +21,9 @@ OBJ = Definitions.o potential_functions.o Read_input_data_nml.o Tools.o Subsweep
 		InitializeCheckerboard.o MCsweep_Checkerboard.o Shift_Cells.o \
 		CB_system_energy_gpu.o energy.o Volume_move.o UpdateCheckerboard.o \
 		netcdf_trajectory.o \
+		mod_clusters.o \
 		Main.o
+
 
 %.o : %.mod
 .SUFFIXES : .cuf .f90

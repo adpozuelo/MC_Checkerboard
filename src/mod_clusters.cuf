@@ -1,0 +1,343 @@
+MODULE mod_clusters
+    Use set_precision
+    Use configuration
+    Use rundata, Only : rcl, minPts, ncluster, cluster_types, istep_ini
+    Use cudafor
+    Implicit None
+
+    Integer, Parameter :: maxnbpp = 128
+
+    ! GPU grid parameters
+    Integer :: nthread = 256
+    Integer :: nbcuda
+
+    ! Host arrays for clustering
+    Integer, Allocatable, Dimension(:) :: label
+    Integer, Allocatable, Dimension(:) :: neighbors
+    Integer, Allocatable, Dimension(:) :: offset
+    Integer, Allocatable, Dimension(:) :: adjacency
+
+    ! Device arrays for GPU-accelerated DBSCAN
+    Integer, Device, Allocatable, Dimension(:) :: glabel
+    Integer, Device, Allocatable, Dimension(:) :: gborder
+    Integer, Device, Allocatable, Dimension(:) :: gneighbors
+    Integer, Device, Allocatable, Dimension(:) :: goffset
+    Integer, Device, Allocatable, Dimension(:) :: gadjacency
+    Integer, Device, Allocatable, Dimension(:) :: gcluster_mask
+
+    Integer :: io_clusevol_file = 111
+    Character(len=32) :: clusevol_filename = 'clusevol_mc.dat'
+
+CONTAINS
+
+    ! GPU BFS kernel
+    Attributes(Global) Subroutine gbfs(Nsites, cluster_id, minPts, active)
+        Integer, Value, Intent(IN) :: Nsites, cluster_id, minPts
+        Logical, Intent(INOUT) :: active
+        Integer :: j, nbj, offj
+        j = (blockidx%x - 1)*blockdim%x + threadidx%x
+        If (j <= Nsites) Then
+            If (gborder(j) == 1 .And. glabel(j) == 0) Then
+                glabel(j) = cluster_id
+                nbj = gneighbors(j)
+                offj = goffset(j)
+                If (nbj >= minPts - 1) Then
+                    active = .True.
+                    gborder(gadjacency(offj:offj+nbj-1)) = 1
+                End If
+            End If
+        End If
+    End Subroutine gbfs
+
+    ! Adjacency count kernel (O(N^2) GPU direct search)
+    Attributes(Global) Subroutine gpu_graf(r, Nsites, dim, rcl2, sidel, minPts, mask)
+        Integer, Value, Intent(IN) :: Nsites, dim, minPts
+        Real(wp), Value :: rcl2
+        Real(wp), Intent(IN) :: r(Nsites*dim), sidel(dim)
+        Integer, Intent(IN) :: mask(Nsites)
+        Real(wp) :: dx, dy, dz, rr2, xi, yi, zi
+        Integer :: i, j, counter, indx_i, indx_j
+        i = (blockidx%x - 1)*blockdim%x + threadidx%x
+        If (i <= Nsites) Then
+            gneighbors(i) = 0
+            If (mask(i) == 0) Return
+            
+            counter = 0
+            indx_i = (i - 1) * dim
+            xi = r(indx_i + 1)
+            yi = r(indx_i + 2)
+            zi = r(indx_i + 3)
+            
+            Do j = 1, Nsites
+                If (i /= j .And. mask(j) /= 0) Then
+                    indx_j = (j - 1) * dim
+                    dx = xi - r(indx_j + 1)
+                    dy = yi - r(indx_j + 2)
+                    dz = zi - r(indx_j + 3)
+                    
+                    ! PBC
+                    dx = dx - sidel(1) * anint(dx / sidel(1))
+                    dy = dy - sidel(2) * anint(dy / sidel(2))
+                    dz = dz - sidel(3) * anint(dz / sidel(3))
+                    
+                    rr2 = dx*dx + dy*dy + dz*dz
+                    If (rr2 <= rcl2) Then
+                        counter = counter + 1
+                    End If
+                End If
+            End Do
+            gneighbors(i) = counter
+        End If
+    End Subroutine gpu_graf
+
+    ! Adjacency populate kernel
+    Attributes(Global) Subroutine gpu_adj(r, Nsites, dim, rcl2, sidel, mask)
+        Integer, Value, Intent(IN) :: Nsites, dim
+        Real(wp), Value :: rcl2
+        Real(wp), Intent(IN) :: r(Nsites*dim), sidel(dim)
+        Integer, Intent(IN) :: mask(Nsites)
+        Real(wp) :: dx, dy, dz, rr2, xi, yi, zi
+        Integer :: i, j, counter, indx_i, indx_j
+        i = (blockidx%x - 1)*blockdim%x + threadidx%x
+        If (i <= Nsites) Then
+            If (mask(i) == 0) Return
+            
+            counter = 0
+            indx_i = (i - 1) * dim
+            xi = r(indx_i + 1)
+            yi = r(indx_i + 2)
+            zi = r(indx_i + 3)
+            
+            Do j = 1, Nsites
+                If (i /= j .And. mask(j) /= 0) Then
+                    indx_j = (j - 1) * dim
+                    dx = xi - r(indx_j + 1)
+                    dy = yi - r(indx_j + 2)
+                    dz = zi - r(indx_j + 3)
+                    
+                    ! PBC
+                    dx = dx - sidel(1) * anint(dx / sidel(1))
+                    dy = dy - sidel(2) * anint(dy / sidel(2))
+                    dz = dz - sidel(3) * anint(dz / sidel(3))
+                    
+                    rr2 = dx*dx + dy*dy + dz*dz
+                    If (rr2 <= rcl2) Then
+                        gadjacency(goffset(i) + counter) = j
+                        counter = counter + 1
+                    End If
+                End If
+            End Do
+        End If
+    End Subroutine gpu_adj
+
+    Subroutine clusters_alloc()
+        If (.Not. Allocated(gneighbors)) Then
+            Allocate(gneighbors(natoms))
+            Allocate(goffset(natoms))
+            Allocate(gadjacency(natoms * maxnbpp))
+            Allocate(glabel(natoms))
+            Allocate(gborder(natoms))
+            Allocate(gcluster_mask(natoms))
+            
+            Allocate(label(natoms))
+            Allocate(neighbors(natoms))
+            Allocate(offset(natoms))
+            Allocate(adjacency(natoms * maxnbpp))
+        End If
+    End Subroutine clusters_alloc
+
+    Subroutine clusters_dealloc()
+        If (Allocated(gneighbors)) Then
+            Deallocate(gneighbors)
+            Deallocate(goffset)
+            Deallocate(gadjacency)
+            Deallocate(glabel)
+            Deallocate(gborder)
+            Deallocate(gcluster_mask)
+            
+            Deallocate(label)
+            Deallocate(neighbors)
+            Deallocate(offset)
+            Deallocate(adjacency)
+        End If
+    End Subroutine clusters_dealloc
+
+    Subroutine neighbor_search(Nsites_val)
+        Integer, Intent(IN) :: Nsites_val
+        Integer :: istat, i
+        Real(wp) :: sidel_host(3)
+        Real(wp), Device :: r_dev(natoms*ndim)
+        Real(wp), Device :: sidel_dev(3)
+        
+        ! Copy coordinates and box to GPU device
+        r_dev(1:natoms*ndim) = r(1:natoms*ndim)
+        sidel_host(1:3) = Box(0:2)
+        sidel_dev(1:3) = sidel_host(1:3)
+        
+        gneighbors(:) = 0
+        gadjacency(:) = 0
+        
+        ! 1. Launch neighbor count kernel
+        Call gpu_graf<<<nbcuda, nthread>>>(r_dev, Nsites_val, ndim, rcl**2, sidel_dev, minPts, gcluster_mask)
+        istat = cudaDeviceSynchronize()
+        
+        ! 2. Copy neighbor counts to host to compute exclusive prefix scan (offset list)
+        neighbors(:) = gneighbors(:)
+        
+        ! Check neighbor count limit
+        If (Maxval(neighbors) > maxnbpp) Then
+            Write(*, '(A, I5, A, I5)') '*** Error: max neighbors detected is ', Maxval(neighbors), &
+                                       ' which exceeds maxnbpp = ', maxnbpp
+            Write(*, '(A)') '*** Please increase maxnbpp in input file or decrease rcl.'
+            Stop
+        End If
+        
+        ! 3. Compute exclusive prefix sum (offset) on the host starting at 1
+        offset(1) = 1
+        Do i = 2, Nsites_val
+            offset(i) = offset(i-1) + neighbors(i-1)
+        End Do
+        
+        ! 4. Copy offset back to device
+        goffset(:) = offset(:)
+        
+        ! 5. Launch adjacency list kernel
+        Call gpu_adj<<<nbcuda, nthread>>>(r_dev, Nsites_val, ndim, rcl**2, sidel_dev, gcluster_mask)
+        istat = cudaDeviceSynchronize()
+        
+        ! 6. Copy adjacency list back to host
+        adjacency(:) = gadjacency(:)
+        
+    End Subroutine neighbor_search
+
+    Subroutine run_cluster_analysis(istep)
+        Integer, Intent(IN) :: istep
+        Integer :: i, k, nb, inherited_cluster, cluster_id, cluster_id_local
+        Integer :: istat
+        Logical :: iactive
+        Logical, Device :: iactive_d
+        Integer :: cluster_mask_host(natoms)
+        Integer :: count_cl(natoms)
+        Integer :: size_max, nclustered
+        Logical :: file_exists
+        Real(wp) :: pct
+        Integer :: ncenters
+        
+        ! 1. Allocate memory if needed
+        Call clusters_alloc()
+        
+        ! 2. Initialize cluster mask based on selected types
+        cluster_mask_host(:) = 0
+        If (All(cluster_types == 0)) Then
+            Do i = 1, natoms
+                If (itype(i) == 1 .Or. itype(i) == 3) Then
+                    cluster_mask_host(i) = 1
+                End If
+            End Do
+        Else
+            Do i = 1, natoms
+                If (Any(cluster_types == itype(i))) Then
+                    cluster_mask_host(i) = 1
+                End If
+            End Do
+        End If
+        
+        gcluster_mask(1:natoms) = cluster_mask_host(1:natoms)
+        
+        ! 3. Configure grid block
+        nthread = 256
+        nbcuda = (natoms + nthread - 1)/nthread
+        
+        ! 4. Search for neighbors and build adjacency list
+        Call neighbor_search(natoms)
+        
+        ! 5. Run DBSCAN BFS search
+        glabel(:) = 0
+        label(:) = 0
+        cluster_id = 0
+        
+        Do i = 1, natoms
+            ! Skip if not a selected particle type
+            If (cluster_mask_host(i) == 0) Cycle
+            
+            ! If i is a core particle and not yet assigned to a cluster, start/expand
+            If (neighbors(i) >= minPts - 1 .And. label(i) == 0) Then
+                ! Try to inherit cluster ID from already-labeled neighbors
+                inherited_cluster = 0
+                Do k = offset(i), offset(i) + neighbors(i) - 1
+                    nb = adjacency(k)
+                    If (label(nb) /= 0) Then
+                        inherited_cluster = label(nb)
+                        Exit
+                    End If
+                End Do
+                
+                If (inherited_cluster /= 0) Then
+                    cluster_id_local = inherited_cluster
+                Else
+                    cluster_id = cluster_id + 1
+                    cluster_id_local = cluster_id
+                End If
+                
+                gborder(:) = 0
+                gborder(i) = 1
+                iactive = .True.
+                
+                Do While (iactive)
+                    iactive_d = .False.
+                    Call gbfs<<<nbcuda, nthread>>>(natoms, cluster_id_local, minPts, iactive_d)
+                    istat = cudaDeviceSynchronize()
+                    iactive = iactive_d
+                End Do
+                
+                label(:) = glabel(:)
+            End If
+        End Do
+        
+        ! 6. Analyze cluster size distribution
+        count_cl(:) = 0
+        Do i = 1, natoms
+            If (label(i) > 0) Then
+                count_cl(label(i)) = count_cl(label(i)) + 1
+            End If
+        End Do
+        
+        nclustered = 0
+        size_max = 0
+        Do i = 1, cluster_id
+            If (count_cl(i) > 0) Then
+                nclustered = nclustered + count_cl(i)
+                If (count_cl(i) > size_max) Then
+                    size_max = count_cl(i)
+                End If
+            End If
+        End Do
+        
+        ncenters = Count(cluster_mask_host > 0)
+        If (ncenters > 0) Then
+            pct = (Real(nclustered, wp)/Real(ncenters, wp)) * 100.0_wp
+        Else
+            pct = 0.0_wp
+        End If
+        
+        ! 7. Print stats to console and write to evolution file
+        Write(*,'(A, I10, A, I6, A, I6, A, I6, A, F6.2, A)') &
+            '     [CLUSTERS] Step ', istep, ' | Total clusters: ', cluster_id, &
+            ' | Max size: ', size_max, ' | Clustered: ', nclustered, &
+            ' (', pct, '%)'
+            
+        Inquire(File=clusevol_filename, Exist=file_exists)
+        If (.Not. file_exists .Or. istep == istep_ini + ncluster) Then
+            Open(io_clusevol_file, File=clusevol_filename, Status='unknown')
+            Write(io_clusevol_file, '(A)') '# step  n_clusters  max_size  n_clustered  pct_clustered'
+        Else
+            Open(io_clusevol_file, File=clusevol_filename, Status='unknown', Position='append')
+        End If
+        
+        Write(io_clusevol_file, '(i10, i12, i10, i13, f15.4)') &
+            istep, cluster_id, size_max, nclustered, pct
+        Close(io_clusevol_file)
+        
+    End Subroutine run_cluster_analysis
+
+END MODULE mod_clusters

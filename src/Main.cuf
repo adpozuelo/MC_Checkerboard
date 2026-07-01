@@ -39,6 +39,7 @@ Program GPU_MC
  Use tools
  Use cudafor                            ! Required for cudaEvent structures
  Use netcdf_trajectory
+ Use mod_clusters
 
  Implicit None
  Integer :: i, j, ll, Iend, Ieq, vec_shift(6,0:ndim-1), vec(0:ndim-1)
@@ -451,6 +452,14 @@ Program GPU_MC
            EndIf
       EndIf
       
+       ! Perform cluster analysis if enabled
+       If( (i > Ieq) .AND. (ncluster > 0) .AND. (mod(i, ncluster) == 0) ) Then
+            Call Convert_CB_RU
+            Call Convert_Real_Units
+            Call run_cluster_analysis(i)
+       EndIf
+
+      
       ! Write restart files periodically
       If(mod(i,Nrestart)==0) Then
            Call Convert_CB_RU
@@ -519,6 +528,7 @@ Program GPU_MC
  Call Write_final_conf
  
  Call limpio
+ Call clusters_dealloc()
  write(*,'(A)') c_green // ' >>> Simulation completely finished. GPU memory cleaned.' // c_reset
  
 End Program GPU_MC
