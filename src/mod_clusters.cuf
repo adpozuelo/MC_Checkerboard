@@ -212,7 +212,7 @@ CONTAINS
 
     Subroutine run_cluster_analysis(istep)
         Integer, Intent(IN) :: istep
-        Integer :: i, k, nb, inherited_cluster, cluster_id, cluster_id_local
+        Integer :: i, k, nb, inherited_cluster, cluster_id, cluster_id_local, icl, indx
         Integer :: istat
         Logical :: iactive
         Logical, Device :: iactive_d
@@ -222,6 +222,7 @@ CONTAINS
         Logical :: file_exists
         Real(wp) :: pct
         Integer :: ncenters
+        Integer :: io_lastclconf = 112
         
         ! 1. Allocate memory if needed
         Call clusters_alloc()
@@ -337,6 +338,30 @@ CONTAINS
         Write(io_clusevol_file, '(i10, i12, i10, i13, f15.4)') &
             istep, cluster_id, size_max, nclustered, pct
         Close(io_clusevol_file)
+
+        ! 8. Write last cluster configuration to last_clconf.lammpstrj
+        open(io_lastclconf, file='last_clconf.lammpstrj', status='unknown')
+        write(io_lastclconf, '(A)') 'ITEM: TIMESTEP'
+        write(io_lastclconf, '(I12)') istep
+        write(io_lastclconf, '(A)') 'ITEM: NUMBER OF ATOMS'
+        write(io_lastclconf, '(I12)') nclustered
+        write(io_lastclconf, '(A)') 'ITEM: BOX BOUNDS pp pp pp'
+        write(io_lastclconf, '(2F15.7)') -Box(0)/2.0_wp, Box(0)/2.0_wp
+        write(io_lastclconf, '(2F15.7)') -Box(1)/2.0_wp, Box(1)/2.0_wp
+        write(io_lastclconf, '(2F15.7)') -Box(2)/2.0_wp, Box(2)/2.0_wp
+        write(io_lastclconf, '(A)') 'ITEM: ATOMS id mol type x y z'
+        
+        icl = 0
+        do i = 1, natoms
+            if (label(i) > 0) then
+                icl = icl + 1
+                indx = (i - 1) * ndim
+                write(io_lastclconf, '(2I8, I4, 3F15.7)') &
+                    icl, label(i), mod(count_cl(label(i)), 32), &
+                    r(indx + 1), r(indx + 2), r(indx + 3)
+            end if
+        end do
+        close(io_lastclconf)
         
     End Subroutine run_cluster_analysis
 

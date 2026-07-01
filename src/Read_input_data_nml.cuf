@@ -579,4 +579,27 @@ Subroutine Write_final_conf2(istep)
             write(674,'(I8,x,I4,x,3F16.8,x,4F16.8)') i+1, itype(i)+1, r(Indx), r(Indx+1), r(Indx+2), q(Indxq), q(Indxq+1), q(Indxq+2), q(Indxq+3)
         End If
    End Do
+
+   ! Write to last_conf.lammpstrj
+   open(675, file='last_conf.lammpstrj', status='unknown')
+   write(675,'(A)') "ITEM: TIMESTEP"; write(675,'(I12)') istep
+   write(675,'(A)') "ITEM: NUMBER OF ATOMS"; write(675,'(I12)') natoms
+   write(675,'(A)') "ITEM: BOX BOUNDS pp pp pp"; write(675,'(2F15.6)') xlo, xhi; write(675,'(2F15.6)') ylo, yhi; write(675,'(2F15.6)') zlo, zhi
+   
+   If (pot_int < 1) Then
+      write(675,'(A)') "ITEM: ATOMS id type x y z"
+   Else
+      write(675,'(A)') "ITEM: ATOMS id type x y z quatw quati quatj quatk"
+   End If
+   
+   Do i=0, natoms-1
+        Indx = i*Ndim
+        If (pot_int < 1) Then
+            write(675,'(I8,x,I4,x,3F16.8)') i+1, itype(i)+1, r(Indx), r(Indx+1), r(Indx+2)
+        Else
+            Indxq = i*4
+            write(675,'(I8,x,I4,x,3F16.8,x,4F16.8)') i+1, itype(i)+1, r(Indx), r(Indx+1), r(Indx+2), q(Indxq), q(Indxq+1), q(Indxq+2), q(Indxq+3)
+        End If
+   End Do
+   close(675)
 End Subroutine Write_final_conf2

@@ -521,14 +521,16 @@ Program GPU_MC
  Call CB_system_energy_gpu(2)
  write(*,'(A,f18.8)') c_yellow // ' >>> Final energy evaluated with GPU = ' // c_reset, En_tot
 
- Call Convert_CB_RU
- Call Calculate_averages
- Call Write_final_properties
- Call Convert_Real_Units
- Call Write_final_conf
- 
- Call limpio
- Call clusters_dealloc()
+  Call Convert_CB_RU
+  Call Calculate_averages
+  Call Write_final_properties
+  Call Convert_Real_Units
+  Call Write_final_conf
+  Call Write_final_conf2(istep_ini+istep_fin)
+  If (ncluster > 0) Call run_cluster_analysis(istep_ini+istep_fin)
+  
+  Call limpio
+  Call clusters_dealloc()
  write(*,'(A)') c_green // ' >>> Simulation completely finished. GPU memory cleaned.' // c_reset
  
 End Program GPU_MC
