@@ -1,0 +1,86 @@
+program test_pot
+   use set_precision
+   use potential_functions
+   implicit none
+
+   integer, parameter :: Ntypes = 2
+   integer, parameter :: Npatches_max = 7
+   integer, parameter :: Ndim = 3
+
+   integer :: Npatches(0:Ntypes-1)
+   real(wp) :: patch(0:Ntypes*Npatches_max*Ndim-1)
+   real(wp) :: sigma_LJ(0:Ntypes*Ntypes-1)
+   real(wp) :: Vpot_Matrix(0:Ntypes*Npatches_max*Ntypes*Npatches_max-1)
+
+   real(wp) :: R1(0:8), R2(0:8)
+   real(wp) :: sigp_factor, Rcp_factor
+   real(wp) :: en_AA, en_AB, en_BB
+   real(wp) :: dx, dy, dz, dist
+   integer :: itypei, itypej
+   integer :: i, j
+
+   ! Initialize matrices
+   Npatches(0) = 4
+   Npatches(1) = 4
+
+   ! Patches for type 0 (A) and type 1 (B)
+   patch = 0.0_wp
+   ! Type 0 patch 0: [1, 0, 0]
+   patch(0) = 1.0_wp; patch(1) = 0.0_wp; patch(2) = 0.0_wp
+   ! Type 1 patch 0: [-1, 0, 0] (point towards each other)
+   patch(21) = -1.0_wp; patch(22) = 0.0_wp; patch(23) = 0.0_wp
+
+   sigma_LJ(0) = 1.0_wp  ! A-A
+   sigma_LJ(1) = 1.0_wp  ! A-B
+   sigma_LJ(2) = 1.0_wp  ! B-A
+   sigma_LJ(3) = 1.0_wp  ! B-B
+
+   ! Vpot_Matrix init
+   Vpot_Matrix = 0.0_wp
+   ! A-B (itypei=0, itypej=1)
+   do i = 0, 3
+      do j = 0, 3
+         Vpot_Matrix(i*14 + 7 + j) = 1.0_wp
+         Vpot_Matrix(98 + i*14 + j) = 1.0_wp
+      end do
+   end do
+
+   ! Rotations: identity matrices
+   R1 = 0.0_wp; R1(0) = 1.0_wp; R1(4) = 1.0_wp; R1(8) = 1.0_wp
+   R2 = 0.0_wp; R2(0) = 1.0_wp; R2(4) = 1.0_wp; R2(8) = 1.0_wp
+
+   sigp_factor = 0.1_wp
+   Rcp_factor = 0.3_wp
+
+   print *, "Evaluating patch-patch interactions for head-on alignment:"
+   print *, "d       AA_patch   AB_patch   BB_patch"
+   print *, "--------------------------------------"
+
+   do i = 1, 15
+      dist = 1.0_wp + real(i, wp)*0.03_wp
+      dx = dist
+      dy = 0.0_wp
+      dz = 0.0_wp
+
+      ! A-A
+      itypei = 0; itypej = 0
+      call vpatch_sitesite(dx, dy, dz, R1, R2, sigp_factor, Rcp_factor, &
+            itypei, itypej, Ntypes, Npatches_max, Ndim, &
+            Npatches, patch, sigma_LJ, Vpot_Matrix, en_AA)
+
+      ! A-B
+      itypei = 0; itypej = 1
+      call vpatch_sitesite(dx, dy, dz, R1, R2, sigp_factor, Rcp_factor, &
+            itypei, itypej, Ntypes, Npatches_max, Ndim, &
+            Npatches, patch, sigma_LJ, Vpot_Matrix, en_AB)
+
+      ! B-B
+      itypei = 1; itypej = 1
+      call vpatch_sitesite(dx, dy, dz, R1, R2, sigp_factor, Rcp_factor, &
+            itypei, itypej, Ntypes, Npatches_max, Ndim, &
+            Npatches, patch, sigma_LJ, Vpot_Matrix, en_BB)
+
+      write(*,'(f5.3, 3f11.6)') dist, en_AA, en_AB, en_BB
+   end do
+
+end program test_pot
