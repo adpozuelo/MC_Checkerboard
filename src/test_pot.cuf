@@ -13,7 +13,7 @@ program test_pot
    real(wp) :: Vpot_Matrix(0:Ntypes*Npatches_max*Ntypes*Npatches_max-1)
 
    real(wp) :: R1(0:8), R2(0:8)
-   real(wp) :: sigp_factor, Rcp_factor
+   real(wp) :: sigp_factor, Rcp_factor, patch_radial_factor
    real(wp) :: en_AA, en_AB, en_BB
    real(wp) :: dx, dy, dz, dist
    integer :: itypei, itypej
@@ -51,6 +51,7 @@ program test_pot
 
    sigp_factor = 0.1_wp
    Rcp_factor = 0.3_wp
+   patch_radial_factor = 0.5_wp
 
    print *, "Evaluating patch-patch interactions for head-on alignment:"
    print *, "d       AA_patch   AB_patch   BB_patch"
@@ -64,19 +65,19 @@ program test_pot
 
       ! A-A
       itypei = 0; itypej = 0
-      call vpatch_sitesite(dx, dy, dz, R1, R2, sigp_factor, Rcp_factor, &
+      call vpatch_sitesite(dx, dy, dz, R1, R2, sigp_factor, Rcp_factor, patch_radial_factor, &
             itypei, itypej, Ntypes, Npatches_max, Ndim, &
             Npatches, patch, sigma_LJ, Vpot_Matrix, en_AA)
 
       ! A-B
       itypei = 0; itypej = 1
-      call vpatch_sitesite(dx, dy, dz, R1, R2, sigp_factor, Rcp_factor, &
+      call vpatch_sitesite(dx, dy, dz, R1, R2, sigp_factor, Rcp_factor, patch_radial_factor, &
             itypei, itypej, Ntypes, Npatches_max, Ndim, &
             Npatches, patch, sigma_LJ, Vpot_Matrix, en_AB)
 
       ! B-B
       itypei = 1; itypej = 1
-      call vpatch_sitesite(dx, dy, dz, R1, R2, sigp_factor, Rcp_factor, &
+      call vpatch_sitesite(dx, dy, dz, R1, R2, sigp_factor, Rcp_factor, patch_radial_factor, &
             itypei, itypej, Ntypes, Npatches_max, Ndim, &
             Npatches, patch, sigma_LJ, Vpot_Matrix, en_BB)
 

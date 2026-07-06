@@ -10,7 +10,10 @@ module cuda_fortran
   use libm
   use set_precision
   use potential_functions
+  use potential, only : patch_radial_factor
   implicit none
+
+  real(wp), device, save :: patch_radial_factor_dev
 
   ! ----------------------------------------------------------------------------
   ! DEVICE MEMORY ARRAYS (State, Cell Lists, and Potential Parameters)
@@ -384,7 +387,7 @@ contains
                   R2(7) = 2.0_wp*(Q2j*Q3j + Q0j*Q1j)
                   R2(8) = Q0j*Q0j - Q1j*Q1j - Q2j*Q2j + Q3j*Q3j
                   
-                  call vpatch_sitesite(DX, DY, DZ, R1, R2, sigp_factor, Rcp_factor, &
+                  call vpatch_sitesite(DX, DY, DZ, R1, R2, sigp_factor, Rcp_factor, patch_radial_factor_dev, &
                        itypei, itypej, Ntypes, Npatches_max, Ndim, &
                        Npatches, patch, sigma_LJ, Vpot_Matrix, e_patches)
                   energ_total = energ_total + e_patches
@@ -1354,14 +1357,14 @@ attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, N
             call rot_matrix(Q0j,Q1j,Q2j,Q3j,R2)
             
             if (dist < rangeP_aux) then
-                call vpatch_sitesite(DX, DY, DZ, R1, R2, sigp_factor, Rcp_factor, &
+                call vpatch_sitesite(DX, DY, DZ, R1, R2, sigp_factor, Rcp_factor, patch_radial_factor_dev, &
                      itypei, itypej, Ntypes, Npatches_max, Ndim, &
                      Npatches, patch, sigma_LJ, Vpot_Matrix, e_old_inc_patch)
                 e_old_inc = e_old_inc + e_old_inc_patch
             end if
             
             if (distn < rangeP_aux) then
-                call vpatch_sitesite(DXn, DYn, DZn, R1N, R2, sigp_factor, Rcp_factor, &
+                call vpatch_sitesite(DXn, DYn, DZn, R1N, R2, sigp_factor, Rcp_factor, patch_radial_factor_dev, &
                      itypei, itypej, Ntypes, Npatches_max, Ndim, &
                      Npatches, patch, sigma_LJ, Vpot_Matrix, e_new_inc_patch)
                 e_new_inc = e_new_inc + e_new_inc_patch
@@ -2369,6 +2372,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
     
     ! FORCE UPDATE: The GPU must see the CPU's current Sphere_Cell
     Sphere_Celldev = Sphere_Cell
+    patch_radial_factor_dev = patch_radial_factor
     Ndim1 = Ntypes*Npatches_max*Ntypes*Npatches_max
     Ndim2 = Ntypes*Npatches_max
     Ndim3 = Ndim2*Ntor_max
@@ -2528,6 +2532,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
     integer :: No_tras_ac_subsweep, No_rot_ac_subsweep
     integer, intent(in) :: pot_int
     
+    patch_radial_factor_dev = patch_radial_factor
+
     if (init_subsweep == 0) then
       nblock = (10*Nsubset_Cell)/NTHREAD
       if (nblock == 0) nblock = 1
@@ -2982,16 +2988,16 @@ attributes(device) subroutine evaluate_cell_interactions( &
                   do j3 = 0, Npatches(itypei)-1
                       kpatch = Npatches_max*Ndim*itypei + j3*Ndim
                       PX = patch(kpatch); PY = patch(kpatch+1); PZ = patch(kpatch+2)
-                      PX1(j3) = 0.5_wp * sigma_i * (R1(0)*PX + R1(1)*PY + R1(2)*PZ)
-                      PY1(j3) = 0.5_wp * sigma_i * (R1(3)*PX + R1(4)*PY + R1(5)*PZ)
-                      PZ1(j3) = 0.5_wp * sigma_i * (R1(6)*PX + R1(7)*PY + R1(8)*PZ)
+                      PX1(j3) = patch_radial_factor_dev * sigma_i * (R1(0)*PX + R1(1)*PY + R1(2)*PZ)
+                      PY1(j3) = patch_radial_factor_dev * sigma_i * (R1(3)*PX + R1(4)*PY + R1(5)*PZ)
+                      PZ1(j3) = patch_radial_factor_dev * sigma_i * (R1(6)*PX + R1(7)*PY + R1(8)*PZ)
                       
                       do j4 = 0, Npatches(itypej)-1
                           kpatch2 = Npatches_max*Ndim*itypej + j4*Ndim
                           PX2 = patch(kpatch2); PY2 = patch(kpatch2+1); PZ2 = patch(kpatch2+2)
-                          px_j = 0.5_wp * sigma_j * (R211*PX2 + R212*PY2 + R213*PZ2)
-                          py_j = 0.5_wp * sigma_j * (R221*PX2 + R222*PY2 + R223*PZ2)
-                          pz_j = 0.5_wp * sigma_j * (R231*PX2 + R232*PY2 + R233*PZ2)
+                          px_j = patch_radial_factor_dev * sigma_j * (R211*PX2 + R212*PY2 + R213*PZ2)
+                          py_j = patch_radial_factor_dev * sigma_j * (R221*PX2 + R222*PY2 + R223*PZ2)
+                          pz_j = patch_radial_factor_dev * sigma_j * (R231*PX2 + R232*PY2 + R233*PZ2)
                           
                           dx_patch = DX + px_j - PX1(j3)
                           dy_patch = DY + py_j - PY1(j3)
@@ -3624,6 +3630,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
     allocate(atom_ener_dev(0:Natoms_in-1))
     allocate(Sphere_Cell_dev(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1))
+    
+    patch_radial_factor_dev = patch_radial_factor
     
     ! ====================================================================
     ! CRITICAL SYNC FOR trj_analysis:

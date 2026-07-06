@@ -103,9 +103,9 @@ Subroutine calculate_patchy_energy_sitesite(itypei, itypej, dxp, dyp, dzp, &
    R2(3)=R221; R2(4)=R222; R2(5)=R223
    R2(6)=R231; R2(7)=R232; R2(8)=R233
 
-   call vpatch_sitesite(dxp, dyp, dzp, R1, R2, sigp_factor, Rcp_factor, &
-         itypei, itypej, Npart_types, Nrb_sites_max, Ndim, &
-         Nrb_sites, PATCH, sigma_LJ, Vpot_Matrix, en_patches)
+    call vpatch_sitesite(dxp, dyp, dzp, R1, R2, sigp_factor, Rcp_factor, patch_radial_factor, &
+          itypei, itypej, Npart_types, Nrb_sites_max, Ndim, &
+          Nrb_sites, PATCH, sigma_LJ, Vpot_Matrix, en_patches)
 End Subroutine calculate_patchy_energy_sitesite
 
 ! ==============================================================================
