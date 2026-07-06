@@ -7,7 +7,7 @@ Subroutine calculate_patchy_energy_angular(itypei, itypej, r12, rsq, dxp, dyp, d
     Use set_precision
     Use configuration
     Use potential
-    Use potential_functions, only: vpatch_angular, vlj
+    Use potential_functions, only: vpatch_angular, vlj, eval_table_pot_host
     Implicit None
 
     Integer, Intent(In)  :: itypei, itypej
@@ -54,7 +54,11 @@ Subroutine calculate_patchy_energy_angular(itypei, itypej, r12, rsq, dxp, dyp, d
     Else 
         FX  = (1.d0 + Tanh(a * (-xop_aux + r12))) / 2.d00
         FXI = (1.d0 - Tanh(a * (-xop_aux + r12))) / 2.d00
-        call vlj(rsq, sigma_LJ_aux, eps_LJ_aux, vl0_aux, VRAD)
+        if (table_mc .and. has_table(itypei, itypej)) then
+            call eval_table_pot_host(r12, itypei, itypej, VRAD)
+        else
+            call vlj(rsq, sigma_LJ_aux, eps_LJ_aux, vl0_aux, VRAD)
+        end if
         en_patchy = VRAD * (FXI + Vangtor_max * FX) 
     End If
 End Subroutine calculate_patchy_energy_angular
@@ -68,7 +72,7 @@ Subroutine calculate_patchy_energy_sitesite(itypei, itypej, dxp, dyp, dzp, &
    Use set_precision
    Use configuration
    Use potential
-   Use potential_functions, only: vpatch_sitesite
+   Use potential_functions, only: vpatch_sitesite_host
    Implicit None
 
    Integer, Intent(In)  :: itypei, itypej
@@ -103,7 +107,7 @@ Subroutine calculate_patchy_energy_sitesite(itypei, itypej, dxp, dyp, dzp, &
    R2(3)=R221; R2(4)=R222; R2(5)=R223
    R2(6)=R231; R2(7)=R232; R2(8)=R233
 
-    call vpatch_sitesite(dxp, dyp, dzp, R1, R2, sigp_factor, Rcp_factor, patch_radial_factor, &
+    call vpatch_sitesite_host(dxp, dyp, dzp, R1, R2, sigp_factor, Rcp_factor, patch_radial_factor, &
           itypei, itypej, Npart_types, Nrb_sites_max, Ndim, &
           Nrb_sites, PATCH, sigma_LJ, Vpot_Matrix, en_patches)
 End Subroutine calculate_patchy_energy_sitesite
@@ -116,7 +120,7 @@ Subroutine ener(i1, i2, en, overlap)
       Use configuration
       Use potential
       Use rundata        
-      Use potential_functions, only: vlj, vlj_palaia
+      Use potential_functions, only: vlj, vlj_palaia, eval_table_pot_host
       Implicit None
       
       Integer, Intent(In)   :: i1, i2
@@ -133,28 +137,28 @@ Subroutine ener(i1, i2, en, overlap)
       overlap = .False.
 
       Indxi = i1*Ndim
-      X1 = r(Indxi); Y1 = r(Indxi+1); Z1 = r(Indxi+2)
+      X1 = R(Indxi);   Y1 = R(Indxi+1); Z1 = R(Indxi+2)
       Indxi = i1*4
       Q10 = q(Indxi); Q11 = q(Indxi+1); Q12 = q(Indxi+2); Q13 = q(Indxi+3)
       itypei = itype(i1)
 
       Indxj = i2*Ndim
-      X2 = r(Indxj); Y2 = r(Indxj+1); Z2 = r(Indxj+2)
+      X2 = R(Indxj);   Y2 = R(Indxj+1); Z2 = R(Indxj+2)
       Indxj = i2*4
       Q20 = q(Indxj); Q21 = q(Indxj+1); Q22 = q(Indxj+2); Q23 = q(Indxj+3)
       itypej = itype(i2)
 
       DX = X2 - X1; DY = Y2 - Y1; DZ = Z2 - Z1
       DX = DX - NINT(DX); DY = DY - NINT(DY); DZ = DZ - NINT(DZ)
-
+ 
       DXP = H(0)*DX + H(1)*DY + H(2)*DZ
       DYP = H(3)*DX + H(4)*DY + H(5)*DZ
       DZP = H(6)*DX + H(7)*DY + H(8)*DZ
-
+ 
       RSQ = DXP**2.0 + DYP**2.0 + DZP**2.0
       R12 = SQRT(RSQ)
 
-      Indx = itypei*Npart_types + itypej
+      Indx = itypei*Npart_types+itypej
       sigma_LJ_aux = sigma_LJ(Indx)
       eps_LJ_aux   = epsilon_LJ(Indx)
       xop_aux      = xop(Indx)
@@ -169,13 +173,17 @@ Subroutine ener(i1, i2, en, overlap)
         ! --------------------------------------------------------
           ! ROUTE CORE POTENTIAL
           ! --------------------------------------------------------
-          If (pot_int == 2) then
-              ! Site-Site uses Palaia WCA + Cosine Tail. 
-              ! We pass vl0_aux as the 'epsp' patch depth parameter.
-              Call vlj_palaia(RSQ, sigma_LJ_aux, eps_LJ_aux, vl0_aux, Rc_factor, en)
-          Else if (pot_int == 1) then
-              Call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, vl0_aux, en)
-          endif
+          if (table_mc .and. has_table(itypei, itypej)) then
+              call eval_table_pot_host(R12, itypei, itypej, en)
+          else
+              If (pot_int == 2) then
+                  ! Site-Site uses Palaia WCA + Cosine Tail. 
+                  ! We pass vl0_aux as the 'epsp' patch depth parameter.
+                  Call vlj_palaia(RSQ, sigma_LJ_aux, eps_LJ_aux, vl0_aux, Rc_factor, en)
+              Else if (pot_int == 1) then
+                  Call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, vl0_aux, en)
+              endif
+          end if
           If (NRB_SITES(itypei) > 0 .and. NRB_SITES(itypej) > 0) then
               If (pot_int == 1) then
                   Call calculate_patchy_energy_angular(itypei, itypej, r12, rsq, dxp, dyp, dzp, &
@@ -198,7 +206,7 @@ Subroutine ener_LJ(i1, i2, en, overlap)
    Use set_precision
    Use configuration
    Use potential
-   Use potential_functions, only: vlj
+   Use potential_functions, only: vlj, eval_table_pot_host
    Implicit None
    
    Integer, Intent(in)   :: i1, i2
@@ -242,6 +250,10 @@ Subroutine ener_LJ(i1, i2, en, overlap)
         en = 9.e+33_wp  
         overlap = .true.
    ELSEIF (R12 < rangep_aux) THEN
-        call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, vl0_aux, en)
+        if (table_mc .and. has_table(itypei, itypej)) then
+             call eval_table_pot_host(R12, itypei, itypej, en)
+        else
+             call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, vl0_aux, en)
+        end if
    END IF
 End Subroutine ener_LJ

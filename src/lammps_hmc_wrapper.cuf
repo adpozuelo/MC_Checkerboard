@@ -11,6 +11,7 @@ module lammps_hmc_wrapper
 contains
 
     subroutine init_hmc_lammps(lammps_gpu_id)
+        use potential, only : table_lammps
         integer, intent(in) :: lammps_gpu_id
         character(len=32) :: args(14)
         if (.not. hmc_initialized) then
@@ -27,7 +28,11 @@ contains
             args(9) = "gpuID"
             write(args(10), '(I0)') lammps_gpu_id_global
             args(11) = "neigh"
-            args(12) = "no"
+            if (table_lammps) then
+                args(12) = "yes"
+            else
+                args(12) = "no"
+            end if
             args(13) = "-sf"
             args(14) = "gpu"
             
@@ -51,6 +56,7 @@ contains
         use rundata
         use Cell
         use utils, only: c_green, c_red, c_reset
+        use cuda_fortran, only : cudaEvent, cudaEventCreate, cudaEventRecord, cudaEventSynchronize, cudaEventElapsedTime, cudaEventDestroy
         implicit none
         integer, intent(in) :: istep
         
@@ -65,9 +71,19 @@ contains
         real(wp) :: px0, py0, pz0, px1, py1, pz1
         real(wp) :: q_new(4), norm_q
         integer :: seed_hmc
+        real(wp) :: hmc_cpu_start, hmc_cpu_end, hmc_cpu_time
+        type(cudaEvent) :: hmc_start_event, hmc_stop_event
+        real(4) :: hmc_gpu_time_ms
+        integer :: hmc_istat
+        logical :: accepted
         
         ! Synchronize flat regular coordinate arrays from GPU checkerboard cells
         call Convert_CB_RU()
+        
+        hmc_istat = cudaEventCreate(hmc_start_event)
+        hmc_istat = cudaEventCreate(hmc_stop_event)
+        call cpu_time(hmc_cpu_start)
+        hmc_istat = cudaEventRecord(hmc_start_event, 0)
         
         ! 1. Check if model is SSP or LJ
         if (trim(model) /= 'SSP' .and. trim(model) /= 'LJ') then
@@ -158,7 +174,52 @@ contains
         call lmp%command(cmd)
 
         ! Force field coefficients
-        if (pot_int == 2) then ! SSP
+        if (table_lammps) then
+            call lmp%command("pair_style table linear 100000")
+            block
+                integer :: num_lmp_types, i_lmp, j_lmp, k_ch
+                character(len=8) :: t1_str, t2_str
+                character(len=256) :: keyword
+                logical :: is_single_file_lmp
+                
+                num_lmp_types = merge(2*Npart_types, Npart_types, pot_int == 2)
+                is_single_file_lmp = (index(table_file_lammps, '.dat') > 0 .or. &
+                                      index(table_file_lammps, '.table') > 0 .or. &
+                                      index(table_file_lammps, '.txt') > 0)
+                                      
+                do i_lmp = 1, num_lmp_types
+                    do j_lmp = i_lmp, num_lmp_types
+                        write(t1_str, '(I0)') i_lmp
+                        write(t2_str, '(I0)') j_lmp
+                        
+                        if (is_single_file_lmp) then
+                            write(keyword, '(I0, A, I0)') i_lmp, '_', j_lmp
+                            write(cmd, '(A, I0, A, I0, A, A, A, A, A)') &
+                                "pair_coeff ", i_lmp, " ", j_lmp, " ", trim(table_file_lammps), &
+                                " ", trim(keyword), " 2.5449241"
+                        else
+                            keyword = trim(table_file_lammps)
+                            do k_ch = 1, len_trim(keyword)
+                                if (ichar(keyword(k_ch:k_ch)) >= 97 .and. ichar(keyword(k_ch:k_ch)) <= 122) then
+                                    keyword(k_ch:k_ch) = char(ichar(keyword(k_ch:k_ch)) - 32)
+                                end if
+                            end do
+                            write(cmd, '(A, I0, A, I0, A, A, I0, I0, A, A, I0, I0, A)') &
+                                "pair_coeff ", i_lmp, " ", j_lmp, " ", &
+                                trim(table_file_lammps), i_lmp, j_lmp, ".dat ", &
+                                trim(keyword), i_lmp, j_lmp, " 2.5449241"
+                        end if
+                        call lmp%command(cmd)
+                    end do
+                end do
+            end block
+            call lmp%command("pair_modify shift yes")
+            if (pot_int == 2) then
+                call lmp%command("fix hmc_rigid all rigid/nve molecule")
+            else
+                call lmp%command("fix hmc_nve all nve")
+            end if
+        else if (pot_int == 2) then ! SSP
             call lmp%command("pair_style hybrid/overlay lj/cut 20.0 cosine/squared 20.0")
             call lmp%command("pair_coeff * * lj/cut 0.0 1.0 0.0")
             call lmp%command("pair_coeff * * cosine/squared 0.0 1.0 2.0")
@@ -234,9 +295,10 @@ contains
         E_final_ke = lmp%extract_compute("hmc_ke", 0, 0)%r64
         E_final = E_final_pe + E_final_ke
 
-        ! 7. Acceptance check
+        accepted = .false.
         call random_number(rnd_val)
         if (exp(-(E_final - E_initial)/temp) > rnd_val) then
+            accepted = .true.
             call lmp%gather_atoms("x", 3, pos_real)
 
             if (pot_int == 2) then ! SSP
@@ -328,13 +390,27 @@ contains
                 hdev = h
                 en_tot = E_final_pe
             end block
-            write(*,'(A, I8, A, F14.8, A, F14.8, A, F14.8, A)') &
+        end if
+        
+        hmc_istat = cudaEventRecord(hmc_stop_event, 0)
+        hmc_istat = cudaEventSynchronize(hmc_stop_event)
+        hmc_istat = cudaEventElapsedTime(hmc_gpu_time_ms, hmc_start_event, hmc_stop_event)
+        call cpu_time(hmc_cpu_end)
+        hmc_cpu_time = hmc_cpu_end - hmc_cpu_start
+        
+        hmc_istat = cudaEventDestroy(hmc_start_event)
+        hmc_istat = cudaEventDestroy(hmc_stop_event)
+        
+        if (accepted) then
+            write(*,'(A, I8, A, F14.8, A, F14.8, A, F14.8, A, I0, A, F8.3, A, F8.3, A)') &
                 c_green // '  >>> [HMC Step ', istep, '] ACCEPTED | E_pe/site: ', E_initial_pe/real(total_atoms,wp), &
-                ' -> ', E_final_pe/real(total_atoms,wp), ' | E_ke/site: ', E_final_ke/real(total_atoms,wp), c_reset
+                ' -> ', E_final_pe/real(total_atoms,wp), ' | E_ke/site: ', E_final_ke/real(total_atoms,wp), &
+                ' | MD steps: ', Nmd_hmc, ' | CPU time: ', hmc_cpu_time, ' s | GPU time: ', real(hmc_gpu_time_ms, wp)/1000.0_wp, ' s' // c_reset
         else
-            write(*,'(A, I8, A, F14.8, A, F14.8, A, F14.8, A)') &
+            write(*,'(A, I8, A, F14.8, A, F14.8, A, F14.8, A, I0, A, F8.3, A, F8.3, A)') &
                 c_red // '  >>> [HMC Step ', istep, '] REJECTED | E_pe/site: ', E_initial_pe/real(total_atoms,wp), &
-                ' -> ', E_final_pe/real(total_atoms,wp), ' | E_ke/site: ', E_final_ke/real(total_atoms,wp), c_reset
+                ' -> ', E_final_pe/real(total_atoms,wp), ' | E_ke/site: ', E_final_ke/real(total_atoms,wp), &
+                ' | MD steps: ', Nmd_hmc, ' | CPU time: ', hmc_cpu_time, ' s | GPU time: ', real(hmc_gpu_time_ms, wp)/1000.0_wp, ' s' // c_reset
         end if
         
         if (allocated(pos_real)) deallocate(pos_real)

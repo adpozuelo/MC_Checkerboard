@@ -141,6 +141,28 @@ MODULE potential
    real(wp), Allocatable :: sigma_LJ(:), epsilon_LJ(:) ! Lennard-Jones sigma, and epsilon  parameters
    real(wp), Allocatable :: xop(:), VL0(:), rangeP(:)  ! LJ potential parameters
 
+    ! Host table potential variables
+    logical :: table_mc = .false.
+    logical :: table_lammps = .false.
+    character(len=256) :: table_file_mc = ""
+    character(len=256) :: table_file_lammps = ""
+    
+    logical :: has_table(0:15, 0:15) = .false.
+    integer :: table_N(0:15, 0:15) = 0
+    real(wp) :: table_rmin(0:15, 0:15) = 0.0_wp
+    real(wp) :: table_rmax(0:15, 0:15) = 0.0_wp
+    real(wp) :: table_dr_inv(0:15, 0:15) = 0.0_wp
+    real(wp), target :: table_V(0:100005, 0:15, 0:15) = 0.0_wp
+    
+    ! Device table potential variables
+    logical, constant :: has_table_dev(0:15, 0:15)
+    integer, constant :: table_N_dev(0:15, 0:15)
+    real(wp), constant :: table_rmin_dev(0:15, 0:15)
+    real(wp), constant :: table_rmax_dev(0:15, 0:15)
+    real(wp), constant :: table_dr_inv_dev(0:15, 0:15)
+    real(wp), device, save :: table_V_dev(0:100005, 0:15, 0:15)
+    logical, constant :: table_mc_dev
+
 END MODULE potential
 
 

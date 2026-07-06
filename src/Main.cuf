@@ -117,7 +117,7 @@ Program GPU_MC
 
    write(*,'(A)') c_blue // '========================================================================================' // c_reset
    write(*,'(A)') c_cyan // '                          HYBRID GPU_MC/MD SIMULATION ENGINE                            ' // c_reset
-   write(*,'(A)') c_cyan // '                                   Version 2.1                                        ' // c_reset
+   write(*,'(A)') c_cyan // '                                   Version 2.2                                        ' // c_reset
    write(*,'(A)') c_blue // '========================================================================================' // c_reset
    write(*,'(A,I4,A,I2.2,A,I2.2,A,I2.2,A,I2.2,A,I2.2,A)') c_green // ' >>> Run started on: ', &
       dt_values(1), '-', dt_values(2), '-', dt_values(3), ' at ', &
@@ -145,6 +145,7 @@ Program GPU_MC
    ! --------------------------------------------------------------------------
    write(*,'(A)') c_yellow // ' >>> Initializing System and Reading Data...' // c_reset
    Call Read_input_data
+   Call load_table_potentials
    Call Read_init_conf
 
    ! Calculate total number of sites
@@ -281,6 +282,9 @@ Program GPU_MC
       ! Perform MC sweep or Hybrid MC step
       if (Nmc_hmc > 0 .and. mod(I, Nmc_hmc) == 0) then
          call execute_hmc_step(I)
+         call cpu_time(last_cpu_time)
+         istat = cudaEventRecord(startEvent, 0)
+         last_gpu_time_ms = 0.0
       else
          Call MCsweep()
          ! >>> ADD THIS FORCIBLE SYNC <<<

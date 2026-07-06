@@ -1,5 +1,6 @@
 program test_pot
    use set_precision
+   use potential
    use potential_functions
    implicit none
 
@@ -67,19 +68,22 @@ program test_pot
       itypei = 0; itypej = 0
       call vpatch_sitesite(dx, dy, dz, R1, R2, sigp_factor, Rcp_factor, patch_radial_factor, &
             itypei, itypej, Ntypes, Npatches_max, Ndim, &
-            Npatches, patch, sigma_LJ, Vpot_Matrix, en_AA)
+            Npatches, patch, sigma_LJ, Vpot_Matrix, en_AA, &
+            has_table, table_rmin, table_rmax, table_N, table_dr_inv, table_V)
 
       ! A-B
       itypei = 0; itypej = 1
       call vpatch_sitesite(dx, dy, dz, R1, R2, sigp_factor, Rcp_factor, patch_radial_factor, &
             itypei, itypej, Ntypes, Npatches_max, Ndim, &
-            Npatches, patch, sigma_LJ, Vpot_Matrix, en_AB)
+            Npatches, patch, sigma_LJ, Vpot_Matrix, en_AB, &
+            has_table, table_rmin, table_rmax, table_N, table_dr_inv, table_V)
 
       ! B-B
       itypei = 1; itypej = 1
       call vpatch_sitesite(dx, dy, dz, R1, R2, sigp_factor, Rcp_factor, patch_radial_factor, &
             itypei, itypej, Ntypes, Npatches_max, Ndim, &
-            Npatches, patch, sigma_LJ, Vpot_Matrix, en_BB)
+            Npatches, patch, sigma_LJ, Vpot_Matrix, en_BB, &
+            has_table, table_rmin, table_rmax, table_N, table_dr_inv, table_V)
 
       write(*,'(f5.3, 3f11.6)') dist, en_AA, en_AB, en_BB
    end do

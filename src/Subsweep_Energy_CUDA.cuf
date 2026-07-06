@@ -10,7 +10,8 @@ module cuda_fortran
   use libm
   use set_precision
   use potential_functions
-  use potential, only : patch_radial_factor
+  use potential, only : patch_radial_factor, table_mc, &
+                        has_table_dev, table_rmin_dev, table_rmax_dev, table_N_dev, table_dr_inv_dev, table_V_dev
   implicit none
 
   real(wp), device, save :: patch_radial_factor_dev
@@ -371,7 +372,11 @@ contains
                   is_overlap = 1
                   return
               else if (RSQ < range_aux*range_aux) then
-                  call vlj_palaia(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Rc_factor, Vrad)
+                  if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
+                      call eval_table_pot_dev(dist, itypei, itypej, Vrad)
+                  else
+                      call vlj_palaia(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Rc_factor, Vrad)
+                  end if
                   energ_total = energ_total + Vrad
               end if
               
@@ -387,7 +392,7 @@ contains
                   R2(7) = 2.0_wp*(Q2j*Q3j + Q0j*Q1j)
                   R2(8) = Q0j*Q0j - Q1j*Q1j - Q2j*Q2j + Q3j*Q3j
                   
-                  call vpatch_sitesite(DX, DY, DZ, R1, R2, sigp_factor, Rcp_factor, patch_radial_factor_dev, &
+                  call vpatch_sitesite_dev(DX, DY, DZ, R1, R2, sigp_factor, Rcp_factor, patch_radial_factor_dev, &
                        itypei, itypej, Ntypes, Npatches_max, Ndim, &
                        Npatches, patch, sigma_LJ, Vpot_Matrix, e_patches)
                   energ_total = energ_total + e_patches
@@ -1343,13 +1348,21 @@ attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, N
         if (RSQn < 0.250000_wp) then; is_overlap = 1; end if
 
         if (RSQ < rangeP_aux*rangeP_aux) then
-            call vlj_palaia(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Rc_factor, Vrad)
-            e_old_inc = e_old_inc + Vrad
-        end if
-        if (RSQn < rangeP_aux*rangeP_aux) then
-            call vlj_palaia(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Rc_factor, VradN)
-            e_new_inc = e_new_inc + VradN
-        end if
+             if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
+                 call eval_table_pot_dev(dist, itypei, itypej, Vrad)
+             else
+                 call vlj_palaia(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Rc_factor, Vrad)
+             end if
+             e_old_inc = e_old_inc + Vrad
+         end if
+         if (RSQn < rangeP_aux*rangeP_aux) then
+             if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
+                 call eval_table_pot_dev(distn, itypei, itypej, VradN)
+             else
+                 call vlj_palaia(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Rc_factor, VradN)
+             end if
+             e_new_inc = e_new_inc + VradN
+         end if
 
         Npatchesi = Npatches(itypei); Npatchesj = Npatches(itypej)
         if (Npatchesi > 0 .and. Npatchesj > 0 .and. (dist < rangeP_aux .or. distn < rangeP_aux)) then
@@ -1357,14 +1370,14 @@ attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, N
             call rot_matrix(Q0j,Q1j,Q2j,Q3j,R2)
             
             if (dist < rangeP_aux) then
-                call vpatch_sitesite(DX, DY, DZ, R1, R2, sigp_factor, Rcp_factor, patch_radial_factor_dev, &
+                call vpatch_sitesite_dev(DX, DY, DZ, R1, R2, sigp_factor, Rcp_factor, patch_radial_factor_dev, &
                      itypei, itypej, Ntypes, Npatches_max, Ndim, &
                      Npatches, patch, sigma_LJ, Vpot_Matrix, e_old_inc_patch)
                 e_old_inc = e_old_inc + e_old_inc_patch
             end if
             
             if (distn < rangeP_aux) then
-                call vpatch_sitesite(DXn, DYn, DZn, R1N, R2, sigp_factor, Rcp_factor, patch_radial_factor_dev, &
+                call vpatch_sitesite_dev(DXn, DYn, DZn, R1N, R2, sigp_factor, Rcp_factor, patch_radial_factor_dev, &
                      itypei, itypej, Ntypes, Npatches_max, Ndim, &
                      Npatches, patch, sigma_LJ, Vpot_Matrix, e_new_inc_patch)
                 e_new_inc = e_new_inc + e_new_inc_patch
@@ -2927,8 +2940,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
       real(wp), intent(inout) :: en_i
       integer, intent(out)    :: is_overlap
 
-      integer  :: l, jmol, jmol2, itypej, Indx, j3, j4, kpatch, kpatch2, Indx2, Indx3, Indx4
-      real(wp) :: DX, DY, DZ, DXP, DYP, DZP, RSQ, dist, s_LJ_aux, eps_LJ_aux, range_aux, VL0_aux, Vrad
+      integer  :: l, jmol, jmol2, itypej, Indx, j3, j4, kpatch, kpatch2, Indx2, Indx3, Indx4, t_mc1, t_mc2
+      real(wp) :: DX, DY, DZ, DXP, DYP, DZP, RSQ, dist, s_LJ_aux, eps_LJ_aux, range_aux, VL0_aux, Vrad, V_val
       real(wp) :: Q0j, Q1j, Q2j, Q3j, R211, R212, R213, R221, R222, R223, R231, R232, R233
       real(wp) :: PX, PY, PZ, PX2, PY2, PZ2, factor_energy, sigma_i, sigma_j, Rmin_ij, sigp, Rcp
       real(wp) :: px_i, py_i, pz_i, px_j, py_j, pz_j, dx_patch, dy_patch, dz_patch, dist_patch
@@ -2963,7 +2976,11 @@ attributes(device) subroutine evaluate_cell_interactions( &
                   is_overlap = 1
                   return
               else if (RSQ < range_aux*range_aux) then
-                  call vlj_palaia(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Rc_factor, Vrad)
+                  if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
+                      call eval_table_pot_dev(dist, itypei, itypej, Vrad)
+                  else
+                      call vlj_palaia(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Rc_factor, Vrad)
+                  end if
                   en_i = en_i + 0.5_wp * Vrad
               end if
               
@@ -3003,18 +3020,26 @@ attributes(device) subroutine evaluate_cell_interactions( &
                           dy_patch = DY + py_j - PY1(j3)
                           dz_patch = DZ + pz_j - PZ1(j3)
                           dist_patch = sqrt(dx_patch**2 + dy_patch**2 + dz_patch**2)
-                          
                           Indx2 = itypei * Npatches_max + j3
                           Indx3 = Indx2 * Npatches_max * Ntypes
                           Indx4 = Indx3 + itypej * Npatches_max
                           factor_energy = Vpot_Matrix(Indx4 + j4)
                           
-                          if (factor_energy > 1.0e-7_wp .and. dist_patch < Rcp) then
-                              if (dist_patch <= sigp) then
-                                  en_i = en_i - 0.5_wp * factor_energy
-                              else
-                                  en_i = en_i - 0.5_wp * factor_energy * &
-                                      cos( pi * (dist_patch - sigp) / (2.0_wp * (Rcp - sigp)) )**2
+                          if (factor_energy > 1.0e-7_wp) then
+                              if (table_mc_dev) then
+                                  t_mc1 = Ntypes + itypei
+                                  t_mc2 = Ntypes + itypej
+                                  if (has_table_dev(t_mc1, t_mc2)) then
+                                      call eval_table_pot_dev(dist_patch, t_mc1, t_mc2, V_val)
+                                      en_i = en_i + 0.5_wp * V_val
+                                  end if
+                              else if (dist_patch < Rcp) then
+                                  if (dist_patch <= sigp) then
+                                      en_i = en_i - 0.5_wp * factor_energy
+                                  else
+                                      en_i = en_i - 0.5_wp * factor_energy * &
+                                          cos( pi * (dist_patch - sigp) / (2.0_wp * (Rcp - sigp)) )**2
+                                  end if
                               end if
                           end if
                       end do

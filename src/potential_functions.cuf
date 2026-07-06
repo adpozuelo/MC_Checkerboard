@@ -1,5 +1,8 @@
 module potential_functions
    use set_precision
+   use potential, only : table_mc, table_mc_dev, Npart_types, &
+                         has_table_dev, table_rmin_dev, table_rmax_dev, table_N_dev, table_dr_inv_dev, table_V_dev, &
+                         has_table, table_rmin, table_rmax, table_N, table_dr_inv, table_V
    implicit none
 
    contains
@@ -43,9 +46,9 @@ module potential_functions
    end subroutine vlj_palaia
 
    ! ==============================================================================
-   ! ROUTINE: vpatch_sitesite (Palaia site-site patchy interaction)
+   ! ROUTINE: vpatch_sitesite_host (Palaia site-site patchy interaction - CPU version)
    ! ==============================================================================
-   attributes(device, host) subroutine vpatch_sitesite(dx, dy, dz, &
+   attributes(host) subroutine vpatch_sitesite_host(dx, dy, dz, &
          R1, R2, sigp_factor, Rcp_factor, patch_radial_factor, &
          itypei, itypej, Ntypes, Npatches_max, Ndim, &
          Npatches, patch, sigma_LJ, Vpot_Matrix, en_patches)
@@ -61,8 +64,8 @@ module potential_functions
       real(wp) :: sigma_LJ_aux, sigma_i, sigma_j, Rmin_ij, sigp, Rcp
       real(wp) :: PX, PY, PZ, PX2, PY2, PZ2
       real(wp) :: px_i, py_i, pz_i, px_j, py_j, pz_j
-      real(wp) :: dx_patch, dy_patch, dz_patch, dist_patch, pi, factor_energy
-      integer  :: Npatchesi, Npatchesj, j3, j4, Indx, Indx2, Indx3, Indx4, kpatch, kpatch2
+      real(wp) :: dx_patch, dy_patch, dz_patch, dist_patch, pi, factor_energy, V_val
+      integer  :: Npatchesi, Npatchesj, j3, j4, Indx, Indx2, Indx3, Indx4, kpatch, kpatch2, t_mc1, t_mc2
 
       pi = acos(-1.0_wp)
       en_patches = 0.0_wp
@@ -105,19 +108,114 @@ module potential_functions
                   dz_patch = dz + pz_j - pz_i
                   dist_patch = sqrt(dx_patch**2 + dy_patch**2 + dz_patch**2)
 
-                  if (dist_patch < Rcp) then
-                     if (dist_patch <= sigp) then
-                        en_patches = en_patches - factor_energy
-                     else
-                        en_patches = en_patches - factor_energy * &
-                              cos( pi * (dist_patch - sigp) / (2.0_wp * (Rcp - sigp)) )**2
+                  if (table_mc) then
+                     t_mc1 = Npart_types + itypei
+                     t_mc2 = Npart_types + itypej
+                     if (has_table(t_mc1, t_mc2)) then
+                        call eval_table_pot_host(dist_patch, t_mc1, t_mc2, V_val)
+                        en_patches = en_patches + V_val
+                     end if
+                  else
+                     if (dist_patch < Rcp) then
+                        if (dist_patch <= sigp) then
+                           en_patches = en_patches - factor_energy
+                        else
+                           en_patches = en_patches - factor_energy * &
+                                 cos( pi * (dist_patch - sigp) / (2.0_wp * (Rcp - sigp)) )**2
+                        end if
                      end if
                   end if
                end if
             end do
          end do
       end if
-   end subroutine vpatch_sitesite
+   end subroutine vpatch_sitesite_host
+
+   ! ==============================================================================
+   ! ROUTINE: vpatch_sitesite_dev (Palaia site-site patchy interaction - GPU version)
+   ! ==============================================================================
+   attributes(device) subroutine vpatch_sitesite_dev(dx, dy, dz, &
+         R1, R2, sigp_factor, Rcp_factor, patch_radial_factor, &
+         itypei, itypej, Ntypes, Npatches_max, Ndim, &
+         Npatches, patch, sigma_LJ, Vpot_Matrix, en_patches)
+      real(wp), intent(in) :: dx, dy, dz
+      real(wp), intent(in) :: R1(0:8), R2(0:8)
+      real(wp), intent(in) :: sigp_factor, Rcp_factor, patch_radial_factor
+      integer, intent(in)  :: itypei, itypej, Ntypes, Npatches_max, Ndim
+      
+      integer, intent(in)  :: Npatches(0:*)
+      real(wp), intent(in) :: patch(0:*), sigma_LJ(0:*), Vpot_Matrix(0:*)
+      real(wp), intent(out) :: en_patches
+
+      real(wp) :: sigma_LJ_aux, sigma_i, sigma_j, Rmin_ij, sigp, Rcp
+      real(wp) :: PX, PY, PZ, PX2, PY2, PZ2
+      real(wp) :: px_i, py_i, pz_i, px_j, py_j, pz_j
+      real(wp) :: dx_patch, dy_patch, dz_patch, dist_patch, pi, factor_energy, V_val
+      integer  :: Npatchesi, Npatchesj, j3, j4, Indx, Indx2, Indx3, Indx4, kpatch, kpatch2, t_mc1, t_mc2
+
+      pi = acos(-1.0_wp)
+      en_patches = 0.0_wp
+
+      Npatchesi = Npatches(itypei)
+      Npatchesj = Npatches(itypej)
+
+      if (Npatchesi > 0 .and. Npatchesj > 0) then
+         Indx = Ntypes * itypei + itypej
+         sigma_LJ_aux = sigma_LJ(Indx)
+         sigma_i = sigma_LJ(itypei * Ntypes + itypei)
+         sigma_j = sigma_LJ(itypej * Ntypes + itypej)
+
+         Rmin_ij = sigma_LJ_aux * 1.122462048309373_wp
+         sigp = sigp_factor * Rmin_ij
+         Rcp  = Rcp_factor * Rmin_ij
+
+         do j3 = 0, Npatchesi - 1
+            kpatch = Npatches_max*Ndim*itypei + j3*Ndim
+            PX = patch(kpatch); PY = patch(kpatch+1); PZ = patch(kpatch+2)
+            px_i = patch_radial_factor * sigma_i * (R1(0)*PX + R1(1)*PY + R1(2)*PZ)
+            py_i = patch_radial_factor * sigma_i * (R1(3)*PX + R1(4)*PY + R1(5)*PZ)
+            pz_i = patch_radial_factor * sigma_i * (R1(6)*PX + R1(7)*PY + R1(8)*PZ)
+
+            do j4 = 0, Npatchesj - 1
+               Indx2 = itypei * Npatches_max + j3
+               Indx3 = Indx2 * Npatches_max * Ntypes
+               Indx4 = Indx3 + itypej * Npatches_max
+               factor_energy = Vpot_Matrix(Indx4 + j4)
+
+               if (factor_energy > 1.0e-7_wp) then
+                  kpatch2 = Npatches_max*Ndim*itypej + j4*Ndim
+                  PX2 = patch(kpatch2); PY2 = patch(kpatch2+1); PZ2 = patch(kpatch2+2)
+                  px_j = patch_radial_factor * sigma_j * (R2(0)*PX2 + R2(1)*PY2 + R2(2)*PZ2)
+                  py_j = patch_radial_factor * sigma_j * (R2(3)*PX2 + R2(4)*PY2 + R2(5)*PZ2)
+                  pz_j = patch_radial_factor * sigma_j * (R2(6)*PX2 + R2(7)*PY2 + R2(8)*PZ2)
+
+                  dx_patch = dx + px_j - px_i
+                  dy_patch = dy + py_j - py_i
+                  dz_patch = dz + pz_j - pz_i
+                  dist_patch = sqrt(dx_patch**2 + dy_patch**2 + dz_patch**2)
+
+                  if (table_mc_dev) then
+                     t_mc1 = Ntypes + itypei
+                     t_mc2 = Ntypes + itypej
+                     if (has_table_dev(t_mc1, t_mc2)) then
+                        call eval_table_pot_dev(dist_patch, t_mc1, t_mc2, V_val)
+                        en_patches = en_patches + V_val
+                     end if
+                  else
+                     if (dist_patch < Rcp) then
+                        if (dist_patch <= sigp) then
+                           en_patches = en_patches - factor_energy
+                        else
+                           en_patches = en_patches - factor_energy * &
+                                 cos( pi * (dist_patch - sigp) / (2.0_wp * (Rcp - sigp)) )**2
+                        end if
+                     end if
+                  end if
+               end if
+            end do
+         end do
+      end if
+   end subroutine vpatch_sitesite_dev
 
    ! ==============================================================================
    ! ROUTINE: vpatch_angular (LJG angular/torsional patch-patch modulation)
@@ -227,6 +325,61 @@ module potential_functions
               end if
           end do
       end do
-   end subroutine vpatch_angular
+    end subroutine vpatch_angular
+
+    ! ==============================================================================
+    ! ROUTINES: eval_table_pot (Host & Device implementations)
+    ! ==============================================================================
+    attributes(device) subroutine eval_table_pot_dev(r, t1, t2, V_val)
+        use potential, only : table_rmin_dev, table_rmax_dev, table_N_dev, table_dr_inv_dev, table_V_dev
+        implicit none
+        real(wp), intent(in) :: r
+        integer, intent(in) :: t1, t2
+        real(wp), intent(out) :: V_val
+        integer :: idx, N
+        real(wp) :: idx_real, frac, rmin, rmax, dr_inv
+        
+        rmin = table_rmin_dev(t1, t2)
+        rmax = table_rmax_dev(t1, t2)
+        N = table_N_dev(t1, t2)
+        dr_inv = table_dr_inv_dev(t1, t2)
+        
+        if (r < rmin) then
+            V_val = table_V_dev(0, t1, t2)
+        else if (r >= rmax) then
+            V_val = 0.0_wp
+        else
+            idx_real = (r - rmin) * dr_inv
+            idx = int(idx_real)
+            frac = idx_real - real(idx, wp)
+            V_val = (1.0_wp - frac) * table_V_dev(idx, t1, t2) + frac * table_V_dev(idx+1, t1, t2)
+        end if
+    end subroutine eval_table_pot_dev
+
+    attributes(host) subroutine eval_table_pot_host(r, t1, t2, V_val)
+        use potential, only : table_rmin, table_rmax, table_N, table_dr_inv, table_V
+        implicit none
+        real(wp), intent(in) :: r
+        integer, intent(in) :: t1, t2
+        real(wp), intent(out) :: V_val
+        integer :: idx, N
+        real(wp) :: idx_real, frac, rmin, rmax, dr_inv
+        
+        rmin = table_rmin(t1, t2)
+        rmax = table_rmax(t1, t2)
+        N = table_N(t1, t2)
+        dr_inv = table_dr_inv(t1, t2)
+        
+        if (r < rmin) then
+            V_val = table_V(0, t1, t2)
+        else if (r >= rmax) then
+            V_val = 0.0_wp
+        else
+            idx_real = (r - rmin) * dr_inv
+            idx = int(idx_real)
+            frac = idx_real - real(idx, wp)
+            V_val = (1.0_wp - frac) * table_V(idx, t1, t2) + frac * table_V(idx+1, t1, t2)
+        end if
+    end subroutine eval_table_pot_host
 
 end module potential_functions

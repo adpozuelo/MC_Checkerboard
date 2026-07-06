@@ -170,7 +170,8 @@ Subroutine Read_Input_Data
                               rcl, minPts, ncluster, cluster_types, Nmc_hmc, Nmd_hmc, tstep_hmc
    Namelist /MC_Params/ hmax, omax, vmax, displ_update, temp0, temp1, npt, iscale, pres, seed
    Namelist /Potential_Params/ model, cosmax_KF, ctor_max_KF, delta_KF, Bool_tor, sigma_jon_aux, sigma_tor_jon, rangepp, &
-                                sigp_factor, Rcp_factor, Rc_factor, epsp_factor, patch_radial_factor 
+                                sigp_factor, Rcp_factor, Rc_factor, epsp_factor, patch_radial_factor, &
+                                table_mc, table_lammps, table_file_mc, table_file_lammps
 
    traj_format = 'netcdf'; data_file = 'data.atoms'
    imovie = .false.; displ_update = .false.; npt = .false.; 
@@ -178,6 +179,8 @@ Subroutine Read_Input_Data
    sigp_factor = 0.1_wp; Rcp_factor = 0.3_wp; Rc_factor = 2.0_wp; epsp_factor = -1.0_wp; patch_radial_factor = 0.5_wp
    rcl = 1.8_wp; minPts = 3; ncluster = 0; cluster_types(:) = 0
    Nmc_hmc = 0; Nmd_hmc = 0; tstep_hmc = 0.0025_wp
+   table_mc = .false.; table_lammps = .false.
+   table_file_mc = ""; table_file_lammps = ""
 
    Open(20,file=input_filename, status='old')
    Read(20, NML=Control_Params)
@@ -610,3 +613,180 @@ Subroutine Write_final_conf2(istep)
    End Do
    close(675)
 End Subroutine Write_final_conf2
+
+Subroutine load_table_potentials()
+    use set_precision
+    use potential
+    use rundata, only : pot_int
+    implicit none
+    integer :: unit_id, ierr, i, idx, t_lmp1, t_lmp2, t_mc1, t_mc2, N
+    character(len=256) :: line, keyword, search_str, filename, keyword_prefix
+    character(len=8) :: t1_str, t2_str
+    real(wp) :: r, V, F, rmin, rmax
+    logical :: found, is_single_file
+    
+    if (.not. table_mc) return
+    
+    print *, " >>> Loading MC table potentials..."
+    
+    ! Initialize table arrays
+    has_table(:, :) = .false.
+    table_N(:, :) = 0
+    table_rmin(:, :) = 0.0_wp
+    table_rmax(:, :) = 0.0_wp
+    table_dr_inv(:, :) = 0.0_wp
+    
+    table_V = 0.0_wp
+    
+    unit_id = 98
+    
+    ! Determine if it is a single file or a prefix
+    ! If it contains ".dat", ".table", or ".txt", we assume it is a single file.
+    is_single_file = (index(table_file_mc, '.dat') > 0 .or. &
+                      index(table_file_mc, '.table') > 0 .or. &
+                      index(table_file_mc, '.txt') > 0)
+                      
+    do t_lmp1 = 1, merge(2*Npart_types, Npart_types, pot_int == 2)
+        do t_lmp2 = t_lmp1, merge(2*Npart_types, Npart_types, pot_int == 2)
+            ! Map to MC site types
+            if (pot_int == 2) then
+                if (mod(t_lmp1, 2) == 1) then
+                    t_mc1 = (t_lmp1 - 1) / 2
+                else
+                    t_mc1 = Npart_types + (t_lmp1 - 1) / 2
+                end if
+                if (mod(t_lmp2, 2) == 1) then
+                    t_mc2 = (t_lmp2 - 1) / 2
+                else
+                    t_mc2 = Npart_types + (t_lmp2 - 1) / 2
+                end if
+            else
+                t_mc1 = t_lmp1 - 1
+                t_mc2 = t_lmp2 - 1
+            end if
+            
+            write(t1_str, '(I0)') t_lmp1
+            write(t2_str, '(I0)') t_lmp2
+            search_str = trim(t1_str) // '_' // trim(t2_str)
+            
+            if (is_single_file) then
+                filename = table_file_mc
+                keyword = search_str
+            else
+                ! Prefix-based multiple files, e.g. salr11.dat
+                filename = trim(table_file_mc) // trim(t1_str) // trim(t2_str) // '.dat'
+                ! Keyword is prefix in uppercase followed by ij, e.g., SALR11
+                keyword_prefix = trim(table_file_mc)
+                call uppercase(keyword_prefix)
+                keyword = trim(keyword_prefix) // trim(t1_str) // trim(t2_str)
+            end if
+            
+            ! Open file
+            open(unit=unit_id, file=filename, status='old', action='read', iostat=ierr)
+            if (ierr /= 0) then
+                if (is_single_file) then
+                    print *, "Error: Could not open table potential file: ", trim(filename)
+                    stop
+                else
+                    ! For prefix, some cross interactions (like center-patch 1-2) are zero and files might not exist.
+                    ! We just warn and skip them.
+                    cycle
+                end if
+            end if
+            
+            found = .false.
+            do while (.not. found)
+                read(unit_id, '(A)', iostat=ierr) line
+                if (ierr /= 0) exit
+                
+                ! Check if line matches the keyword
+                if (len_trim(line) > 0 .and. line(1:1) /= '#' .and. line(1:1) /= ' ' .and. index(line, 'N ') /= 1) then
+                    if (index(line, trim(keyword)) > 0) then
+                        found = .true.
+                    end if
+                end if
+            end do
+            
+            if (found) then
+                ! Read N line: e.g. N 1000 R 0.1 2.5
+                read(unit_id, '(A)') line
+                block
+                    integer :: pos, n_val, k
+                    real(wp) :: rmin_val, rmax_val
+                    character(len=256) :: temp_str, rest_str
+                    
+                    pos = index(line, 'N')
+                    temp_str = line(pos+1:)
+                    read(temp_str, *) n_val
+                    
+                    pos = verify(temp_str, ' 0123456789')
+                    rest_str = temp_str(pos:)
+                    do k = 1, len_trim(rest_str)
+                        if (index('0123456789.eE+- ', rest_str(k:k)) == 0) then
+                            rest_str(k:k) = ' '
+                        end if
+                    end do
+                    read(rest_str, *) rmin_val, rmax_val
+                    
+                    N = n_val
+                    rmin = rmin_val
+                    rmax = rmax_val
+                end block
+                
+                if (N > 100005) then
+                    print *, "Error: Table size ", N, " exceeds maximum allocated size 100005"
+                    stop
+                end if
+                
+                table_N(t_mc1, t_mc2) = N
+                table_N(t_mc2, t_mc1) = N
+                table_rmin(t_mc1, t_mc2) = rmin
+                table_rmin(t_mc2, t_mc1) = rmin
+                table_rmax(t_mc1, t_mc2) = rmax
+                table_rmax(t_mc2, t_mc1) = rmax
+                table_dr_inv(t_mc1, t_mc2) = real(N - 1, wp) / (rmax - rmin)
+                table_dr_inv(t_mc2, t_mc1) = real(N - 1, wp) / (rmax - rmin)
+                has_table(t_mc1, t_mc2) = .true.
+                has_table(t_mc2, t_mc1) = .true.
+                
+                do i = 0, N - 1
+                    read(unit_id, *) idx, r, V, F
+                    table_V(i, t_mc1, t_mc2) = V
+                    table_V(i, t_mc2, t_mc1) = V
+                end do
+                
+                print *, "   Loaded table from ", trim(filename), " keyword ", trim(keyword), &
+                         " for MC site types ", t_mc1, "-", t_mc2, " (N=", N, ", rmin=", rmin, ", rmax=", rmax, ")"
+            else
+                if (is_single_file) then
+                    print *, "   Warning: Table keyword ", trim(keyword), " not found in ", trim(filename)
+                end if
+            end if
+            close(unit_id)
+        end do
+    end do
+    
+    ! Copy to device
+    block
+        use potential, only : has_table_dev, table_N_dev, table_rmin_dev, table_rmax_dev, table_dr_inv_dev, table_V_dev, table_mc_dev
+        has_table_dev = has_table
+        table_N_dev = table_N
+        table_rmin_dev = table_rmin
+        table_rmax_dev = table_rmax
+        table_dr_inv_dev = table_dr_inv
+        table_V_dev = table_V
+        table_mc_dev = table_mc
+    end block
+    print *, " >>> Host and Device table potentials successfully loaded."
+contains
+    subroutine uppercase(str)
+        character(len=*), intent(inout) :: str
+        integer :: i, char_code
+        do i = 1, len_trim(str)
+            char_code = ichar(str(i:i))
+            if (char_code >= 97 .and. char_code <= 122) then
+                str(i:i) = char(char_code - 32)
+            end if
+        end do
+    end subroutine uppercase
+End Subroutine load_table_potentials

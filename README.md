@@ -366,7 +366,14 @@ Computing resources provided by CSIC.
 
 ## Version History
 
-- **V1.7** (July 2026) Hybrid Monte Carlo (HMC) strategy and Energy per Site outputs
+- **V2.2** (July 2026) Table Potential Interpolation and HMC Performance Improvements
+  - Implemented prefix-based table potential loading and linear interpolation on both host (CPU) and device (GPU constant/global memory lookup).
+  - Modified LAMMPS HMC initialization to use GPU neighbor lists (`neigh yes`) when table potentials are active, achieving a 35%+ speedup in HMC integration.
+  - Added CPU/GPU timer measurements and total MD step logging to the HMC acceptance periodic printouts.
+  - Reset periodic performance timers after each HMC step to keep MC sweep statistics clean.
+  - Refactored table memory structure from dynamic allocation to fixed compile-time size, completely removing dope vector memory lookups inside the GPU lookup kernel.
+
+- **V2.1** (July 2026) Hybrid Monte Carlo (HMC) strategy and Energy per Site outputs
   - Integrated HMC combining checkerboard GPU MC moves with multi-step LAMMPS Molecular Dynamics (MD) rigid body segments.
   - Enabled GPU targeting for HMC LAMMPS MD segments (via program command line argument) using the LAMMPS GPU package (`-pk gpu`).
   - Implemented exact molecular site-to-particle mapping for HMC SSP systems, treating each colloid particle (center + patches) as a single multi-site LAMMPS molecule.
