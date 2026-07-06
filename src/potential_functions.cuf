@@ -338,6 +338,7 @@ module potential_functions
         real(wp), intent(out) :: V_val
         integer :: idx, N
         real(wp) :: idx_real, frac, rmin, rmax, dr_inv
+        real(wp) :: y0, y1, y2, y3
         
         rmin = table_rmin_dev(t1, t2)
         rmax = table_rmax_dev(t1, t2)
@@ -352,7 +353,16 @@ module potential_functions
             idx_real = (r - rmin) * dr_inv
             idx = int(idx_real)
             frac = idx_real - real(idx, wp)
-            V_val = (1.0_wp - frac) * table_V_dev(idx, t1, t2) + frac * table_V_dev(idx+1, t1, t2)
+            
+            y0 = table_V_dev(max(idx - 1, 0), t1, t2)
+            y1 = table_V_dev(idx, t1, t2)
+            y2 = table_V_dev(min(idx + 1, N - 1), t1, t2)
+            y3 = table_V_dev(min(idx + 2, N - 1), t1, t2)
+            
+            V_val = (-0.5_wp*y0 + 1.5_wp*y1 - 1.5_wp*y2 + 0.5_wp*y3) * (frac*frac*frac) + &
+                    (y0 - 2.5_wp*y1 + 2.0_wp*y2 - 0.5_wp*y3) * (frac*frac) + &
+                    (-0.5_wp*y0 + 0.5_wp*y2) * frac + &
+                    y1
         end if
     end subroutine eval_table_pot_dev
 
@@ -364,6 +374,7 @@ module potential_functions
         real(wp), intent(out) :: V_val
         integer :: idx, N
         real(wp) :: idx_real, frac, rmin, rmax, dr_inv
+        real(wp) :: y0, y1, y2, y3
         
         rmin = table_rmin(t1, t2)
         rmax = table_rmax(t1, t2)
@@ -378,7 +389,16 @@ module potential_functions
             idx_real = (r - rmin) * dr_inv
             idx = int(idx_real)
             frac = idx_real - real(idx, wp)
-            V_val = (1.0_wp - frac) * table_V(idx, t1, t2) + frac * table_V(idx+1, t1, t2)
+            
+            y0 = table_V(max(idx - 1, 0), t1, t2)
+            y1 = table_V(idx, t1, t2)
+            y2 = table_V(min(idx + 1, N - 1), t1, t2)
+            y3 = table_V(min(idx + 2, N - 1), t1, t2)
+            
+            V_val = (-0.5_wp*y0 + 1.5_wp*y1 - 1.5_wp*y2 + 0.5_wp*y3) * (frac*frac*frac) + &
+                    (y0 - 2.5_wp*y1 + 2.0_wp*y2 - 0.5_wp*y3) * (frac*frac) + &
+                    (-0.5_wp*y0 + 0.5_wp*y2) * frac + &
+                    y1
         end if
     end subroutine eval_table_pot_host
 
