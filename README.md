@@ -366,6 +366,14 @@ Computing resources provided by CSIC.
 
 ## Version History
 
+- **V1.7** (July 2026) Hybrid Monte Carlo (HMC) strategy and Energy per Site outputs
+  - Integrated HMC combining checkerboard GPU MC moves with multi-step LAMMPS Molecular Dynamics (MD) rigid body segments.
+  - Enabled GPU targeting for HMC LAMMPS MD segments (via program command line argument) using the LAMMPS GPU package (`-pk gpu`).
+  - Implemented exact molecular site-to-particle mapping for HMC SSP systems, treating each colloid particle (center + patches) as a single multi-site LAMMPS molecule.
+  - Configured core WCA potential energy shifting (`pair_modify shift yes`) in LAMMPS for exact energy alignment with the MC engine.
+  - Added the `En_tot/Ns` (energy per site) column to the periodic terminal output for direct comparison against LAMMPS `E_pair`.
+  - Fixed out-of-bounds `itype` array indexing in HMC wrappers.
+
 - **V1.6** (July 2026) Documentation updates for cluster analysis default configurations
   - Clarified targeting of interaction patches (external types 2 and 4, internally 1 and 3) during DBSCAN cluster search.
   - Documented physical setup of the `rcl` cutoff distance using the patch-patch interaction range.

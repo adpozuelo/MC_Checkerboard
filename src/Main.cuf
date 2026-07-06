@@ -47,6 +47,7 @@ Program GPU_MC
    Integer :: i, j, ll, Iend, Ieq, vec_shift(6,0:ndim-1), vec(0:ndim-1)
    Integer :: ierr
    Integer :: ngpus,gpuid,Njumps, Nsteps_DeltaT, Natoms_aux, lammps_devNum
+   Integer :: total_sites
 
    Real(wp) :: rnd, disp(0:ndim-1), start, finish, omaxo, hmaxo, prob_vol, vmaxo(0:ndim-1)
    Real(wp) :: rnd_vec(ndim), prob_trans, prob_rot, boxmin, W_RU_min
@@ -115,8 +116,8 @@ Program GPU_MC
    Call date_and_time(dt_date, dt_time, dt_zone, dt_values)
 
    write(*,'(A)') c_blue // '========================================================================================' // c_reset
-   write(*,'(A)') c_cyan // '                              GPU_MC SIMULATION ENGINE                                  ' // c_reset
-   write(*,'(A)') c_cyan // '                                   Version 1.4                                        ' // c_reset
+   write(*,'(A)') c_cyan // '                          HYBRID GPU_MC/MD SIMULATION ENGINE                            ' // c_reset
+   write(*,'(A)') c_cyan // '                                   Version 2.1                                        ' // c_reset
    write(*,'(A)') c_blue // '========================================================================================' // c_reset
    write(*,'(A,I4,A,I2.2,A,I2.2,A,I2.2,A,I2.2,A,I2.2,A)') c_green // ' >>> Run started on: ', &
       dt_values(1), '-', dt_values(2), '-', dt_values(3), ' at ', &
@@ -145,6 +146,14 @@ Program GPU_MC
    write(*,'(A)') c_yellow // ' >>> Initializing System and Reading Data...' // c_reset
    Call Read_input_data
    Call Read_init_conf
+
+   ! Calculate total number of sites
+   total_sites = natoms
+   if (pot_int == 2) then
+      do i = 0, natoms - 1
+         total_sites = total_sites + Nrb_sites(itype(i))
+      end do
+   end if
 
    Call Get_Inverse_matrix
    Call Convert_Box_Units
@@ -238,23 +247,22 @@ Program GPU_MC
    write(*,'(A)') c_blue // '=================================================================================================================================' // c_reset
    write(*,'(A)') c_cyan // '                                               MAIN MONTE CARLO LOOP STARTED                                                     ' // c_reset
    write(*,'(A)') c_blue // '=================================================================================================================================' // c_reset
-
    ! Formatted headers for NpT vs NVT
    If (NpT) Then
       If (pot_int < 1) Then
-         write(*,'(A)') c_yellow // '      Step        En_tot/N    P_Trans  N_Trans/step    move/part     hmax*L      P_Vol       vmax       N_Cell     CPU(s)     GPU(s)' // c_reset
-         write(*,'(A)') c_blue // '------------------------------------------------------------------------------------------------------------------------------------' // c_reset
+         write(*,'(A)') c_yellow // '      Step          En_tot/N    En_tot/Ns    P_Trans  N_Trans/step    move/part     hmax*L      P_Vol       vmax       N_Cell     CPU(s)     GPU(s)' // c_reset
+         write(*,'(A)') c_blue // '-------------------------------------------------------------------------------------------------------------------------------------------------' // c_reset
       Else
-         write(*,'(A)') c_yellow // '      Step        En_tot/N    P_Trans      P_Rot  N_Trans/step  move/part     hmax*L         omax      P_Vol       vmax       N_Cell     CPU(s)     GPU(s)' // c_reset
-         write(*,'(A)') c_blue // '------------------------------------------------------------------------------------------------------------------------------------------------------' // c_reset
+         write(*,'(A)') c_yellow // '      Step          En_tot/N    En_tot/Ns    P_Trans      P_Rot  N_Trans/step  move/part     hmax*L         omax      P_Vol       vmax       N_Cell     CPU(s)     GPU(s)' // c_reset
+         write(*,'(A)') c_blue // '-------------------------------------------------------------------------------------------------------------------------------------------------------------------' // c_reset
       EndIf
    Else
       If (pot_int < 1) Then
-         write(*,'(A)') c_yellow // '      Step        En_tot/N    P_Trans  N_Trans/step  move/part     hmax*L       N_Cell     CPU(s)     GPU(s)' // c_reset
-         write(*,'(A)') c_blue // '--------------------------------------------------------------------------------------------------------------' // c_reset
+         write(*,'(A)') c_yellow // '      Step          En_tot/N    En_tot/Ns    P_Trans  N_Trans/step  move/part     hmax*L       N_Cell     CPU(s)     GPU(s)' // c_reset
+         write(*,'(A)') c_blue // '---------------------------------------------------------------------------------------------------------------------------' // c_reset
       Else
-         write(*,'(A)') c_yellow // '      Step        En_tot/N    P_Trans      P_Rot  N_Trans/step  move/part     hmax*L         omax       N_Cell     CPU(s)     GPU(s)' // c_reset
-         write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------------------------------------------------------' // c_reset
+         write(*,'(A)') c_yellow // '      Step          En_tot/N    En_tot/Ns    P_Trans      P_Rot  N_Trans/step  move/part     hmax*L         omax       N_Cell     CPU(s)     GPU(s)' // c_reset
+         write(*,'(A)') c_blue // '-----------------------------------------------------------------------------------------------------------------------------------------------------' // c_reset
       EndIf
    EndIf
 
@@ -371,19 +379,19 @@ Program GPU_MC
          ! --- Format terminal output based on ensemble ---
          If (NpT) Then
             If (pot_int < 1) Then
-               write(*,'(i10, f18.8, f11.4, i11, 2f13.6, f11.4, f11.6, i13, 2f11.3)') &
-                  i, En_tot/real(natoms), prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), hmax*box(0), prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               write(*,'(i10, f18.8, f13.8, f11.4, i11, 2f13.6, f11.4, f11.6, i13, 2f11.3)') &
+                  i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), hmax*box(0), prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
             Else
-               write(*,'(i10, f18.8, 2f11.4, i11, 3f13.6, f11.4, f11.6, i13, 2f11.3)') &
-                  i, En_tot/real(natoms), prob_trans, prob_rot, ntrans/nsave, real(ntrans)/real(nsave*natoms), hmax*box(0), omax, prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               write(*,'(i10, f18.8, f13.8, 2f11.4, i11, 3f13.6, f11.4, f11.6, i13, 2f11.3)') &
+                  i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, prob_rot, ntrans/nsave, real(ntrans)/real(nsave*natoms), hmax*box(0), omax, prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
             EndIf
          Else
             If (pot_int < 1) Then
-               write(*,'(i10, f18.8, f11.4, i11, 2f13.6, i13, 2f11.3)') &
-                  i, En_tot/real(natoms), prob_trans, ntrans/nsave,  real(ntrans)/real(nsave*natoms), hmax*box(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               write(*,'(i10, f18.8, f13.8, f11.4, i11, 2f13.6, i13, 2f11.3)') &
+                  i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/nsave,  real(ntrans)/real(nsave*natoms), hmax*box(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
             Else
-               write(*,'(i10, f18.8, 2f11.4, i11, 3f13.6, i13, 2f11.3)') &
-                  i, En_tot/real(natoms), prob_trans, prob_rot, ntrans/nsave,  real(ntrans)/real(nsave*natoms), hmax*box(0), omax, Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               write(*,'(i10, f18.8, f13.8, 2f11.4, i11, 3f13.6, i13, 2f11.3)') &
+                  i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, prob_rot, ntrans/nsave,  real(ntrans)/real(nsave*natoms), hmax*box(0), omax, Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
             EndIf
          EndIf
 
@@ -428,19 +436,19 @@ Program GPU_MC
          ! --- Format terminal output based on ensemble ---
          If (NpT) Then
             If (pot_int < 1) Then
-               write(*,'(i10, f18.8, f11.4, i11, 2f13.6, f11.4, f11.6, i13, 2f11.3)') &
-                  i, En_tot/real(natoms), prob_trans, ntrans/Nsave, real(ntrans)/real(Nsave*natoms), hmax*box(0), prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               write(*,'(i10, f18.8, f13.8, f11.4, i11, 2f13.6, f11.4, f11.6, i13, 2f11.3)') &
+                  i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/Nsave, real(ntrans)/real(Nsave*natoms), hmax*box(0), prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
             Else
-               write(*,'(i10, f18.8, 2f11.4, i11, 3f13.6, f11.4, f11.6, i13, 2f11.3)') &
-                  i, En_tot/real(natoms), prob_trans, prob_rot, ntrans/Nsave, real(ntrans)/real(Nsave*natoms), hmax*box(0), omax, prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               write(*,'(i10, f18.8, f13.8, 2f11.4, i11, 3f13.6, f11.4, f11.6, i13, 2f11.3)') &
+                  i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, prob_rot, ntrans/Nsave, real(ntrans)/real(Nsave*natoms), hmax*box(0), omax, prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
             EndIf
          Else
             If (pot_int < 1) Then
-               write(*,'(i10, f18.8, f11.4, i11, 2f13.6, i13, 2f11.3)') &
-                  i, En_tot/real(natoms), prob_trans, ntrans/Nsave,  real(ntrans)/real(Nsave*natoms), hmax*box(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               write(*,'(i10, f18.8, f13.8, f11.4, i11, 2f13.6, i13, 2f11.3)') &
+                  i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/Nsave,  real(ntrans)/real(Nsave*natoms), hmax*box(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
             Else
-               write(*,'(i10, f18.8, 2f11.4, i11, 3f13.6, i13, 2f11.3)') &
-                  i, En_tot/real(natoms), prob_trans, prob_rot, ntrans/Nsave,  real(ntrans)/real(Nsave*natoms), hmax*box(0), omax, Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               write(*,'(i10, f18.8, f13.8, 2f11.4, i11, 3f13.6, i13, 2f11.3)') &
+                  i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, prob_rot, ntrans/Nsave,  real(ntrans)/real(Nsave*natoms), hmax*box(0), omax, Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
             EndIf
          EndIf
 
@@ -474,8 +482,8 @@ Program GPU_MC
          EndIf
       EndIf
       ! Perform cluster analysis if enabled
-      ! NOTE: Clustering defaults to analyzing patch sites (internal types 1 and 3) 
-      ! using a neighborhood search cutoff 'rcl'. For physical correctness in patchy 
+      ! NOTE: Clustering defaults to analyzing patch sites (internal types 1 and 3)
+      ! using a neighborhood search cutoff 'rcl'. For physical correctness in patchy
       ! models, rcl should match the patch-patch interaction cutoff.
       If( (i > Ieq) .AND. (ncluster > 0) .AND. (mod(i, ncluster) == 0) ) Then
          Call Convert_CB_RU

@@ -73,6 +73,7 @@ MODULE rundata
    implicit none
     Integer :: istep_ini,istep_fin                      ! Initial and final MC step numbers
     Integer :: Nmc_hmc = 0, Nmd_hmc = 0                 ! HMC steps parameters
+    Real(wp) :: tstep_hmc = 0.0025_wp                   ! HMC timestep parameter
     Integer :: ntrans, ntrans_ac, nrot, nrot_ac         ! Translation and rotation move counters
    Integer :: no_mc_real                               ! Number of non-empty cells
    Integer :: nvol_accept, iscale, nvol                ! Volume move acceptance and scaling mode
