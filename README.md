@@ -185,9 +185,9 @@ See `examples/LJG/` directory for example input filesi for LJG patchy systems.
 - `Nrestart` - Restart file frequency
 - `data_file` - Path to the initial configuration file in LAMMPS format (default: `data.atoms`)
 - `ncluster` - Perform cluster analysis every `ncluster` steps (default: `0`, which disables clustering)
-- `rcl` - Cutoff distance for clustering (default: `1.8`)
+- `rcl` - Cutoff distance for clustering (default: `1.8`). For patchy particle models, `rcl` should be set to the patch-patch interaction cutoff distance (e.g. $R_{\text{cut}} \approx 0.337$) to correctly identify physically bonded networks.
 - `minPts` - Minimum number of neighbors for a core node in DBSCAN (default: `3`)
-- `cluster_types` - Integer array of up to 10 types of sites to include in cluster analysis. If all are `0` (default), it automatically targets colloid center types `1` and `3`.
+- `cluster_types` - Integer array of up to 10 types of sites to include in cluster analysis. If all are `0` (default), it automatically targets patch types `2` and `4` (internally stored as `itype` `1` and `3`) because bonds in patchy models are defined by patch-patch proximity.
 
 ### Thermodynamic Parameters
 - `temp0`, `temp1` - Initial and final temperatures (Kelvin)
@@ -365,6 +365,10 @@ Computing resources provided by CSIC.
 ---
 
 ## Version History
+
+- **V1.6** (July 2026) Documentation updates for cluster analysis default configurations
+  - Clarified targeting of interaction patches (external types 2 and 4, internally 1 and 3) during DBSCAN cluster search.
+  - Documented physical setup of the `rcl` cutoff distance using the patch-patch interaction range.
 
 - **V1.5** (July 2026) GPU-accelerated DBSCAN Cluster Analysis
   - Added GPU-accelerated DBSCAN cluster identification using neighbor search and parallel BFS kernels.

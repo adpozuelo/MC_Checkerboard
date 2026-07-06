@@ -447,6 +447,11 @@ CONTAINS
         Call clusters_alloc()
         
         ! 2. Initialize cluster mask based on selected types
+        ! NOTE: If cluster_types is not configured (all 0), we default to clustering
+        ! based on the interaction patches (internal types 1 and 3, which map to 
+        ! external/LAMMPS types 2 and 4). Because patchy particles bond via patch-patch 
+        ! interactions, setting rcl to the patch-patch interaction cutoff range (e.g. 
+        ! Rcut ≈ 0.337 for SSP models) allows us to trace the true bonded network.
         cluster_mask_host(:) = 0
         If (All(cluster_types == 0)) Then
             Do i = 1, natoms
