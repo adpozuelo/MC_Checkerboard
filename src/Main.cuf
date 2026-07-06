@@ -40,6 +40,7 @@ Program GPU_MC
    Use cudafor                            ! Required for cudaEvent structures
    Use netcdf_trajectory
    Use mod_clusters
+   Use lammps_hmc_wrapper, only: init_hmc_lammps, execute_hmc_step
 
    Implicit None
    Integer :: i, j, ll, Iend, Ieq, vec_shift(6,0:ndim-1), vec(0:ndim-1)
@@ -162,6 +163,7 @@ Program GPU_MC
    ! Initialize checkerboard cell decomposition & GPU Energy
    ! --------------------------------------------------------------------------
    Call Initialize_checkerboard
+   if (Nmc_hmc > 0) call init_hmc_lammps()
    NCell_max=Ntot_Cell*10
 
    call cpu_time(start)
@@ -257,23 +259,27 @@ Program GPU_MC
 
    Do I = 1+istep_ini, istep_ini+istep_fin
 
-      ! Perform MC sweep over all checkerboard sets
-      Call MCsweep()
-      ! >>> ADD THIS FORCIBLE SYNC <<<
-      ! Ensure all GPU writes to Sphere_Cell are done before CPU touches it
-      istat = cudaDeviceSynchronize()
-      ! Randomly shift cell boundaries to avoid artifacts
-      Call Random_number(rnd)
-      disp(:) = rnd*disp_max(:)
-      Call Random_number(rnd)
-      vec(:)  = vec_shift ( int(rnd*size(vec_shift,1))+1, :)
-      Call Shift_Cells(vec,disp)
+      ! Perform MC sweep or Hybrid MC step
+      if (Nmc_hmc > 0 .and. mod(I, Nmc_hmc) == 0) then
+         call execute_hmc_step(I)
+      else
+         Call MCsweep()
+         ! >>> ADD THIS FORCIBLE SYNC <<<
+         ! Ensure all GPU writes to Sphere_Cell are done before CPU touches it
+         istat = cudaDeviceSynchronize()
+         ! Randomly shift cell boundaries to avoid artifacts
+         Call Random_number(rnd)
+         disp(:) = rnd*disp_max(:)
+         Call Random_number(rnd)
+         vec(:)  = vec_shift ( int(rnd*size(vec_shift,1))+1, :)
+         Call Shift_Cells(vec,disp)
 
-      ! Volume move for NpT ensemble
-      If(NpT) then
-         Call Volume_move
-         nvol=nvol+1
-      EndIf
+         ! Volume move for NpT ensemble
+         If(NpT) then
+            Call Volume_move
+            nvol=nvol+1
+         EndIf
+      end if
 
       ! Accumulate averages and adjust parameters
       If( (i > Ieq) .AND. (mod(i,Nsave)==0) ) Then

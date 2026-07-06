@@ -10,10 +10,10 @@
 # FFTWLIB path to FFTW2 dynamic libs (might be in system's path)
 #
 PATH := $(NVBIN):$(PATH)
-FC = nvfortran
-FCINC = -I$(NETCDFINC) -I$(NVINCLUDE) $(if $(FFTWINC),-I$(FFTWINC)) 
+FC = mpif90
+FCINC = -I$(NETCDFINC) -I$(NVINCLUDE) $(if $(FFTWINC),-I$(FFTWINC)) -I/home/elomba/lammps-10Sep2025/fortran
 FCOPTS = -O3 -cudalib=curand $(FCINC)
-LKLIBS = -L$(NETCDFLIB) -L$(NVLIBS) $(if $(FFTWLIB),-L$(FFTWLIB))
+LKLIBS = -L$(NETCDFLIB) -L$(NVLIBS) $(if $(FFTWLIB),-L$(FFTWLIB)) -L/home/elomba/lammps-10Sep2025/build -llammps
 LKOPTS = -cuda -cudalib=curand  $(LKLIBS) -lnetcdff 
 
 EXE = -o ../bin/mc_gpu.exe
@@ -22,6 +22,7 @@ OBJ = Definitions.o potential_functions.o Read_input_data_nml.o Tools.o Subsweep
 		CB_system_energy_gpu.o energy.o Volume_move.o UpdateCheckerboard.o \
 		netcdf_trajectory.o \
 		mod_clusters.o \
+		lammps_hmc_wrapper.o \
 		Main.o
 
 
@@ -32,7 +33,7 @@ OBJ = Definitions.o potential_functions.o Read_input_data_nml.o Tools.o Subsweep
 	$(FC) -c $(FCOPTS) $< -o $@
 
 all: $(OBJ) 
-	$(FC) $(LKOPTS) $(LKINC) $(EXE) $(OBJ) $(LKLIBS)
+	$(FC) $(LKOPTS) $(LKINC) $(EXE) $(OBJ) /home/elomba/lammps-10Sep2025/fortran/lammps.o $(LKLIBS)
 
 clean:
 	rm -f *.o *.mod ../bin/mc_gpu.exe

@@ -1,0 +1,339 @@
+module lammps_hmc_wrapper
+    use, intrinsic :: iso_c_binding
+    use liblammps ! Native LAMMPS Fortran module
+    use set_precision
+    implicit none
+
+    type(lammps) :: lmp
+    logical :: hmc_initialized = .false.
+
+contains
+
+    subroutine init_hmc_lammps()
+        implicit none
+        if (.not. hmc_initialized) then
+            lmp = lammps()
+            hmc_initialized = .true.
+        end if
+    end subroutine init_hmc_lammps
+
+    subroutine execute_hmc_step(istep)
+        use set_precision
+        use configuration
+        use potential
+        use rundata
+        use Cell
+        implicit none
+        integer, intent(in) :: istep
+        
+        integer :: i, j, k, l, it, idx, total_atoms, n_patches, n_types
+        character(len=512) :: cmd
+        real(wp) :: R_rot(3,3), PX, PY, PZ, p_x, p_y, p_z, sigma_ii
+        real(c_double) :: E_initial, E_final
+        real(wp) :: rnd_val
+        real(c_double), allocatable :: pos_real(:)
+        real(wp) :: u_x_0(3), u_y_0(3), u_z_0(3)
+        real(wp) :: u_x_p(3), u_y_p(3), u_z_p(3)
+        real(wp) :: px0, py0, pz0, px1, py1, pz1
+        real(wp) :: q_new(4), norm_q
+        integer :: seed_hmc
+        
+        ! 1. Check if model is SSP or LJ
+        if (trim(model) /= 'SSP' .and. trim(model) /= 'LJ') then
+            write(*,*) " [HMC Error] HMC strategy is only available for SSP and LJ models."
+            stop
+        end if
+
+        ! 2. Count total atoms and types
+        if (pot_int == 2) then ! SSP
+            n_types = 2 * Npart_types
+            total_atoms = natoms
+            do i = 1, natoms
+                total_atoms = total_atoms + Nrb_sites(itype(i))
+            end do
+        else ! LJ
+            n_types = Npart_types
+            total_atoms = natoms
+        end if
+
+        ! 3. Write lammps_hmc.data file
+        open(unit=99, file='lammps_hmc.data', status='replace')
+        write(99, '("LAMMPS data file for Hybrid MC")')
+        write(99, '(I10, " atoms")') total_atoms
+        write(99, '(I10, " atom types")') n_types
+        write(99, *)
+        write(99, '(F18.8, F18.8, " xlo xhi")') 0.0_wp, Box(0)
+        write(99, '(F18.8, F18.8, " ylo yhi")') 0.0_wp, Box(1)
+        write(99, '(F18.8, F18.8, " zlo zhi")') 0.0_wp, Box(2)
+        write(99, *)
+        write(99, '("Masses")')
+        write(99, *)
+        if (pot_int == 2) then
+            do i = 0, Npart_types - 1
+                write(99, '(I5, F10.4)') 2*i + 1, 1.0_wp
+                write(99, '(I5, F10.4)') 2*i + 2, 1.0d-5
+            end do
+        else
+            do i = 0, Npart_types - 1
+                write(99, '(I5, F10.4)') i + 1, 1.0_wp
+            end do
+        end if
+        write(99, *)
+        write(99, '("Atoms")')
+        write(99, *)
+
+        idx = 0
+        if (pot_int == 2) then
+            do i = 1, natoms
+                it = itype(i)
+                idx = idx + 1
+                write(99, '(I10, I10, I5, F6.2, 3F18.8)') &
+                    idx, i, 2*it + 1, 0.0_wp, R(3*(i-1))*Box(0), R(3*(i-1)+1)*Box(1), R(3*(i-1)+2)*Box(2)
+                
+                n_patches = Nrb_sites(it)
+                if (n_patches > 0) then
+                    call rot_matrix(q(4*(i-1)), q(4*(i-1)+1), q(4*(i-1)+2), q(4*(i-1)+3), R_rot)
+                    sigma_ii = sigma_LJ(it * Npart_types + it)
+                    do j = 0, n_patches - 1
+                        PX = patch(Nrb_sites_max*ndim*it + j*ndim)
+                        PY = patch(Nrb_sites_max*ndim*it + j*ndim + 1)
+                        PZ = patch(Nrb_sites_max*ndim*it + j*ndim + 2)
+                        p_x = patch_radial_factor * sigma_ii * (R_rot(1,1)*PX + R_rot(1,2)*PY + R_rot(1,3)*PZ)
+                        p_y = patch_radial_factor * sigma_ii * (R_rot(2,1)*PX + R_rot(2,2)*PY + R_rot(2,3)*PZ)
+                        p_z = patch_radial_factor * sigma_ii * (R_rot(3,1)*PX + R_rot(3,2)*PY + R_rot(3,3)*PZ)
+                        
+                        idx = idx + 1
+                        write(99, '(I10, I10, I5, F6.2, 3F18.8)') &
+                            idx, i, 2*it + 2, 0.0_wp, R(3*(i-1))*Box(0) + p_x, R(3*(i-1)+1)*Box(1) + p_y, R(3*(i-1)+2)*Box(2) + p_z
+                    end do
+                end if
+            end do
+        else
+            do i = 1, natoms
+                idx = idx + 1
+                write(99, '(I10, I10, I5, F6.2, 3F18.8)') &
+                    idx, i, itype(i) + 1, 0.0_wp, R(3*(i-1))*Box(0), R(3*(i-1)+1)*Box(1), R(3*(i-1)+2)*Box(2)
+            end do
+        end if
+        close(99)
+
+        ! 4. Send commands to LAMMPS
+        call lmp%command("clear")
+        call lmp%command("units lj")
+        call lmp%command("atom_style full")
+        call lmp%command("boundary p p p")
+        call lmp%command("read_data lammps_hmc.data")
+
+        ! Force field coefficients
+        if (pot_int == 2) then ! SSP
+            call lmp%command("pair_style hybrid/overlay lj/cut 20.0 cosine/squared 20.0")
+            call lmp%command("pair_coeff * * lj/cut 0.0 1.0 0.0")
+            call lmp%command("pair_coeff * * cosine/squared 0.0 1.0 1.0")
+            
+            do i = 0, Npart_types - 1
+                do j = 0, Npart_types - 1
+                    sigma_ii = sigma_LJ(i*Npart_types+j)
+                    write(cmd, '(A, I5, A, I5, A, F15.7, A, F15.7, A, F15.7)') &
+                        "pair_coeff ", 2*i+1, " ", 2*j+1, " lj/cut ", epsilon_LJ(i*Npart_types+j), " ", &
+                        sigma_ii, " ", sigma_ii * 1.122462048309373_wp
+                    call lmp%command(cmd)
+                    
+                    if (epsp_factor > 0.0_wp) then
+                        write(cmd, '(A, I5, A, I5, A, F15.7, A, F15.7, A, F15.7)') &
+                            "pair_coeff ", 2*i+1, " ", 2*j+1, " cosine/squared ", epsp_factor * epsilon_LJ(i*Npart_types+j), " ", &
+                            sigma_ii * 1.122462048309373_wp, " ", Rc_factor * sigma_ii * 1.122462048309373_wp
+                        call lmp%command(cmd)
+                    end if
+                    
+                    n_patches = Nrb_sites(i)
+                    do k = 0, n_patches - 1
+                        do l = 0, Nrb_sites(j) - 1
+                            idx = i * Nrb_sites_max + k
+                            idx = idx * Nrb_sites_max * Npart_types
+                            idx = idx + j * Nrb_sites_max + l
+                            if (Vpot_Matrix(idx) > 1.0e-7_wp) then
+                                write(cmd, '(A, I5, A, I5, A, F15.7, A, F15.7, A, F15.7)') &
+                                    "pair_coeff ", 2*i+2, " ", 2*j+2, " cosine/squared ", Vpot_Matrix(idx), " ", &
+                                    sigp_factor * sigma_ii * 1.122462048309373_wp, " ", &
+                                    Rcp_factor * sigma_ii * 1.122462048309373_wp
+                                call lmp%command(cmd)
+                            end if
+                        end do
+                    end do
+                end do
+            end do
+            call lmp%command("fix hmc_rigid all rigid/nve molecule")
+        else ! LJ
+            write(cmd, '(A, F12.6)') "pair_style lj/cut ", rangepp
+            call lmp%command(cmd)
+            do i = 0, Npart_types - 1
+                do j = 0, Npart_types - 1
+                    write(cmd, '(A, I5, A, I5, A, F15.7, A, F15.7, A, F15.7)') &
+                        "pair_coeff ", i+1, " ", j+1, " ", epsilon_LJ(i*Npart_types+j), " ", &
+                        sigma_LJ(i*Npart_types+j), " ", rangep(i*Npart_types+j)
+                    call lmp%command(cmd)
+                end do
+            end do
+            call lmp%command("fix hmc_nve all nve")
+        end if
+
+        ! Velocities and initial energy evaluation
+        seed_hmc = seed + istep
+        write(cmd, '(A, F15.7, A, I8, A)') "velocity all create ", temp, " ", seed_hmc, " loop geom"
+        call lmp%command(cmd)
+        
+        call lmp%command("run 0")
+        E_initial = lmp%extract_compute("thermo_pe", 0, 0)%r64 + &
+                    lmp%extract_compute("thermo_ke", 0, 0)%r64
+
+        ! 5. Run MD steps
+        write(cmd, '(A, I8)') "run ", Nmd_hmc
+        call lmp%command(cmd)
+
+        ! 6. Final energy evaluation
+        E_final = lmp%extract_compute("thermo_pe", 0, 0)%r64 + &
+                  lmp%extract_compute("thermo_ke", 0, 0)%r64
+
+        ! 7. Acceptance check
+        call random_number(rnd_val)
+        if (exp(-(E_final - E_initial)/temp) > rnd_val) then
+            call lmp%gather_atoms("x", 3, pos_real)
+
+            if (pot_int == 2) then ! SSP
+                idx = 0
+                do i = 1, natoms
+                    it = itype(i)
+                    idx = idx + 1
+                    R(3*(i-1)) = pos_real(3*(idx-1) + 1) / Box(0)
+                    R(3*(i-1)+1) = pos_real(3*(idx-1) + 2) / Box(1)
+                    R(3*(i-1)+2) = pos_real(3*(idx-1) + 3) / Box(2)
+                    
+                    n_patches = Nrb_sites(it)
+                    if (n_patches > 0) then
+                        px0 = patch(Nrb_sites_max*ndim*it)
+                        py0 = patch(Nrb_sites_max*ndim*it + 1)
+                        pz0 = patch(Nrb_sites_max*ndim*it + 2)
+                        
+                        px1 = patch(Nrb_sites_max*ndim*it + ndim)
+                        py1 = patch(Nrb_sites_max*ndim*it + ndim + 1)
+                        pz1 = patch(Nrb_sites_max*ndim*it + ndim + 2)
+                        
+                        u_x_0 = (/ px0, py0, pz0 /)
+                        u_x_0 = u_x_0 / sqrt(dot_product(u_x_0, u_x_0))
+                        
+                        u_y_0 = (/ px1, py1, pz1 /)
+                        u_y_0 = u_y_0 - dot_product(u_y_0, u_x_0) * u_x_0
+                        u_y_0 = u_y_0 / sqrt(dot_product(u_y_0, u_y_0))
+                        
+                        u_z_0 = (/ u_x_0(2)*u_y_0(3) - u_x_0(3)*u_y_0(2), &
+                                   u_x_0(3)*u_y_0(1) - u_x_0(1)*u_y_0(3), &
+                                   u_x_0(1)*u_y_0(2) - u_x_0(2)*u_y_0(1) /)
+                                   
+                        u_x_p = (/ pos_real(3*idx + 1) - pos_real(3*(idx-1) + 1), &
+                                   pos_real(3*idx + 2) - pos_real(3*(idx-1) + 2), &
+                                   pos_real(3*idx + 3) - pos_real(3*(idx-1) + 3) /)
+                        u_x_p = u_x_p / sqrt(dot_product(u_x_p, u_x_p))
+                        
+                        u_y_p = (/ pos_real(3*(idx+1) + 1) - pos_real(3*(idx-1) + 1), &
+                                   pos_real(3*(idx+1) + 2) - pos_real(3*(idx-1) + 2), &
+                                   pos_real(3*(idx+1) + 3) - pos_real(3*(idx-1) + 3) /)
+                        u_y_p = u_y_p - dot_product(u_y_p, u_x_p) * u_x_p
+                        u_y_p = u_y_p / sqrt(dot_product(u_y_p, u_y_p))
+                        
+                        u_z_p = (/ u_x_p(2)*u_y_p(3) - u_x_p(3)*u_y_p(2), &
+                                   u_x_p(3)*u_y_p(1) - u_x_p(1)*u_y_p(3), &
+                                   u_x_p(1)*u_y_p(2) - u_x_p(2)*u_y_p(1) /)
+                                   
+                        do k = 1, 3
+                            do l = 1, 3
+                                R_rot(k, l) = u_x_p(k)*u_x_0(l) + u_y_p(k)*u_y_0(l) + u_z_p(k)*u_z_0(l)
+                            end do
+                        end do
+                        
+                        call matrix_to_quaternion(R_rot, q_new)
+                        q(4*(i-1))   = q_new(1)
+                        q(4*(i-1)+1) = q_new(2)
+                        q(4*(i-1)+2) = q_new(3)
+                        q(4*(i-1)+3) = q_new(4)
+                        
+                        idx = idx + n_patches
+                    end if
+                end do
+            else ! LJ
+                do i = 1, natoms
+                    R(3*(i-1)) = pos_real(3*(i-1) + 1) / Box(0)
+                    R(3*(i-1)+1) = pos_real(3*(i-1) + 2) / Box(1)
+                    R(3*(i-1)+2) = pos_real(3*(i-1) + 3) / Box(2)
+                end do
+            end if
+
+            call Update_checkerboard(Nl_Cell)
+            
+            ! Sync to GPU
+            block
+                use cell, only : Sphere_Cell, List_Cell, Nat_Cell, DR_Cell, Map_Cell
+                use cuda_fortran, only : Sphere_Celldev, List_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Map_Cell_dev, hdev
+                Sphere_Celldev = Sphere_Cell
+                List_Cell_dev = List_Cell
+                Nat_Cell_dev = Nat_Cell
+                DR_Cell_dev = DR_Cell
+                Map_Cell_dev = Map_Cell
+                hdev = h
+            end block
+            write(*,'(A, F15.6, A, F15.6, A)') " [HMC] Accepted step! dE = ", E_final - E_initial, " (PE_final: ", E_final, ")"
+        else
+            write(*,'(A, F15.6, A, F15.6, A)') " [HMC] Rejected step! dE = ", E_final - E_initial, " (PE_final: ", E_final, ")"
+        end if
+        
+        if (allocated(pos_real)) deallocate(pos_real)
+    end subroutine execute_hmc_step
+
+    subroutine rot_matrix(q0, q1, q2, q3, R)
+        real(wp), intent(in) :: q0, q1, q2, q3
+        real(wp), intent(out) :: R(3, 3)
+        R(1, 1) = q0*q0 + q1*q1 - q2*q2 - q3*q3
+        R(1, 2) = 2.0_wp * (q1*q2 - q0*q3)
+        R(1, 3) = 2.0_wp * (q1*q3 + q0*q2)
+        R(2, 1) = 2.0_wp * (q1*q2 + q0*q3)
+        R(2, 2) = q0*q0 - q1*q1 + q2*q2 - q3*q3
+        R(2, 3) = 2.0_wp * (q2*q3 - q0*q1)
+        R(3, 1) = 2.0_wp * (q1*q3 - q0*q2)
+        R(3, 2) = 2.0_wp * (q2*q3 + q0*q1)
+        R(3, 3) = q0*q0 - q1*q1 - q2*q2 + q3*q3
+    end subroutine rot_matrix
+
+    subroutine matrix_to_quaternion(R, q)
+        real(wp), intent(in) :: R(3, 3)
+        real(wp), intent(out) :: q(4)
+        real(wp) :: tr, s
+        tr = R(1,1) + R(2,2) + R(3,3)
+        if (tr > 0.0_wp) then
+            s = sqrt(tr + 1.0_wp) * 2.0_wp
+            q(1) = 0.25_wp * s
+            q(2) = (R(3,2) - R(2,3)) / s
+            q(3) = (R(1,3) - R(3,1)) / s
+            q(4) = (R(2,1) - R(1,2)) / s
+        else if ((R(1,1) > R(2,2)) .and. (R(1,1) > R(3,3))) then
+            s = sqrt(1.0_wp + R(1,1) - R(2,2) - R(3,3)) * 2.0_wp
+            q(1) = (R(3,2) - R(2,3)) / s
+            q(2) = 0.25_wp * s
+            q(3) = (R(1,2) + R(2,1)) / s
+            q(4) = (R(1,3) + R(3,1)) / s
+        else if (R(2,2) > R(3,3)) then
+            s = sqrt(1.0_wp + R(2,2) - R(1,1) - R(3,3)) * 2.0_wp
+            q(1) = (R(1,3) - R(3,1)) / s
+            q(2) = (R(1,2) + R(2,1)) / s
+            q(3) = 0.25_wp * s
+            q(4) = (R(2,3) + R(3,2)) / s
+        else
+            s = sqrt(1.0_wp + R(3,3) - R(1,1) - R(2,2)) * 2.0_wp
+            q(1) = (R(2,1) - R(1,2)) / s
+            q(2) = (R(1,3) + R(3,1)) / s
+            q(3) = (R(2,3) + R(3,2)) / s
+            q(4) = 0.25_wp * s
+        end if
+        s = sqrt(q(1)**2 + q(2)**2 + q(3)**2 + q(4)**2)
+        q = q / s
+    end subroutine matrix_to_quaternion
+
+end module lammps_hmc_wrapper
