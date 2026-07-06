@@ -733,8 +733,8 @@ Subroutine load_table_potentials()
                     rmax = rmax_val
                 end block
                 
-                if (N > 100005) then
-                    print *, "Error: Table size ", N, " exceeds maximum allocated size 100005"
+                if (N > table_N_max) then
+                    print *, "Error: Table size ", N, " exceeds maximum allocated size ", table_N_max
                     stop
                 end if
                 

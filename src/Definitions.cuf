@@ -152,7 +152,8 @@ MODULE potential
     real(wp) :: table_rmin(0:15, 0:15) = 0.0_wp
     real(wp) :: table_rmax(0:15, 0:15) = 0.0_wp
     real(wp) :: table_dr_inv(0:15, 0:15) = 0.0_wp
-    real(wp), target :: table_V(0:100005, 0:15, 0:15) = 0.0_wp
+    integer, parameter :: table_N_max = 100005
+    real(wp), target :: table_V(0:table_N_max, 0:15, 0:15) = 0.0_wp
     
     ! Device table potential variables
     logical, constant :: has_table_dev(0:15, 0:15)
@@ -160,7 +161,7 @@ MODULE potential
     real(wp), constant :: table_rmin_dev(0:15, 0:15)
     real(wp), constant :: table_rmax_dev(0:15, 0:15)
     real(wp), constant :: table_dr_inv_dev(0:15, 0:15)
-    real(wp), device, save :: table_V_dev(0:100005, 0:15, 0:15)
+    real(wp), device, save :: table_V_dev(0:table_N_max, 0:15, 0:15)
     logical, constant :: table_mc_dev
 
 END MODULE potential
