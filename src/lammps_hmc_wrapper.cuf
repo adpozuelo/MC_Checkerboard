@@ -6,16 +6,39 @@ module lammps_hmc_wrapper
 
     type(lammps) :: lmp
     logical :: hmc_initialized = .false.
+    integer :: lammps_gpu_id_global = 0
 
 contains
 
-    subroutine init_hmc_lammps()
-        implicit none
+    subroutine init_hmc_lammps(lammps_gpu_id)
+        integer, intent(in) :: lammps_gpu_id
+        character(len=32) :: args(10)
         if (.not. hmc_initialized) then
-            lmp = lammps()
+            lammps_gpu_id_global = lammps_gpu_id
+            
+            args(1) = "liblammps"
+            args(2) = "-pk"
+            args(3) = "gpu"
+            args(4) = "1"
+            args(5) = "gpuID"
+            write(args(6), '(I0)') lammps_gpu_id_global
+            args(7) = "neigh"
+            args(8) = "no"
+            args(9) = "-sf"
+            args(10) = "gpu"
+            
+            lmp = lammps(args)
             hmc_initialized = .true.
         end if
     end subroutine init_hmc_lammps
+
+    subroutine close_hmc_lammps()
+        implicit none
+        if (hmc_initialized) then
+            call lmp%close()
+            hmc_initialized = .false.
+        end if
+    end subroutine close_hmc_lammps
 
     subroutine execute_hmc_step(istep)
         use set_precision
@@ -71,7 +94,7 @@ contains
         if (pot_int == 2) then
             do i = 0, Npart_types - 1
                 write(99, '(I5, F10.4)') 2*i + 1, 1.0_wp
-                write(99, '(I5, F10.4)') 2*i + 2, 1.0d-5
+                write(99, '(I5, E15.6)') 2*i + 2, 1.0d-5
             end do
         else
             do i = 0, Npart_types - 1
@@ -128,7 +151,7 @@ contains
         if (pot_int == 2) then ! SSP
             call lmp%command("pair_style hybrid/overlay lj/cut 20.0 cosine/squared 20.0")
             call lmp%command("pair_coeff * * lj/cut 0.0 1.0 0.0")
-            call lmp%command("pair_coeff * * cosine/squared 0.0 1.0 1.0")
+            call lmp%command("pair_coeff * * cosine/squared 0.0 1.0 2.0")
             
             do i = 0, Npart_types - 1
                 do j = 0, Npart_types - 1
@@ -177,22 +200,26 @@ contains
             call lmp%command("fix hmc_nve all nve")
         end if
 
+        ! Define computes for kinetic and potential energy extraction
+        call lmp%command("compute hmc_ke all ke")
+        call lmp%command("compute hmc_pe all pe")
+
         ! Velocities and initial energy evaluation
         seed_hmc = seed + istep
         write(cmd, '(A, F15.7, A, I8, A)') "velocity all create ", temp, " ", seed_hmc, " loop geom"
         call lmp%command(cmd)
         
         call lmp%command("run 0")
-        E_initial = lmp%extract_compute("thermo_pe", 0, 0)%r64 + &
-                    lmp%extract_compute("thermo_ke", 0, 0)%r64
+        E_initial = lmp%extract_compute("hmc_pe", 0, 0)%r64 + &
+                    lmp%extract_compute("hmc_ke", 0, 0)%r64
 
         ! 5. Run MD steps
         write(cmd, '(A, I8)') "run ", Nmd_hmc
         call lmp%command(cmd)
 
         ! 6. Final energy evaluation
-        E_final = lmp%extract_compute("thermo_pe", 0, 0)%r64 + &
-                  lmp%extract_compute("thermo_ke", 0, 0)%r64
+        E_final = lmp%extract_compute("hmc_pe", 0, 0)%r64 + &
+                  lmp%extract_compute("hmc_ke", 0, 0)%r64
 
         ! 7. Acceptance check
         call random_number(rnd_val)
