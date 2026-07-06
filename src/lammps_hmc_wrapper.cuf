@@ -272,11 +272,17 @@ contains
                         u_x_p = (/ pos_real(3*idx + 1) - pos_real(3*(idx-1) + 1), &
                                    pos_real(3*idx + 2) - pos_real(3*(idx-1) + 2), &
                                    pos_real(3*idx + 3) - pos_real(3*(idx-1) + 3) /)
+                        u_x_p(1) = u_x_p(1) - Box(0) * anint(u_x_p(1) / Box(0))
+                        u_x_p(2) = u_x_p(2) - Box(1) * anint(u_x_p(2) / Box(1))
+                        u_x_p(3) = u_x_p(3) - Box(2) * anint(u_x_p(3) / Box(2))
                         u_x_p = u_x_p / sqrt(dot_product(u_x_p, u_x_p))
                         
                         u_y_p = (/ pos_real(3*(idx+1) + 1) - pos_real(3*(idx-1) + 1), &
                                    pos_real(3*(idx+1) + 2) - pos_real(3*(idx-1) + 2), &
                                    pos_real(3*(idx+1) + 3) - pos_real(3*(idx-1) + 3) /)
+                        u_y_p(1) = u_y_p(1) - Box(0) * anint(u_y_p(1) / Box(0))
+                        u_y_p(2) = u_y_p(2) - Box(1) * anint(u_y_p(2) / Box(1))
+                        u_y_p(3) = u_y_p(3) - Box(2) * anint(u_y_p(3) / Box(2))
                         u_y_p = u_y_p - dot_product(u_y_p, u_x_p) * u_x_p
                         u_y_p = u_y_p / sqrt(dot_product(u_y_p, u_y_p))
                         
@@ -313,12 +319,14 @@ contains
             block
                 use cell, only : Sphere_Cell, List_Cell, Nat_Cell, DR_Cell, Map_Cell
                 use cuda_fortran, only : Sphere_Celldev, List_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Map_Cell_dev, hdev
+                use properties, only : en_tot
                 Sphere_Celldev = Sphere_Cell
                 List_Cell_dev = List_Cell
                 Nat_Cell_dev = Nat_Cell
                 DR_Cell_dev = DR_Cell
                 Map_Cell_dev = Map_Cell
                 hdev = h
+                en_tot = E_final_pe
             end block
             write(*,'(A, I8, A, F14.8, A, F14.8, A, F14.8, A)') &
                 c_green // '  >>> [HMC Step ', istep, '] ACCEPTED | E_pe/site: ', E_initial_pe/real(total_atoms,wp), &
