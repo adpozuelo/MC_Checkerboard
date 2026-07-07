@@ -8,12 +8,14 @@
 # NETCDFLIB path to NETCDF and NETCDFF libraries
 # FFTWINC path to FFTW3 include files (might be in system's path)
 # FFTWLIB path to FFTW2 dynamic libs (might be in system's path)
+# LAMMPSINC path to LAMMPS fortran includes (might be in system's path)
+# LAMMPSLIB path to LAMMPS dynamic libs (might be in system's path)
 #
 PATH := $(NVBIN):$(PATH)
 FC = mpif90
-FCINC = -I$(NETCDFINC) -I$(NVINCLUDE) $(if $(FFTWINC),-I$(FFTWINC)) -I/home/elomba/lammps-10Sep2025/fortran
+FCINC = -I$(NETCDFINC) -I$(NVINCLUDE) $(if $(FFTWINC),-I$(FFTWINC)) -I$(LAMMPSINC)
 FCOPTS = -O3 -cudalib=curand $(FCINC)
-LKLIBS = -L$(NETCDFLIB) -L$(NVLIBS) $(if $(FFTWLIB),-L$(FFTWLIB)) -L/home/elomba/lammps-10Sep2025/build -llammps
+LKLIBS = -L$(NETCDFLIB) -L$(NVLIBS) $(if $(FFTWLIB),-L$(FFTWLIB)) -L$(LAMMPSLIB) -llammps
 LKOPTS = -cuda -cudalib=curand  $(LKLIBS) -lnetcdff 
 
 EXE = -o ../bin/mc_gpu.exe
