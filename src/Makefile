@@ -35,7 +35,7 @@ OBJ = Definitions.o potential_functions.o Read_input_data_nml.o Tools.o Subsweep
 	$(FC) -c $(FCOPTS) $< -o $@
 
 all: $(OBJ) 
-	$(FC) $(LKOPTS) $(LKINC) $(EXE) $(OBJ) /home/elomba/lammps-10Sep2025/fortran/lammps.o $(LKLIBS)
+	$(FC) $(LKOPTS) $(LKINC) $(EXE) $(OBJ) $(LAMMPSINC)/lammps.o $(LKLIBS)
 
 clean:
 	rm -f *.o *.mod ../bin/mc_gpu.exe
