@@ -72,6 +72,8 @@ cmake ../cmake \
   -DBUILD_SHARED_LIBS=ON \
   -DPKG_EXTRA-PAIR=ON \
   -DPKG_GPU=ON \
+  -DCUDA_NVCC_FLAGS="-I$LAMMPS_DIR/cuda_patch" \
+  -DCUDA_VERBOSE_BUILD=ON \
   -DGPU_API=cuda \
   -DGPU_ARCH=auto \
   -DPKG_MOLECULE=ON \
