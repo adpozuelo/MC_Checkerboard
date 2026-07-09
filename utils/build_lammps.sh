@@ -2,11 +2,25 @@
 # ==============================================================================
 # Script to compile LAMMPS as a shared library and build the Fortran wrapper
 # dynamically on ladon27 using the NVHPC/CUDA environment.
+# Supports incremental builds (resuming from last failure point).
 # ==============================================================================
 set -e
 
+# Default parameters
+CLEAN_BUILD=false
+TARGET_DIR=""
+
+# Parse arguments
+for arg in "$@"; do
+    if [ "$arg" == "--clean" ]; then
+        CLEAN_BUILD=true
+    else
+        TARGET_DIR="$arg"
+    fi
+done
+
 # Target directory argument (defaults to $HOME/lammps_latest)
-LAMMPS_DIR="${1:-$HOME/lammps_latest}"
+LAMMPS_DIR="${TARGET_DIR:-$HOME/lammps_latest}"
 # Expand relative paths to absolute paths
 LAMMPS_DIR=$(eval echo "$LAMMPS_DIR")
 
@@ -24,6 +38,11 @@ else
     echo "Warning: setup_trj environment script not found at $SETUP_TRJ."
     echo "Proceeding with current shell environment."
 fi
+
+# 1b. Bypass Binutils 2.42 ld crash (SIGILL) by preferring stable system ld (v2.35)
+echo "Preferring system linker /usr/bin/ld over module binutils ld to bypass NVHPC linker crash..."
+export PATH=/usr/bin:$PATH
+hash -r
 
 # 2. Verify compilers are available
 if ! command -v nvfortran &> /dev/null; then
@@ -53,11 +72,20 @@ else
     exit 1
 fi
 
-# 4. Clean build directory for CMake
+# 4. Set up build directory (incremental by default)
 BUILD_DIR="$LAMMPS_DIR/build"
-echo "Recreating build directory at $BUILD_DIR..."
-rm -rf "$BUILD_DIR"
-mkdir -p "$BUILD_DIR"
+if [ "$CLEAN_BUILD" = true ]; then
+    echo "Clean build requested. Recreating build directory at $BUILD_DIR..."
+    rm -rf "$BUILD_DIR"
+    mkdir -p "$BUILD_DIR"
+else
+    if [ ! -d "$BUILD_DIR" ]; then
+        echo "Creating build directory at $BUILD_DIR..."
+        mkdir -p "$BUILD_DIR"
+    else
+        echo "Reusing existing build directory for incremental compilation..."
+    fi
+fi
 cd "$BUILD_DIR"
 
 # 5. Configure CMake
@@ -72,8 +100,6 @@ cmake ../cmake \
   -DBUILD_SHARED_LIBS=ON \
   -DPKG_EXTRA-PAIR=ON \
   -DPKG_GPU=ON \
-  -DCUDA_NVCC_FLAGS="-I$LAMMPS_DIR/cuda_patch" \
-  -DCUDA_VERBOSE_BUILD=ON \
   -DGPU_API=cuda \
   -DGPU_ARCH=auto \
   -DPKG_MOLECULE=ON \
