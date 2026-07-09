@@ -369,6 +369,10 @@ Computing resources provided by CSIC.
 
 ## Version History
 
+- **V2.3** (August 2026) Multi-state (S1-A1 to S1-A3, S1-A1 to S2-A2, S2-A2 to S3-A3) and Hybrid (MC to HMC) transitions
+  - LAMMPS potential definitions are now stored in external files `potential_ssp_analytic.lmp` and `potential_ssp_table.lmp` and included in the LAMMPS input script.
+  
+
 - **V2.2** (July 2026) Table Potential Interpolation and HMC Performance Improvements
   - Implemented prefix-based table potential loading and linear interpolation on both host (CPU) and device (GPU constant/global memory lookup).
   - Modified LAMMPS HMC initialization to use GPU neighbor lists (`neigh yes`) when table potentials are active, achieving a 35%+ speedup in HMC integration.
