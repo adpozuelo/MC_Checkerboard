@@ -264,6 +264,9 @@ To simulate this model in LAMMPS, we represent each colloid-patch assembly as a 
 * **Rigid Bodies**: Use `atom_style molecular` and define the rigid bodies via `fix rigid/nvt/small molecule` (or `fix rigid/small molecule`).
 * **Pair Potential**: Use `pair_style hybrid/overlay` to overlay `lj/cut` and `cosine/squared` interactions.
 * **WCA Shift**: To reproduce the $+1.0\epsilon$ shift in the core $V_{\text{core}}(r)$ equation, you must add **`pair_modify shift yes`** in the LAMMPS input script. This shifts the truncated `lj/cut` core interaction so that the energy goes smoothly to $0$ at the cutoff $R_c = 2^{1/6}\sigma$.
+* **External Potential Scripts**: To keep the potential definition independent of the simulation wrapper, potential parameters are dynamically written at startup to external files and loaded into the LAMMPS execution stream via `include` statements:
+  - `potential_ssp_analytic.lmp` is generated and included for site-site analytic hybrid overlay potentials.
+  - `potential_ssp_table.lmp` is generated and included for tabulated potentials.
 
 
 #### Implementing New Interactions
@@ -372,6 +375,7 @@ Computing resources provided by CSIC.
   - Added CPU/GPU timer measurements and total MD step logging to the HMC acceptance periodic printouts.
   - Reset periodic performance timers after each HMC step to keep MC sweep statistics clean.
   - Refactored table memory structure from dynamic allocation to fixed compile-time size, completely removing dope vector memory lookups inside the GPU lookup kernel.
+  - Decoupled LAMMPS force field setups from the Fortran wrapper into separate `.lmp` potential script files (`potential_ssp_table.lmp` and `potential_ssp_analytic.lmp`) loaded dynamically via `include` statements.
 
 - **V2.1** (July 2026) Hybrid Monte Carlo (HMC) strategy and Energy per Site outputs
   - Integrated HMC combining checkerboard GPU MC moves with multi-step LAMMPS Molecular Dynamics (MD) rigid body segments.

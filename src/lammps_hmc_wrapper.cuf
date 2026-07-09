@@ -12,9 +12,16 @@ contains
 
     subroutine init_hmc_lammps(lammps_gpu_id)
         use potential, only : table_lammps
+        use rundata, only : pot_int
         integer, intent(in) :: lammps_gpu_id
         character(len=32) :: args(14)
         if (.not. hmc_initialized) then
+            if (table_lammps) then
+                call write_lammps_table_file()
+            else if (pot_int == 2) then
+                call write_lammps_analytic_file()
+            end if
+            
             lammps_gpu_id_global = lammps_gpu_id
             
             args(1) = "liblammps"
@@ -101,6 +108,165 @@ contains
         end if
         close(unit_id)
     end subroutine read_table_metadata
+
+    ! ==============================================================================
+    ! SUBROUTINE: write_lammps_table_file
+    ! ==============================================================================
+    ! DESCRIPTION:
+    !   Generates the external LAMMPS potential script 'potential_ssp_table.lmp'.
+    !   It parses the table files to calculate the maximum table size and 
+    !   writes the pair_style and pair_coeff lines for loading tabulated 
+    !   forces dynamically during MD runs.
+    ! ==============================================================================
+    subroutine write_lammps_table_file()
+        use set_precision
+        use potential, only : table_file_lammps, Npart_types
+        use rundata, only : pot_int
+        implicit none
+        integer :: unit_id, ierr, num_lmp_types, i_lmp, j_lmp, k_ch, n_pts, max_N
+        character(len=8) :: t1_str, t2_str
+        character(len=256) :: keyword, filename, keyword_prefix
+        logical :: is_single_file_lmp, file_exists
+        real(wp) :: cutoff
+
+        unit_id = 96
+        open(unit=unit_id, file="potential_ssp_table.lmp", status="replace", action="write", iostat=ierr)
+        if (ierr /= 0) then
+            print *, "Error: Could not open potential_ssp_table.lmp for writing"
+            stop
+        end if
+
+        num_lmp_types = merge(2*Npart_types, Npart_types, pot_int == 2)
+        is_single_file_lmp = (index(table_file_lammps, '.dat') > 0 .or. &
+                              index(table_file_lammps, '.table') > 0 .or. &
+                              index(table_file_lammps, '.txt') > 0)
+
+        ! Find max_N
+        max_N = 0
+        do i_lmp = 1, num_lmp_types
+            do j_lmp = i_lmp, num_lmp_types
+                write(t1_str, '(I0)') i_lmp
+                write(t2_str, '(I0)') j_lmp
+                
+                if (is_single_file_lmp) then
+                    filename = trim(table_file_lammps)
+                    write(keyword, '(I0, A, I0)') i_lmp, '_', j_lmp
+                else
+                    filename = trim(table_file_lammps) // trim(t1_str) // trim(t2_str) // '.dat'
+                    keyword_prefix = trim(table_file_lammps)
+                    do k_ch = 1, len_trim(keyword_prefix)
+                        if (ichar(keyword_prefix(k_ch:k_ch)) >= 97 .and. ichar(keyword_prefix(k_ch:k_ch)) <= 122) then
+                            keyword_prefix(k_ch:k_ch) = char(ichar(keyword_prefix(k_ch:k_ch)) - 32)
+                        end if
+                    end do
+                    keyword = trim(keyword_prefix) // trim(t1_str) // trim(t2_str)
+                end if
+                
+                inquire(file=filename, exist=file_exists)
+                if (file_exists) then
+                    call read_table_metadata(filename, keyword, n_pts, cutoff)
+                    max_N = max(max_N, n_pts)
+                end if
+            end do
+        end do
+
+        if (max_N == 0) max_N = 100000
+
+        write(unit_id, '(A, I0)') "pair_style table linear ", max_N
+
+        ! Second pass: write pair_coeff lines
+        do i_lmp = 1, num_lmp_types
+            do j_lmp = i_lmp, num_lmp_types
+                write(t1_str, '(I0)') i_lmp
+                write(t2_str, '(I0)') j_lmp
+                
+                if (is_single_file_lmp) then
+                    filename = trim(table_file_lammps)
+                    write(keyword, '(I0, A, I0)') i_lmp, '_', j_lmp
+                else
+                    filename = trim(table_file_lammps) // trim(t1_str) // trim(t2_str) // '.dat'
+                    keyword_prefix = trim(table_file_lammps)
+                    do k_ch = 1, len_trim(keyword_prefix)
+                        if (ichar(keyword_prefix(k_ch:k_ch)) >= 97 .and. ichar(keyword_prefix(k_ch:k_ch)) <= 122) then
+                            keyword_prefix(k_ch:k_ch) = char(ichar(keyword_prefix(k_ch:k_ch)) - 32)
+                        end if
+                    end do
+                    keyword = trim(keyword_prefix) // trim(t1_str) // trim(t2_str)
+                end if
+                
+                inquire(file=filename, exist=file_exists)
+                if (file_exists) then
+                    call read_table_metadata(filename, keyword, n_pts, cutoff)
+                    cutoff = cutoff - 2.0e-6_wp
+                    write(unit_id, '(A, I0, A, I0, A, A, A, A, A, F18.12)') &
+                        "pair_coeff ", i_lmp, " ", j_lmp, " ", trim(filename), &
+                        " ", trim(keyword), " ", cutoff
+                end if
+            end do
+        end do
+        close(unit_id)
+    end subroutine write_lammps_table_file
+
+    ! ==============================================================================
+    ! SUBROUTINE: write_lammps_analytic_file
+    ! ==============================================================================
+    ! DESCRIPTION:
+    !   Generates the external LAMMPS potential script 'potential_ssp_analytic.lmp'.
+    !   It formats and writes the pair_style and pair_coeff lines for the
+    !   colloid-colloid WCA interaction, the attractive cosine-squared tail,
+    !   and the patch-patch anisotropic interaction.
+    ! ==============================================================================
+    subroutine write_lammps_analytic_file()
+        use set_precision
+        use potential, only : sigma_LJ, epsilon_LJ, Vpot_Matrix, Rc_factor, sigp_factor, Rcp_factor, epsp_factor, &
+                              Npart_types, Nrb_sites, Nrb_sites_max
+        use configuration, only : ndim
+        implicit none
+        integer :: unit_id, ierr, i, j, k, l, idx
+        real(wp) :: sigma_ii
+
+        unit_id = 96
+        open(unit=unit_id, file="potential_ssp_analytic.lmp", status="replace", action="write", iostat=ierr)
+        if (ierr /= 0) then
+            print *, "Error: Could not open potential_ssp_analytic.lmp for writing"
+            stop
+        end if
+
+        write(unit_id, '(A)') "pair_style hybrid/overlay lj/cut 20.0 cosine/squared 20.0"
+        write(unit_id, '(A)') "pair_coeff * * lj/cut 0.0 1.0 0.0"
+        write(unit_id, '(A)') "pair_coeff * * cosine/squared 0.0 1.0 2.0"
+
+        do i = 0, Npart_types - 1
+            do j = 0, Npart_types - 1
+                sigma_ii = sigma_LJ(i*Npart_types+j)
+                write(unit_id, '(A, I5, A, I5, A, F15.7, A, F15.7, A, F15.7)') &
+                    "pair_coeff ", 2*i+1, " ", 2*j+1, " lj/cut ", epsilon_LJ(i*Npart_types+j), " ", &
+                    sigma_ii, " ", sigma_ii * 1.122462048309373_wp
+                
+                if (epsp_factor > 0.0_wp) then
+                    write(unit_id, '(A, I5, A, I5, A, F15.7, A, F15.7, A, F15.7)') &
+                        "pair_coeff ", 2*i+1, " ", 2*j+1, " cosine/squared ", epsp_factor * epsilon_LJ(i*Npart_types+j), " ", &
+                        sigma_ii * 1.122462048309373_wp, " ", Rc_factor * sigma_ii * 1.122462048309373_wp
+                end if
+                
+                do k = 0, Nrb_sites(i) - 1
+                    do l = 0, Nrb_sites(j) - 1
+                        idx = i * Nrb_sites_max + k
+                        idx = idx * Nrb_sites_max * Npart_types
+                        idx = idx + j * Nrb_sites_max + l
+                        if (Vpot_Matrix(idx) > 1.0e-7_wp) then
+                            write(unit_id, '(A, I5, A, I5, A, F15.7, A, F15.7, A, F15.7)') &
+                                "pair_coeff ", 2*i+2, " ", 2*j+2, " cosine/squared ", Vpot_Matrix(idx), " ", &
+                                sigp_factor * sigma_ii * 1.122462048309373_wp, " ", &
+                                Rcp_factor * sigma_ii * 1.122462048309373_wp
+                        end if
+                    end do
+                end do
+            end do
+        end do
+        close(unit_id)
+    end subroutine write_lammps_analytic_file
+
 
     subroutine execute_hmc_step(istep)
         use set_precision
@@ -228,84 +394,7 @@ contains
 
         ! Force field coefficients
         if (table_lammps) then
-            block
-                integer :: num_lmp_types, i_lmp, j_lmp, k_ch, n_pts, max_N
-                character(len=8) :: t1_str, t2_str
-                character(len=256) :: keyword, filename, keyword_prefix
-                logical :: is_single_file_lmp, file_exists
-                real(wp) :: cutoff
-                
-                num_lmp_types = merge(2*Npart_types, Npart_types, pot_int == 2)
-                is_single_file_lmp = (index(table_file_lammps, '.dat') > 0 .or. &
-                                      index(table_file_lammps, '.table') > 0 .or. &
-                                      index(table_file_lammps, '.txt') > 0)
-                                      
-                ! First pass: find the maximum table size among all files
-                max_N = 0
-                do i_lmp = 1, num_lmp_types
-                    do j_lmp = i_lmp, num_lmp_types
-                        write(t1_str, '(I0)') i_lmp
-                        write(t2_str, '(I0)') j_lmp
-                        
-                        if (is_single_file_lmp) then
-                            filename = trim(table_file_lammps)
-                            write(keyword, '(I0, A, I0)') i_lmp, '_', j_lmp
-                        else
-                            filename = trim(table_file_lammps) // trim(t1_str) // trim(t2_str) // '.dat'
-                            keyword_prefix = trim(table_file_lammps)
-                            do k_ch = 1, len_trim(keyword_prefix)
-                                if (ichar(keyword_prefix(k_ch:k_ch)) >= 97 .and. ichar(keyword_prefix(k_ch:k_ch)) <= 122) then
-                                    keyword_prefix(k_ch:k_ch) = char(ichar(keyword_prefix(k_ch:k_ch)) - 32)
-                                end if
-                            end do
-                            keyword = trim(keyword_prefix) // trim(t1_str) // trim(t2_str)
-                        end if
-                        
-                        inquire(file=filename, exist=file_exists)
-                        if (file_exists) then
-                            call read_table_metadata(filename, keyword, n_pts, cutoff)
-                            max_N = max(max_N, n_pts)
-                        end if
-                    end do
-                end do
-                
-                if (max_N == 0) max_N = 100000 ! Fallback
-                
-                write(cmd, '(A, I0)') "pair_style table linear ", max_N
-                call lmp%command(cmd)
-                
-                ! Second pass: set pair_coeffs with exact cutoffs
-                do i_lmp = 1, num_lmp_types
-                    do j_lmp = i_lmp, num_lmp_types
-                        write(t1_str, '(I0)') i_lmp
-                        write(t2_str, '(I0)') j_lmp
-                        
-                        if (is_single_file_lmp) then
-                            filename = trim(table_file_lammps)
-                            write(keyword, '(I0, A, I0)') i_lmp, '_', j_lmp
-                        else
-                            filename = trim(table_file_lammps) // trim(t1_str) // trim(t2_str) // '.dat'
-                            keyword_prefix = trim(table_file_lammps)
-                            do k_ch = 1, len_trim(keyword_prefix)
-                                if (ichar(keyword_prefix(k_ch:k_ch)) >= 97 .and. ichar(keyword_prefix(k_ch:k_ch)) <= 122) then
-                                    keyword_prefix(k_ch:k_ch) = char(ichar(keyword_prefix(k_ch:k_ch)) - 32)
-                                end if
-                            end do
-                            keyword = trim(keyword_prefix) // trim(t1_str) // trim(t2_str)
-                        end if
-                        
-                        inquire(file=filename, exist=file_exists)
-                        if (file_exists) then
-                            call read_table_metadata(filename, keyword, n_pts, cutoff)
-                            cutoff = cutoff - 2.0e-6_wp
-                            write(cmd, '(A, I0, A, I0, A, A, A, A, A, F18.12)') &
-                                "pair_coeff ", i_lmp, " ", j_lmp, " ", trim(filename), &
-                                " ", trim(keyword), " ", cutoff
-                            call lmp%command(cmd)
-                        end if
-                    end do
-                end do
-            end block
+            call lmp%command("include potential_ssp_table.lmp")
             call lmp%command("pair_modify shift yes")
             if (pot_int == 2) then
                 call lmp%command("fix hmc_rigid all rigid/nve molecule")
@@ -313,42 +402,7 @@ contains
                 call lmp%command("fix hmc_nve all nve")
             end if
         else if (pot_int == 2) then ! SSP
-            call lmp%command("pair_style hybrid/overlay lj/cut 20.0 cosine/squared 20.0")
-            call lmp%command("pair_coeff * * lj/cut 0.0 1.0 0.0")
-            call lmp%command("pair_coeff * * cosine/squared 0.0 1.0 2.0")
-            
-            do i = 0, Npart_types - 1
-                do j = 0, Npart_types - 1
-                    sigma_ii = sigma_LJ(i*Npart_types+j)
-                    write(cmd, '(A, I5, A, I5, A, F15.7, A, F15.7, A, F15.7)') &
-                        "pair_coeff ", 2*i+1, " ", 2*j+1, " lj/cut ", epsilon_LJ(i*Npart_types+j), " ", &
-                        sigma_ii, " ", sigma_ii * 1.122462048309373_wp
-                    call lmp%command(cmd)
-                    
-                    if (epsp_factor > 0.0_wp) then
-                        write(cmd, '(A, I5, A, I5, A, F15.7, A, F15.7, A, F15.7)') &
-                            "pair_coeff ", 2*i+1, " ", 2*j+1, " cosine/squared ", epsp_factor * epsilon_LJ(i*Npart_types+j), " ", &
-                            sigma_ii * 1.122462048309373_wp, " ", Rc_factor * sigma_ii * 1.122462048309373_wp
-                        call lmp%command(cmd)
-                    end if
-                    
-                    n_patches = Nrb_sites(i)
-                    do k = 0, n_patches - 1
-                        do l = 0, Nrb_sites(j) - 1
-                            idx = i * Nrb_sites_max + k
-                            idx = idx * Nrb_sites_max * Npart_types
-                            idx = idx + j * Nrb_sites_max + l
-                            if (Vpot_Matrix(idx) > 1.0e-7_wp) then
-                                write(cmd, '(A, I5, A, I5, A, F15.7, A, F15.7, A, F15.7)') &
-                                    "pair_coeff ", 2*i+2, " ", 2*j+2, " cosine/squared ", Vpot_Matrix(idx), " ", &
-                                    sigp_factor * sigma_ii * 1.122462048309373_wp, " ", &
-                                    Rcp_factor * sigma_ii * 1.122462048309373_wp
-                                call lmp%command(cmd)
-                            end if
-                        end do
-                    end do
-                end do
-            end do
+            call lmp%command("include potential_ssp_analytic.lmp")
             call lmp%command("pair_modify shift yes")
             call lmp%command("fix hmc_rigid all rigid/nve molecule")
         else ! LJ
