@@ -109,6 +109,15 @@ contains
         close(unit_id)
     end subroutine read_table_metadata
 
+    ! ==============================================================================
+    ! SUBROUTINE: write_lammps_table_file
+    ! ==============================================================================
+    ! DESCRIPTION:
+    !   Generates the external LAMMPS potential script 'potential_ssp_table.lmp'.
+    !   It parses the table files to calculate the maximum table size and 
+    !   writes the pair_style and pair_coeff lines for loading tabulated 
+    !   forces dynamically during MD runs.
+    ! ==============================================================================
     subroutine write_lammps_table_file()
         use set_precision
         use potential, only : table_file_lammps, Npart_types
@@ -198,6 +207,15 @@ contains
         close(unit_id)
     end subroutine write_lammps_table_file
 
+    ! ==============================================================================
+    ! SUBROUTINE: write_lammps_analytic_file
+    ! ==============================================================================
+    ! DESCRIPTION:
+    !   Generates the external LAMMPS potential script 'potential_ssp_analytic.lmp'.
+    !   It formats and writes the pair_style and pair_coeff lines for the
+    !   colloid-colloid WCA interaction, the attractive cosine-squared tail,
+    !   and the patch-patch anisotropic interaction.
+    ! ==============================================================================
     subroutine write_lammps_analytic_file()
         use set_precision
         use potential, only : sigma_LJ, epsilon_LJ, Vpot_Matrix, Rc_factor, sigp_factor, Rcp_factor, epsp_factor, &
