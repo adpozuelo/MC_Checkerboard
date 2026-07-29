@@ -430,8 +430,9 @@ CONTAINS
     End Subroutine neighbor_search
 
     Subroutine run_cluster_analysis(istep)
+        Use rundata, only : istep_ini, istep_fin
         Integer, Intent(IN) :: istep
-        Integer :: i, k, nb, cluster_id, size_max, nclustered, ncenters, indx, indxq
+        Integer :: i, k, nb, cluster_id, size_max, nclustered, ncenters, indx, indxq, type_cl
         Integer :: queue(natoms), head, tail, curr
         Integer :: cluster_mask_host(natoms)
         Integer :: count_cl(natoms)
@@ -449,7 +450,7 @@ CONTAINS
         If (All(cluster_types == -1)) Then
             If (pot_int == 2) Then
                 Do i = 1, natoms
-                    If (itype(i) == 1 .Or. itype(i) == 3) Then
+                    If (itype(i-1) == 1 .Or. itype(i-1) == 3) Then
                         cluster_mask_host(i) = 1
                     End If
                 End Do
@@ -463,7 +464,7 @@ CONTAINS
             ! Check against both 0-based internal type (itype) and 1-based LAMMPS type (itype + 1)
             ! so both 0-based (0..Npart_types-1) and 1-based LAMMPS (1..Npart_types) namelist inputs work seamlessly
             Do i = 1, natoms
-                If (Any(cluster_types == itype(i)) .Or. Any(cluster_types == itype(i) + 1)) Then
+                If (Any(cluster_types == itype(i-1)) .Or. Any(cluster_types == itype(i-1) + 1)) Then
                     cluster_mask_host(i) = 1
                 End If
             End Do
@@ -562,9 +563,9 @@ CONTAINS
         write(io_lastclconf, '(A)') 'ITEM: NUMBER OF ATOMS'
         write(io_lastclconf, '(I12)') nclustered
         write(io_lastclconf, '(A)') 'ITEM: BOX BOUNDS pp pp pp'
-        write(io_lastclconf, '(2F15.7)') -Box(0)/2.0_wp, Box(0)/2.0_wp
-        write(io_lastclconf, '(2F15.7)') -Box(1)/2.0_wp, Box(1)/2.0_wp
-        write(io_lastclconf, '(2F15.7)') -Box(2)/2.0_wp, Box(2)/2.0_wp
+        write(io_lastclconf, '(2F15.7)') 0.0_wp, Box(0)
+        write(io_lastclconf, '(2F15.7)') 0.0_wp, Box(1)
+        write(io_lastclconf, '(2F15.7)') 0.0_wp, Box(2)
         
         If (pot_int < 1) Then
             write(io_lastclconf, '(A)') 'ITEM: ATOMS id mol type x y z'
@@ -575,15 +576,16 @@ CONTAINS
         do i = 1, natoms
             if (label(i) > 0) then
                 indx = (i - 1) * ndim
+                type_cl = min(count_cl(label(i)), 16)
                 If (pot_int < 1) Then
                     write(io_lastclconf, '(I8,x,I8,x,I4,x,3F16.8)') &
-                        i, label(i), itype(i-1) + 1, &
-                        r(indx) - Box(0)/2.0_wp, r(indx + 1) - Box(1)/2.0_wp, r(indx + 2) - Box(2)/2.0_wp
+                        i, label(i), type_cl, &
+                        r(indx) * Box(0), r(indx + 1) * Box(1), r(indx + 2) * Box(2)
                 Else
                     indxq = (i - 1) * 4
                     write(io_lastclconf, '(I8,x,I8,x,I4,x,3F16.8,x,4F16.8)') &
-                        i, label(i), itype(i-1) + 1, &
-                        r(indx) - Box(0)/2.0_wp, r(indx + 1) - Box(1)/2.0_wp, r(indx + 2) - Box(2)/2.0_wp, &
+                        i, label(i), type_cl, &
+                        r(indx) * Box(0), r(indx + 1) * Box(1), r(indx + 2) * Box(2), &
                         q(indxq), q(indxq + 1), q(indxq + 2), q(indxq + 3)
                 End If
             end if

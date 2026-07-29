@@ -652,7 +652,7 @@ Subroutine Write_final_conf2(istep)
    If (is_open) Then
       write(674,'(A)') "ITEM: TIMESTEP"; write(674,'(I12)') istep
       write(674,'(A)') "ITEM: NUMBER OF ATOMS"; write(674,'(I12)') natoms
-      write(674,'(A)') "ITEM: BOX BOUNDS pp pp pp"; write(674,'(2F15.6)') xlo, xhi; write(674,'(2F15.6)') ylo, yhi; write(674,'(2F15.6)') zlo, zhi
+      write(674,'(A)') "ITEM: BOX BOUNDS pp pp pp"; write(674,'(2F15.6)') 0.0_wp, h(0); write(674,'(2F15.6)') 0.0_wp, h(4); write(674,'(2F15.6)') 0.0_wp, h(8)
       
       If (pot_int < 1) Then
          write(674,'(A)') "ITEM: ATOMS id type x y z"
@@ -663,10 +663,10 @@ Subroutine Write_final_conf2(istep)
       Do i=0, natoms-1
            Indx = i*Ndim
            If (pot_int < 1) Then
-               write(674,'(I8,x,I4,x,3F16.8)') i+1, itype(i)+1, r(Indx)+xlo, r(Indx+1)+ylo, r(Indx+2)+zlo
+               write(674,'(I8,x,I4,x,3F16.8)') i+1, itype(i)+1, r(Indx)*h(0), r(Indx+1)*h(4), r(Indx+2)*h(8)
            Else
                Indxq = i*4
-               write(674,'(I8,x,I4,x,3F16.8,x,4F16.8)') i+1, itype(i)+1, r(Indx)+xlo, r(Indx+1)+ylo, r(Indx+2)+zlo, q(Indxq), q(Indxq+1), q(Indxq+2), q(Indxq+3)
+               write(674,'(I8,x,I4,x,3F16.8,x,4F16.8)') i+1, itype(i)+1, r(Indx)*h(0), r(Indx+1)*h(4), r(Indx+2)*h(8), q(Indxq), q(Indxq+1), q(Indxq+2), q(Indxq+3)
            End If
       End Do
    End If
@@ -675,7 +675,7 @@ Subroutine Write_final_conf2(istep)
    open(675, file='last_conf.lammpstrj', status='unknown')
    write(675,'(A)') "ITEM: TIMESTEP"; write(675,'(I12)') istep
    write(675,'(A)') "ITEM: NUMBER OF ATOMS"; write(675,'(I12)') natoms
-   write(675,'(A)') "ITEM: BOX BOUNDS pp pp pp"; write(675,'(2F15.6)') xlo, xhi; write(675,'(2F15.6)') ylo, yhi; write(675,'(2F15.6)') zlo, zhi
+   write(675,'(A)') "ITEM: BOX BOUNDS pp pp pp"; write(675,'(2F15.6)') 0.0_wp, h(0); write(675,'(2F15.6)') 0.0_wp, h(4); write(675,'(2F15.6)') 0.0_wp, h(8)
    
    If (pot_int < 1) Then
       write(675,'(A)') "ITEM: ATOMS id type x y z"
@@ -686,10 +686,10 @@ Subroutine Write_final_conf2(istep)
    Do i=0, natoms-1
         Indx = i*Ndim
         If (pot_int < 1) Then
-            write(675,'(I8,x,I4,x,3F16.8)') i+1, itype(i)+1, r(Indx)+xlo, r(Indx+1)+ylo, r(Indx+2)+zlo
+            write(675,'(I8,x,I4,x,3F16.8)') i+1, itype(i)+1, r(Indx)*h(0), r(Indx+1)*h(4), r(Indx+2)*h(8)
         Else
             Indxq = i*4
-            write(675,'(I8,x,I4,x,3F16.8,x,4F16.8)') i+1, itype(i)+1, r(Indx)+xlo, r(Indx+1)+ylo, r(Indx+2)+zlo, q(Indxq), q(Indxq+1), q(Indxq+2), q(Indxq+3)
+            write(675,'(I8,x,I4,x,3F16.8,x,4F16.8)') i+1, itype(i)+1, r(Indx)*h(0), r(Indx+1)*h(4), r(Indx+2)*h(8), q(Indxq), q(Indxq+1), q(Indxq+2), q(Indxq+3)
         End If
    End Do
    close(675)
