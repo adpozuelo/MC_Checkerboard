@@ -1,5 +1,5 @@
 ! ==============================================================================
-! PROGRAM: GPU_MC
+! PROGRAM: MC_CB-GPU
 ! ==============================================================================
 ! DESCRIPTION:
 !   GPU-accelerated Monte Carlo simulation for patchy particle systems in
@@ -25,7 +25,7 @@
 !   February 2026
 ! ==============================================================================
 
-Program GPU_MC
+Program MC_CB_GPU
 
    Use set_precision
 
@@ -116,7 +116,7 @@ Program GPU_MC
    Call date_and_time(dt_date, dt_time, dt_zone, dt_values)
 
    write(*,'(A)') c_blue // '========================================================================================' // c_reset
-   write(*,'(A)') c_cyan // '                          HYBRID GPU_MC/LAMMPS SIMULATION ENGINE                            ' // c_reset
+   write(*,'(A)') c_cyan // '                          HYBRID MC_CB-GPU/LAMMPS SIMULATION ENGINE                            ' // c_reset
    write(*,'(A)') c_cyan // '                                   Version 2.3                                        ' // c_reset
    write(*,'(A)') c_blue // '========================================================================================' // c_reset
    write(*,'(A,I4,A,I2.2,A,I2.2,A,I2.2,A,I2.2,A,I2.2,A)') c_green // ' >>> Run started on: ', &
@@ -571,4 +571,4 @@ Program GPU_MC
    write(*,'(A)') c_green // ' >>> Simulation completely finished. GPU memory cleaned.' // c_reset
    call MPI_Finalize(ierr)
 
-End Program GPU_MC
+End Program MC_CB_GPU
