@@ -475,8 +475,6 @@ Program MC_CB_GPU
             Nrb_sites_max, Ntor_max, sigma_tor_jon, sigp_factor, Rcp_factor, Rc_factor, Natoms, atom_energies_host)
          !Call get_per_atom_energies(atom_energies_host)
 
-         Call Convert_Real_Units
-
          If (trim(traj_format) == 'plain' .or. trim(traj_format) == 'both') Then
             Call Write_movie(i)
             Call Write_final_conf2(i)
@@ -491,7 +489,6 @@ Program MC_CB_GPU
       ! models, rcl should match the patch-patch interaction cutoff.
       If( (i > Ieq) .AND. (ncluster > 0) .AND. (mod(i, ncluster) == 0) ) Then
          Call Convert_CB_RU
-         Call Convert_Real_Units
          Call run_cluster_analysis(i)
       EndIf
 
@@ -499,7 +496,6 @@ Program MC_CB_GPU
       ! Write restart files periodically
       If(mod(i,Nrestart)==0) Then
          Call Convert_CB_RU
-         Call Convert_Real_Units
          Call Write_final_conf
          Call Write_Input_File(i)
          En_tot_old=En_tot
@@ -560,7 +556,6 @@ Program MC_CB_GPU
    Call Convert_CB_RU
    Call Calculate_averages
    Call Write_final_properties
-   Call Convert_Real_Units
    Call Write_final_conf
    Call Write_final_conf2(istep_ini+istep_fin)
    If (ncluster > 0) Call run_cluster_analysis(istep_ini+istep_fin)

@@ -1,7 +1,7 @@
 MODULE mod_clusters
     Use set_precision
     Use configuration
-    Use rundata, Only : rcl, minPts, ncluster, cluster_types, istep_ini
+    Use rundata, Only : rcl, minPts, ncluster, cluster_types, istep_ini, pot_int
     Use cudafor
     Use Cell, Only : Ntot_Cell, Nat_Cell_Max, Sphere_Cell, List_Cell, Nat_Cell, DR_Cell, Map_Cell
     Use cuda_fortran, Only : Sphere_Celldev, List_Cell_dev, Map_Cell_dev, Nat_Cell_dev, DR_Cell_dev, hdev
@@ -431,37 +431,39 @@ CONTAINS
 
     Subroutine run_cluster_analysis(istep)
         Integer, Intent(IN) :: istep
-        Integer :: i, k, nb, inherited_cluster, cluster_id, cluster_id_local, icl, indx
-        Integer :: istat
-        Logical :: iactive
-        Logical, Device :: iactive_d
+        Integer :: i, k, nb, cluster_id, size_max, nclustered, ncenters, indx, indxq
+        Integer :: queue(natoms), head, tail, curr
         Integer :: cluster_mask_host(natoms)
         Integer :: count_cl(natoms)
-        Integer :: size_max, nclustered
         Logical :: file_exists
         Real(wp) :: pct
-        Integer :: ncenters
         Integer :: io_lastclconf = 112
         
         ! 1. Allocate memory if needed
         Call clusters_alloc()
         
         ! 2. Initialize cluster mask based on selected types
-        ! NOTE: If cluster_types is not configured (all 0), we default to clustering
-        ! based on the interaction patches (internal types 1 and 3, which map to 
-        ! external/LAMMPS types 2 and 4). Because patchy particles bond via patch-patch 
-        ! interactions, setting rcl to the patch-patch interaction cutoff range (e.g. 
-        ! Rcut ≈ 0.337 for SSP models) allows us to trace the true bonded network.
+        ! NOTE: If cluster_types is not configured (all -1), we default to clustering
+        ! based on interaction patches if present, or all particles otherwise.
         cluster_mask_host(:) = 0
-        If (All(cluster_types == 0)) Then
-            Do i = 1, natoms
-                If (itype(i) == 1 .Or. itype(i) == 3) Then
-                    cluster_mask_host(i) = 1
+        If (All(cluster_types == -1)) Then
+            If (pot_int == 2) Then
+                Do i = 1, natoms
+                    If (itype(i) == 1 .Or. itype(i) == 3) Then
+                        cluster_mask_host(i) = 1
+                    End If
+                End Do
+                If (All(cluster_mask_host == 0)) Then
+                    cluster_mask_host(:) = 1
                 End If
-            End Do
+            Else
+                cluster_mask_host(:) = 1
+            End If
         Else
+            ! Check against both 0-based internal type (itype) and 1-based LAMMPS type (itype + 1)
+            ! so both 0-based (0..Npart_types-1) and 1-based LAMMPS (1..Npart_types) namelist inputs work seamlessly
             Do i = 1, natoms
-                If (Any(cluster_types == itype(i))) Then
+                If (Any(cluster_types == itype(i)) .Or. Any(cluster_types == itype(i) + 1)) Then
                     cluster_mask_host(i) = 1
                 End If
             End Do
@@ -476,47 +478,37 @@ CONTAINS
         ! 4. Search for neighbors and build adjacency list
         Call neighbor_search(natoms)
         
-        ! 5. Run DBSCAN BFS search
-        glabel(:) = 0
+        ! 5. Run DBSCAN BFS search on Host (fast queue BFS on adjacency list)
         label(:) = 0
         cluster_id = 0
         
         Do i = 1, natoms
-            ! Skip if not a selected particle type
             If (cluster_mask_host(i) == 0) Cycle
+            If (neighbors(i) < minPts - 1) Cycle
+            If (label(i) /= 0) Cycle
             
-            ! If i is a core particle and not yet assigned to a cluster, start/expand
-            If (neighbors(i) >= minPts - 1 .And. label(i) == 0) Then
-                ! Try to inherit cluster ID from already-labeled neighbors
-                inherited_cluster = 0
-                Do k = offset(i), offset(i) + neighbors(i) - 1
-                    nb = adjacency(k)
-                    If (label(nb) /= 0) Then
-                        inherited_cluster = label(nb)
-                        Exit
-                    End If
-                End Do
+            cluster_id = cluster_id + 1
+            label(i) = cluster_id
+            
+            head = 1
+            tail = 1
+            queue(1) = i
+            
+            Do While (head <= tail)
+                curr = queue(head)
+                head = head + 1
                 
-                If (inherited_cluster /= 0) Then
-                    cluster_id_local = inherited_cluster
-                Else
-                    cluster_id = cluster_id + 1
-                    cluster_id_local = cluster_id
+                If (neighbors(curr) >= minPts - 1) Then
+                    Do k = offset(curr), offset(curr) + neighbors(curr) - 1
+                        nb = adjacency(k)
+                        If (label(nb) == 0) Then
+                            label(nb) = cluster_id
+                            tail = tail + 1
+                            queue(tail) = nb
+                        End If
+                    End Do
                 End If
-                
-                gborder(:) = 0
-                gborder(i) = 1
-                iactive = .True.
-                
-                Do While (iactive)
-                    iactive_d = .False.
-                    Call gbfs<<<nbcuda, nthread>>>(natoms, cluster_id_local, minPts, iactive_d)
-                    istat = cudaDeviceSynchronize()
-                    iactive = iactive_d
-                End Do
-                
-                label(:) = glabel(:)
-            End If
+            End Do
         End Do
         
         ! 6. Analyze cluster size distribution
@@ -573,16 +565,27 @@ CONTAINS
         write(io_lastclconf, '(2F15.7)') -Box(0)/2.0_wp, Box(0)/2.0_wp
         write(io_lastclconf, '(2F15.7)') -Box(1)/2.0_wp, Box(1)/2.0_wp
         write(io_lastclconf, '(2F15.7)') -Box(2)/2.0_wp, Box(2)/2.0_wp
-        write(io_lastclconf, '(A)') 'ITEM: ATOMS id mol type x y z'
         
-        icl = 0
+        If (pot_int < 1) Then
+            write(io_lastclconf, '(A)') 'ITEM: ATOMS id mol type x y z'
+        Else
+            write(io_lastclconf, '(A)') 'ITEM: ATOMS id mol type x y z quatw quati quatj quatk'
+        End If
+        
         do i = 1, natoms
             if (label(i) > 0) then
-                icl = icl + 1
                 indx = (i - 1) * ndim
-                write(io_lastclconf, '(2I8, I4, 3F15.7)') &
-                    icl, label(i), mod(count_cl(label(i)), 32), &
-                    r(indx + 1), r(indx + 2), r(indx + 3)
+                If (pot_int < 1) Then
+                    write(io_lastclconf, '(I8,x,I8,x,I4,x,3F16.8)') &
+                        i, label(i), itype(i-1) + 1, &
+                        r(indx) - Box(0)/2.0_wp, r(indx + 1) - Box(1)/2.0_wp, r(indx + 2) - Box(2)/2.0_wp
+                Else
+                    indxq = (i - 1) * 4
+                    write(io_lastclconf, '(I8,x,I8,x,I4,x,3F16.8,x,4F16.8)') &
+                        i, label(i), itype(i-1) + 1, &
+                        r(indx) - Box(0)/2.0_wp, r(indx + 1) - Box(1)/2.0_wp, r(indx + 2) - Box(2)/2.0_wp, &
+                        q(indxq), q(indxq + 1), q(indxq + 2), q(indxq + 3)
+                End If
             end if
         end do
         close(io_lastclconf)

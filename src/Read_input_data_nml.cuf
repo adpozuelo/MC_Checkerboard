@@ -177,7 +177,7 @@ Subroutine Read_Input_Data
    imovie = .false.; displ_update = .false.; npt = .false.; 
    sigma_jon_aux = 0.0_wp; sigma_tor_jon = 0.0_wp; rangepp = 0.0_wp
    sigp_factor = 0.1_wp; Rcp_factor = 0.3_wp; Rc_factor = 2.0_wp; epsp_factor = -1.0_wp; patch_radial_factor = 0.5_wp
-   rcl = 1.8_wp; minPts = 3; ncluster = 0; cluster_types(:) = 0
+   rcl = 1.8_wp; minPts = 3; ncluster = 0; cluster_types(:) = -1
    Nmc_hmc = 0; Nmd_hmc = 0; tstep_hmc = 0.0025_wp
    table_mc = .false.; table_lammps = .false.
    table_file_mc = ""; table_file_lammps = ""
@@ -339,10 +339,27 @@ Subroutine Read_Input_Data
       EndDo
 
       Allocate ( sigma_jon(0:Npart_types*Nrb_sites_max-1) )
+      Allocate ( sigma_LJ(0:Npart_types*Npart_types-1) )
+      Allocate ( rangep(0:Npart_types*Npart_types-1) )
+      Allocate ( epsilon_LJ(0:Npart_types*Npart_types-1) )
+      Allocate ( VL0(0:Npart_types*Npart_types-1) )
+      Allocate ( xop(0:Npart_types*Npart_types-1) )
+      epsilon_LJ = 1.0_wp
+
       If(sigma_jon_aux.gt.0.d0) then
          Do I = 0, Npart_types-1
             Indx = I*Nrb_sites_max
             Do J = 0, Nrb_sites(I)-1; sigma_jon(Indx+J) = sigma_jon_aux; EndDo
+         EndDo
+         Do I=0,Npart_types-1
+              Indx = I*Npart_types
+              Do J = 0, Npart_types-1
+                 sigma_LJ(indx+j) = 1.0_wp 
+                 rangep(indx+j) = rangepp * sigma_LJ(indx+j)
+                 VL0(indx+j)=(sigma_LJ(indx+j)/rangep(indx+j))**12.d0-(sigma_LJ(indx+j)/rangep(indx+j))**6.0
+                 xopp = (1.d0+sqrt(1.d0+4.d00*VL0(indx+j)))/2.d0
+                 xop(indx+j) = sigma_LJ(indx+j)/(xopp**(1.d0/6.d0))
+              EndDo
          EndDo
       Else
          Read(20,*) 
@@ -353,13 +370,6 @@ Subroutine Read_Input_Data
                Read(20,*) 
             EndIf
          EndDo
-         Allocate ( sigma_LJ(0:Npart_types*Npart_types-1) )
-         Allocate ( rangep(0:Npart_types*Npart_types-1) )
-         Allocate ( epsilon_LJ(0:Npart_types*Npart_types-1) )
-         Allocate ( VL0(0:Npart_types*Npart_types-1) )
-         Allocate ( xop(0:Npart_types*Npart_types-1) )
-         ! Epsilon_LJ could be set for LJG differently if needed
-         epsilon_LJ = 1.0
          Read(20,*) 
          Do I=0,Npart_types-1
               Indx = I*Npart_types
@@ -368,7 +378,7 @@ Subroutine Read_Input_Data
                  rangep(indx+j) = rangepp * sigma_jon_ij
                  VL0(indx+j)=(sigma_jon_ij/rangep(indx+j))**12.d0-(sigma_jon_ij/rangep(indx+j))**6.0
                  xopp = (1.d0+sqrt(1.d0+4.d00*VL0(indx+j)))/2.d0
-                 xop(indx+j) = sigma_jon_ij/(xopp**(1.d0/6.d0))
+                 xop(indx+j) = sigma_LJ(indx+j)/(xopp**(1.d0/6.d0))
               EndDo
               Read(20,*) 
          EndDo
@@ -484,8 +494,13 @@ Subroutine Read_init_conf
             Else
                read(21, *) id, ityp, eflag, den, x, y, z
             End If
+             ! Convert 1-based atom type (ityp) from input file to 0-based internal type (itype)
             Indx = (id - 1) * ndim; itype(id - 1) = ityp - 1
-            r(Indx) = x-xlo; r(Indx+1) = y-ylo; r(Indx+2) = z-zlo
+            r(Indx)   = x - xlo;   r(Indx+1) = y - ylo;   r(Indx+2) = z - zlo
+            ! Apply periodic boundary conditions to wrap unwrapped input coordinates into [0, L]
+            If (h(0) > 0.0_wp) r(Indx)   = r(Indx)   - floor(r(Indx)   / h(0)) * h(0)
+            If (h(4) > 0.0_wp) r(Indx+1) = r(Indx+1) - floor(r(Indx+1) / h(4)) * h(4)
+            If (h(8) > 0.0_wp) r(Indx+2) = r(Indx+2) - floor(r(Indx+2) / h(8)) * h(8)
          End Do
          ! Skip reading ellipsoids if we are in pure LJ mode
          If (pot_int < 1) Exit 
@@ -501,7 +516,71 @@ Subroutine Read_init_conf
       End If
    End Do
    Close (21)
+
+   Call Print_system_data_summary
 End Subroutine Read_init_conf
+
+! ==============================================================================
+! SUBROUTINE: Print_system_data_summary
+! ==============================================================================
+Subroutine Print_system_data_summary
+   Use set_precision
+   Use configuration
+   Use rundata
+   Use potential
+   Use utils
+   Implicit None
+   Integer :: k, p, count_k, indx_p, indx_sig
+   Real(wp) :: pct, px, py, pz, sig_a
+
+   write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
+   write(*,'(A)') c_cyan // '                     INITIAL CONFIGURATION & SPECIES SUMMARY                           ' // c_reset
+   write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
+   write(*,'(A,A)')     '  -> Data file read:          ', trim(data_file)
+   write(*,'(A,I10)')   '  -> Total particles read:    ', natoms
+   write(*,'(A,I5)')     '  -> Number of species:       ', Npart_types
+   write(*,'(A)') ''
+   write(*,'(A)') c_yellow // ' --- Species Breakdown ---' // c_reset
+   write(*,'(A)') '  Ext Type (Int Type) | Particle Count | % of System | Patch Count'
+   write(*,'(A)') '  ----------------------------------------------------------------'
+   Do k = 0, Npart_types - 1
+      count_k = count(itype == k)
+      If (natoms > 0) Then
+         pct = (Real(count_k, wp) / Real(natoms, wp)) * 100.0_wp
+      Else
+         pct = 0.0_wp
+      End If
+      If (pot_int > 0 .and. Allocated(Nrb_sites)) Then
+         write(*,'(A,I4,A,I4,A,I14,A,F10.2,A,I12)') '   Type ', k+1, ' (Int ', k, ')   | ', count_k, ' | ', pct, ' % | ', Nrb_sites(k)
+      Else
+         write(*,'(A,I4,A,I4,A,I14,A,F10.2,A,A)')   '   Type ', k+1, ' (Int ', k, ')   | ', count_k, ' | ', pct, ' % | ', 'N/A'
+      End If
+   End Do
+   write(*,'(A)') '  ----------------------------------------------------------------'
+
+   If (pot_int == 2 .and. Allocated(Nrb_sites) .and. Allocated(patch)) Then
+      write(*,'(A)') ''
+      write(*,'(A)') c_green // ' --- SSP Patch Geometry Details ---' // c_reset
+      Do k = 0, Npart_types - 1
+         write(*,'(A,I2,A,I2,A,I3,A)') '  Species ', k+1, ' (Int ', k, '): ', Nrb_sites(k), ' patches'
+         Do p = 0, Nrb_sites(k) - 1
+            indx_p = k * Nrb_sites_max * ndim + p * ndim
+            px = patch(indx_p)
+            py = patch(indx_p + 1)
+            pz = patch(indx_p + 2)
+            If (Allocated(sigma_jon)) Then
+               indx_sig = k * Nrb_sites_max + p
+               sig_a = sigma_jon(indx_sig)
+               write(*,'(A,I2,A,3F11.6,A,F8.4)') '    Patch ', p+1, ': Vector = (', px, py, pz, '), sigma_ang = ', sig_a
+            Else
+               write(*,'(A,I2,A,3F11.6,A)')       '    Patch ', p+1, ': Vector = (', px, py, pz, ')'
+            End If
+         End Do
+      End Do
+   End If
+   write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
+   write(*,'(A)') ''
+End Subroutine Print_system_data_summary
 
 ! ===============================================================================
 ! SUBROUTINE: Write_final_conf (LAMMPS DATA FORMAT)
@@ -534,9 +613,11 @@ Subroutine Write_final_conf
    Do I=0, natoms-1
       Indx = I * ndim
       If (pot_int < 1) Then
-         write(21,'(I8,I8,3F16.8)') i+1, itype(i)+1, r(Indx)+xlo, r(Indx+1)+ylo, r(Indx+2)+zlo
+         write(21,'(I8,I8,3F16.8)') i+1, itype(i)+1, &
+             r(Indx)*h(0) + xlo, r(Indx+1)*h(4) + ylo, r(Indx+2)*h(8) + zlo
       Else
-         write(21,'(I8,I8,I4,F10.4,3F16.8)') i+1, itype(i)+1, 1, 1.0_wp, r(Indx)+xlo, r(Indx+1)+ylo, r(Indx+2)+zlo
+         write(21,'(I8,I8,I4,F10.4,3F16.8)') i+1, itype(i)+1, 1, 1.0_wp, &
+             r(Indx)*h(0) + xlo, r(Indx+1)*h(4) + ylo, r(Indx+2)*h(8) + zlo
       End If
    End Do
    
@@ -582,10 +663,10 @@ Subroutine Write_final_conf2(istep)
       Do i=0, natoms-1
            Indx = i*Ndim
            If (pot_int < 1) Then
-               write(674,'(I8,x,I4,x,3F16.8)') i+1, itype(i)+1, r(Indx), r(Indx+1), r(Indx+2)
+               write(674,'(I8,x,I4,x,3F16.8)') i+1, itype(i)+1, r(Indx)+xlo, r(Indx+1)+ylo, r(Indx+2)+zlo
            Else
                Indxq = i*4
-               write(674,'(I8,x,I4,x,3F16.8,x,4F16.8)') i+1, itype(i)+1, r(Indx), r(Indx+1), r(Indx+2), q(Indxq), q(Indxq+1), q(Indxq+2), q(Indxq+3)
+               write(674,'(I8,x,I4,x,3F16.8,x,4F16.8)') i+1, itype(i)+1, r(Indx)+xlo, r(Indx+1)+ylo, r(Indx+2)+zlo, q(Indxq), q(Indxq+1), q(Indxq+2), q(Indxq+3)
            End If
       End Do
    End If
@@ -605,10 +686,10 @@ Subroutine Write_final_conf2(istep)
    Do i=0, natoms-1
         Indx = i*Ndim
         If (pot_int < 1) Then
-            write(675,'(I8,x,I4,x,3F16.8)') i+1, itype(i)+1, r(Indx), r(Indx+1), r(Indx+2)
+            write(675,'(I8,x,I4,x,3F16.8)') i+1, itype(i)+1, r(Indx)+xlo, r(Indx+1)+ylo, r(Indx+2)+zlo
         Else
             Indxq = i*4
-            write(675,'(I8,x,I4,x,3F16.8,x,4F16.8)') i+1, itype(i)+1, r(Indx), r(Indx+1), r(Indx+2), q(Indxq), q(Indxq+1), q(Indxq+2), q(Indxq+3)
+            write(675,'(I8,x,I4,x,3F16.8,x,4F16.8)') i+1, itype(i)+1, r(Indx)+xlo, r(Indx+1)+ylo, r(Indx+2)+zlo, q(Indxq), q(Indxq+1), q(Indxq+2), q(Indxq+3)
         End If
    End Do
    close(675)

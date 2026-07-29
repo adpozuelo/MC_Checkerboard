@@ -1,3 +1,11 @@
+! ==============================================================================
+! PARTICLE TYPE INDEXING CONVENTION:
+! The main codebase, namelists, and internal arrays use 0-based particle indexing
+! (0 to Npart_types - 1). For compatibility with external LAMMPS calls and data formats
+! (which expect 1-based atom types 1 to Npart_types), particle types are shifted by +1
+! (e.g., itype(i) + 1) when writing LAMMPS data files or invoking LAMMPS routines.
+! ==============================================================================
+
 module lammps_hmc_wrapper
     use, intrinsic :: iso_c_binding
     use liblammps ! Native LAMMPS Fortran module
@@ -377,6 +385,7 @@ contains
         else
             do i = 1, natoms
                 idx = idx + 1
+                ! Shift 0-based internal particle type (itype) by +1 for 1-based LAMMPS atom type compatibility
                 write(99, '(I10, I10, I5, F6.2, 3F18.8)') &
                     idx, i, itype(i-1) + 1, 0.0_wp, R(3*(i-1))*Box(0), R(3*(i-1)+1)*Box(1), R(3*(i-1)+2)*Box(2)
             end do

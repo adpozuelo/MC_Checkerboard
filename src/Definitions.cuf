@@ -96,7 +96,7 @@ MODULE rundata
    Real(wp) :: rcl = 1.8_wp                            ! Cutoff distance for clustering
    Integer :: minPts = 3                               ! Min points for core nodes in DBSCAN
    Integer :: ncluster = 0                             ! Cluster analysis periodicity (0 = disabled)
-   Integer :: cluster_types(10) = 0                    ! Site types to include in cluster search
+   Integer :: cluster_types(10) = -1                   ! Site types to include in cluster search
 
 END MODULE rundata
 

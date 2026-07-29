@@ -177,6 +177,12 @@ See `examples/LJG/` directory for example input filesi for LJG patchy systems.
 
 ## Simulation Parameters (in namelist)
 
+### Particle Type Indexing Convention
+
+- **LAMMPS Data Files (`data.atoms`, `data.restart`) & Trajectories**: Follow standard 1-based LAMMPS particle type indexing (`1` to `Npart_types`). When reading `data.atoms`, 1-based particle types are converted to internal 0-based types (`itype = ityp - 1`).
+- **Main Codebase & Internal Arrays**: Internal memory (`itype`) uses 0-based indexing (`0` to `Npart_types - 1`), where LAMMPS Type 1 corresponds to internal Type 0.
+- **Input Namelists (`cluster_types`)**: Supports both 0-based (`0` to `Npart_types - 1`) and 1-based LAMMPS indexing (`1` to `Npart_types`) for user convenience. For example, both `cluster_types = 0` and `cluster_types = 1` target the first species (minority center particles).
+
 ### Monte Carlo Control
 - `istep_ini`, `istep_fin` - Initial and final step numbers
 - `Neq` - Equilibration steps
@@ -187,7 +193,7 @@ See `examples/LJG/` directory for example input filesi for LJG patchy systems.
 - `ncluster` - Perform cluster analysis every `ncluster` steps (default: `0`, which disables clustering)
 - `rcl` - Cutoff distance for clustering (default: `1.8`). For patchy particle models, `rcl` should be set to the patch-patch interaction cutoff distance (e.g. $R_{\text{cut}} \approx 0.337$) to correctly identify physically bonded networks.
 - `minPts` - Minimum number of neighbors for a core node in DBSCAN (default: `3`)
-- `cluster_types` - Integer array of up to 10 types of sites to include in cluster analysis. If all are `0` (default), it automatically targets patch types `2` and `4` (internally stored as `itype` `1` and `3`) because bonds in patchy models are defined by patch-patch proximity.
+- `cluster_types` - Integer array of up to 10 particle species to include in cluster analysis. Default is `-1` (unspecified). Accepts either 0-based (`0`) or 1-based (`1`) indexing for species selection (e.g., both `cluster_types = 0` and `cluster_types = 1` select the first species).
 
 ### Thermodynamic Parameters
 - `temp0`, `temp1` - Initial and final temperatures (Kelvin)
