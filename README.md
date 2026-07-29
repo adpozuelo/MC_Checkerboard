@@ -10,7 +10,7 @@ A high-performance GPU-accelerated Monte Carlo simulation code for patchy partic
 
 Instituto de Química Física Blas Cabrera (IQF-CSIC)
 
-**Date:** June 2026
+**Date:** July 2026
 
 ---
 

@@ -137,7 +137,7 @@ Subroutine netcdf_init_trajectory(filename, natoms)
    ierr = nf90_put_att(ncid, NF90_GLOBAL, 'Conventions', 'AMBER')
    ierr = nf90_put_att(ncid, NF90_GLOBAL, 'ConventionVersion', '1.0')
    ierr = nf90_put_att(ncid, NF90_GLOBAL, 'program', 'MC_GPU_ROT')
-   ierr = nf90_put_att(ncid, NF90_GLOBAL, 'programVersion', '1.0')
+   ierr = nf90_put_att(ncid, NF90_GLOBAL, 'programVersion', 'V2.3')
    
    ! End define mode
    ierr = nf90_enddef(ncid)
