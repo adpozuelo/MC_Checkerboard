@@ -469,7 +469,7 @@ Subroutine repopulate_checkerboard_cells()
    Use potential
    Implicit None
 
-   Integer :: i, Indice, Indx_Nat, Indice2, Indice_Q, ICell
+   Integer :: i, Indice, Indx_Nat, Indice2, Indice_Q, icell
    Integer :: Indx(3)
    Real(wp) :: XI, YI, ZI, XCell, YCell, ZCell
 
@@ -483,14 +483,9 @@ Subroutine repopulate_checkerboard_cells()
       YI = r(Indice + 1) 
       ZI = r(Indice + 2) 
 
-      If (XI < 0.0_wp) XI = XI + Int(XI) + 1.0_wp 
-      If (XI > 1.0_wp) XI = XI - Int(XI) 
-
-      If (YI < 0.0_wp) YI = YI + Int(YI) + 1.0_wp 
-      If (YI > 1.0_wp) YI = YI - Int(YI) 
-
-      If (ZI < 0.0_wp) ZI = ZI + Int(ZI) + 1.0_wp 
-      If (ZI > 1.0_wp) ZI = ZI - Int(ZI) 
+      XI = XI - Floor(XI)
+      YI = YI - Floor(YI)
+      ZI = ZI - Floor(ZI) 
 
       Indx(1) = Int(XI / w_RU(0)) 
       Indx(2) = Int(YI / w_RU(1)) 
@@ -534,3 +529,130 @@ Subroutine repopulate_checkerboard_cells()
       List_Cell(Indice2 + 1) = itype(i)
    End Do
 End Subroutine repopulate_checkerboard_cells
+
+! Subroutine for O(1) single-particle cell list update
+Subroutine update_single_particle_cell(id_atom, r_old, r_new)
+   Use set_precision
+   Use Cell
+   Use configuration
+   Use potential
+   Implicit None
+
+   Integer, Intent(in) :: id_atom
+   Real(wp), Intent(in) :: r_old(3), r_new(3)
+
+   Integer :: i_atom, Indice_old, Indice_new, k_pos, k_last, icell_idx, icell
+   Integer :: Indx_old(3), Indx_new(3)
+   Integer :: Indice2_old, Indice2_last, Indice2_new, Indice_Q
+   Real(wp) :: XI_old, YI_old, ZI_old, XI_new, YI_new, ZI_new
+   Real(wp) :: XCell_new, YCell_new, ZCell_new
+
+   Real(wp) :: q_saved(4)
+
+   i_atom = id_atom - 1
+
+   ! 1. Calculate old cell index
+   XI_old = r_old(1) - Floor(r_old(1))
+   YI_old = r_old(2) - Floor(r_old(2))
+   ZI_old = r_old(3) - Floor(r_old(3))
+
+   Indx_old(1) = Int(XI_old / w_RU(0))
+   Indx_old(2) = Int(YI_old / w_RU(1))
+   Indx_old(3) = Int(ZI_old / w_RU(2))
+   If (Indx_old(1) >= Nl_Cell(0)) Indx_old(1) = Nl_Cell(0) - 1
+   If (Indx_old(1) < 0) Indx_old(1) = 0
+   If (Indx_old(2) >= Nl_Cell(1)) Indx_old(2) = Nl_Cell(1) - 1
+   If (Indx_old(2) < 0) Indx_old(2) = 0
+   If (Indx_old(3) >= Nl_Cell(2)) Indx_old(3) = Nl_Cell(2) - 1
+   If (Indx_old(3) < 0) Indx_old(3) = 0
+
+   Indice_old = ICell(Indx_old(1), Indx_old(2), Indx_old(3))
+
+   ! 2. Calculate new cell index
+   XI_new = r_new(1) - Floor(r_new(1))
+   YI_new = r_new(2) - Floor(r_new(2))
+   ZI_new = r_new(3) - Floor(r_new(3))
+
+   Indx_new(1) = Int(XI_new / w_RU(0))
+   Indx_new(2) = Int(YI_new / w_RU(1))
+   Indx_new(3) = Int(ZI_new / w_RU(2))
+   If (Indx_new(1) >= Nl_Cell(0)) Indx_new(1) = Nl_Cell(0) - 1
+   If (Indx_new(1) < 0) Indx_new(1) = 0
+   If (Indx_new(2) >= Nl_Cell(1)) Indx_new(2) = Nl_Cell(1) - 1
+   If (Indx_new(2) < 0) Indx_new(2) = 0
+   If (Indx_new(3) >= Nl_Cell(2)) Indx_new(3) = Nl_Cell(2) - 1
+   If (Indx_new(3) < 0) Indx_new(3) = 0
+
+   Indice_new = ICell(Indx_new(1), Indx_new(2), Indx_new(3))
+
+   ! Default quaternion from host array
+   Indice_Q = i_atom * 4
+   q_saved(1) = q(Indice_Q); q_saved(2) = q(Indice_Q + 1); q_saved(3) = q(Indice_Q + 2); q_saved(4) = q(Indice_Q + 3)
+
+   ! 3. Find and remove i_atom from Indice_old, preserving its active orientation
+   k_pos = -1
+   Do k_last = 0, Nat_Cell(Indice_old) - 1
+      Indice2_old = Indice_old * Nat_cell_max * 2 + k_last * 2
+      If (List_Cell(Indice2_old) == i_atom) Then
+         k_pos = k_last
+         Indice2_old = Indice_old * Nat_cell_max * (ndim + 4) + k_pos * (ndim + 4)
+         q_saved(1:4) = Sphere_Cell(Indice2_old + 3 : Indice2_old + 6)
+         Exit
+      End If
+   End Do
+
+   ! Fallback search across all cells if not found in Indice_old
+   If (k_pos < 0) Then
+      Do icell_idx = 0, Ntot_Cell - 1
+         Do k_last = 0, Nat_Cell(icell_idx) - 1
+            Indice2_old = icell_idx * Nat_cell_max * 2 + k_last * 2
+            If (List_Cell(Indice2_old) == i_atom) Then
+               Indice_old = icell_idx
+               k_pos = k_last
+               Indice2_old = Indice_old * Nat_cell_max * (ndim + 4) + k_pos * (ndim + 4)
+               q_saved(1:4) = Sphere_Cell(Indice2_old + 3 : Indice2_old + 6)
+               Exit
+            End If
+         End Do
+         If (k_pos >= 0) Exit
+      End Do
+   End If
+
+   If (k_pos >= 0) Then
+      k_last = Nat_Cell(Indice_old) - 1
+      If (k_pos < k_last) Then
+         ! Swap last element into k_pos
+         Indice2_old = Indice_old * Nat_cell_max * 2 + k_pos * 2
+         Indice2_last = Indice_old * Nat_cell_max * 2 + k_last * 2
+         List_Cell(Indice2_old : Indice2_old + 1) = List_Cell(Indice2_last : Indice2_last + 1)
+
+         Indice2_old = Indice_old * Nat_cell_max * (ndim + 4) + k_pos * (ndim + 4)
+         Indice2_last = Indice_old * Nat_cell_max * (ndim + 4) + k_last * (ndim + 4)
+         Sphere_Cell(Indice2_old : Indice2_old + ndim + 3) = Sphere_Cell(Indice2_last : Indice2_last + ndim + 3)
+      End If
+      Nat_Cell(Indice_old) = Nat_Cell(Indice_old) - 1
+   End If
+
+   ! 4. Insert i_atom into Indice_new with preserved orientation
+   k_last = Nat_Cell(Indice_new)
+   Nat_Cell(Indice_new) = Nat_Cell(Indice_new) + 1
+
+   If (Nat_Cell(Indice_new) > Nat_cell_max) Then
+       Print*, 'ERROR in update_single_particle_cell: Nat_Cell larger than Nat_cell_Max', Nat_Cell(Indice_new), Nat_cell_max
+       Stop
+   End If
+
+   XCell_new = Indx_new(1) * w_RU(0) + w_RU(0) / 2.0_wp
+   YCell_new = Indx_new(2) * w_RU(1) + w_RU(1) / 2.0_wp
+   ZCell_new = Indx_new(3) * w_RU(2) + w_RU(2) / 2.0_wp
+
+   Indice2_new = Indice_new * Nat_cell_max * (ndim + 4) + k_last * (ndim + 4)
+   Sphere_Cell(Indice2_new)     = XI_new - XCell_new
+   Sphere_Cell(Indice2_new + 1) = YI_new - YCell_new
+   Sphere_Cell(Indice2_new + 2) = ZI_new - ZCell_new
+   Sphere_Cell(Indice2_new + 3 : Indice2_new + 6) = q_saved(1:4)
+
+   Indice2_new = Indice_new * Nat_cell_max * 2 + k_last * 2
+   List_Cell(Indice2_new)     = i_atom
+   List_Cell(Indice2_new + 1) = itype(i_atom)
+End Subroutine update_single_particle_cell

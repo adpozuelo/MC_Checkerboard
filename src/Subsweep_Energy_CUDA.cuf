@@ -2511,7 +2511,6 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
     ierror = cudaDeviceSynchronize()
     energy = energydev
-    Sphere_Cell = Sphere_Celldev
     En_tot = 0.0d0
     do i=0, Ntot_Cell-1
       En_tot = En_tot + energy(i)

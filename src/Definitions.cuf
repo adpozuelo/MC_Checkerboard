@@ -103,6 +103,8 @@ MODULE rundata
    Real(wp) :: energy_threshold = -2.0_wp              ! Energy cutoff for surface/border atoms
    Real(wp) :: energy_border_ratio = 0.5_wp            ! Energy ratio relative to bulk/inner cluster atoms
    Logical  :: use_energy_ratio = .false.              ! Use relative energy ratio instead of absolute threshold
+   Integer  :: avbmc_k_trials = 10                     ! Number of CBMC Rosenbluth trial positions in bulk
+   Integer  :: avbmc_max_trials = 50                    ! Maximum AVBMC pair trials per step
 
 END MODULE rundata
 

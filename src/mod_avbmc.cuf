@@ -139,9 +139,9 @@ CONTAINS
       nnonassoc = 0
    End Subroutine avbmc_deallocate
 
-   ! Subroutine to attempt AVBMC paired moves (In-move and Out-move)
+   ! Subroutine to attempt AVBMC paired moves (In-move and Out-move) with CBMC Rosenbluth trial scheme and O(1) cell updates
    Subroutine attempt_avbmc_pair_moves(neighbors_in, offset_in, adjacency_in)
-      Use rundata, Only : avbmc, beta
+      Use rundata, Only : avbmc, beta, avbmc_k_trials, avbmc_max_trials
       Use potential, Only : rangepp
       Use configuration, Only : r, Box, natoms, ndim
       Use properties, Only : En_tot
@@ -152,25 +152,32 @@ CONTAINS
       Integer, Intent(IN) :: adjacency_in(:)
 
       Integer :: i_non_idx, i_brd_idx, id_non, id_brd, id_target, n_neigh, k_pick, k_avbmc, navbmc_trials
+      Integer :: K_trials, m, m_chosen
       Real(wp) :: r_bind, v_bind, v_box, pi
-      Real(wp) :: r_old(3), r_trial(3), r_target_real(3), dr(3), dist_r, u_dist
+      Real(wp) :: r_old(3), r_curr(3), r_trial(3), r_target_real(3), dr(3), dist_r, u_dist
       Real(wp) :: rnd, rnd1, rnd2, rnd3, phi, cos_th, sin_th
-      Real(wp) :: e_old, e_new, delta_e, prob_acc
+      Real(wp) :: e_old, e_eval, delta_e, prob_acc
+      Real(wp) :: w_sum_bulk, w_avg_bulk, w_cluster, cum_w, r_pick
+      Real(wp), Allocatable :: w_trials(:), r_trials_box(:,:)
 
       If (.Not. avbmc) Return
       If (nbrd <= 0 .Or. nnonassoc <= 0) Return
+
+      K_trials = Max(1, avbmc_k_trials)
+      Allocate(w_trials(K_trials))
+      Allocate(r_trials_box(3, K_trials))
 
       pi = Acos(-1.0_wp)
       r_bind = 1.5_wp * rangepp
       v_bind = (4.0_wp / 3.0_wp) * pi * (r_bind**3)
       v_box = Box(0) * Box(1) * Box(2)
-      navbmc_trials = min(nbrd, nnonassoc)
-      print *, 'navbmc_trials = ', navbmc_trials
+      navbmc_trials = Min(avbmc_max_trials, Min(nbrd, nnonassoc))
+
       Do k_avbmc = 1, navbmc_trials
          If (nbrd <= 0 .Or. nnonassoc <= 0) Exit
 
          ! ==================================================================
-         ! 1. AVBMC IN-MOVE (Addition from Non-associated to Cluster Border)
+         ! 1. AVBMC IN-MOVE (Association: Bulk V_out -> Cluster Border V_in)
          ! ==================================================================
          Call Random_number(rnd)
          i_non_idx = 1 + Int(rnd * Real(nnonassoc, wp))
@@ -193,9 +200,39 @@ CONTAINS
             n_neigh = 1
          End If
 
-         r_target_real(1) = r((id_target - 1) * ndim + 1) * Box(0)
-         r_target_real(2) = r((id_target - 1) * ndim + 2) * Box(1)
-         r_target_real(3) = r((id_target - 1) * ndim + 3) * Box(2)
+         Call Convert_CB_RU()
+         e_old = En_tot
+         r_old(1:3) = r((id_non - 1) * ndim : (id_non - 1) * ndim + 2)
+         r_curr(1:3) = r_old(1:3)
+
+         ! Bulk Rosenbluth Weight Calculation (W_old)
+         ! Trial 1 is the actual current bulk position
+         w_trials(1) = 1.0_wp
+         r_trials_box(1:3, 1) = r_old(1:3)
+
+         ! Generate K-1 dummy trial positions in the bulk
+         Do m = 2, K_trials
+            Call Random_number(rnd1)
+            Call Random_number(rnd2)
+            Call Random_number(rnd3)
+            r_trials_box(1, m) = rnd1
+            r_trials_box(2, m) = rnd2
+            r_trials_box(3, m) = rnd3
+
+            Call update_single_particle_cell(id_non, r_curr, r_trials_box(1:3, m))
+            r((id_non - 1) * ndim : (id_non - 1) * ndim + 2) = r_trials_box(1:3, m)
+            r_curr(1:3) = r_trials_box(1:3, m)
+            Call CB_system_energy_GPU(1)
+            e_eval = En_tot
+            delta_e = e_eval - e_old
+            w_trials(m) = Exp(-beta * delta_e)
+         End Do
+         w_sum_bulk = Sum(w_trials(1:K_trials))
+
+         ! Sample trial position inside binding volume V_in centered on target atom
+         r_target_real(1) = r((id_target - 1) * ndim) * Box(0)
+         r_target_real(2) = r((id_target - 1) * ndim + 1) * Box(1)
+         r_target_real(3) = r((id_target - 1) * ndim + 2) * Box(2)
 
          Call Random_number(rnd1)
          Call Random_number(rnd2)
@@ -214,41 +251,37 @@ CONTAINS
          r_trial(2) = (r_target_real(2) + dr(2)) / Box(1)
          r_trial(3) = (r_target_real(3) + dr(3)) / Box(2)
 
-         r_trial(1) = r_trial(1) - Anint(r_trial(1))
-         If (r_trial(1) < 0.0_wp) r_trial(1) = r_trial(1) + 1.0_wp
-         r_trial(2) = r_trial(2) - Anint(r_trial(2))
-         If (r_trial(2) < 0.0_wp) r_trial(2) = r_trial(2) + 1.0_wp
-         r_trial(3) = r_trial(3) - Anint(r_trial(3))
-         If (r_trial(3) < 0.0_wp) r_trial(3) = r_trial(3) + 1.0_wp
+         r_trial(1) = r_trial(1) - Floor(r_trial(1))
+         r_trial(2) = r_trial(2) - Floor(r_trial(2))
+         r_trial(3) = r_trial(3) - Floor(r_trial(3))
 
-         Call Convert_CB_RU()
-         e_old = En_tot
-         r_old(1:3) = r((id_non - 1) * ndim + 1 : (id_non - 1) * ndim + 3)
-
-         r((id_non - 1) * ndim + 1 : (id_non - 1) * ndim + 3) = r_trial(1:3)
-         Call repopulate_checkerboard_cells()
+         Call update_single_particle_cell(id_non, r_curr, r_trial)
+         r((id_non - 1) * ndim : (id_non - 1) * ndim + 2) = r_trial(1:3)
+         r_curr(1:3) = r_trial(1:3)
          Call CB_system_energy_GPU(1)
-         e_new = En_tot
-         delta_e = e_new - e_old
+         e_eval = En_tot
+         delta_e = e_eval - e_old
+         w_cluster = Exp(-beta * delta_e)
 
-         prob_acc = (Real(nnonassoc, wp) / (Real(nbrd * n_neigh, wp) + 1.0_wp)) * &
-            (v_box / v_bind) * Exp(-beta * delta_e)
+         ! Association acceptance criterion using Rosenbluth weight W_old
+         prob_acc = (Real(nbrd * n_neigh + 1, wp) / Real(nnonassoc, wp)) * &
+            (v_box / v_bind) * (Real(K_trials, wp) * w_cluster / w_sum_bulk)
 
          navbmc_in_att = navbmc_in_att + 1
 
          Call Random_number(rnd)
-         If (delta_e <= 0.0_wp .Or. rnd < prob_acc) Then
+         If (rnd < prob_acc .And. w_sum_bulk > 0.0_wp) Then
             navbmc_in_acc = navbmc_in_acc + 1
          Else
-            r((id_non - 1) * ndim + 1 : (id_non - 1) * ndim + 3) = r_old(1:3)
-            Call repopulate_checkerboard_cells()
+            Call update_single_particle_cell(id_non, r_curr, r_old)
+            r((id_non - 1) * ndim : (id_non - 1) * ndim + 2) = r_old(1:3)
             En_tot = e_old
          End If
 
          ! ===================================================================
-         ! 2. AVBMC OUT-MOVE (Destruction from Cluster Border to Box Volume)
+         ! 2. AVBMC OUT-MOVE (Dissociation: Cluster Border V_in -> Bulk V_out)
          ! ===================================================================
-         If (nbrd <= 0 .Or. nnonassoc <= 0) Return
+         If (nbrd <= 0 .Or. nnonassoc <= 0) Exit
 
          Call Random_number(rnd)
          i_brd_idx = 1 + Int(rnd * Real(nbrd, wp))
@@ -258,37 +291,67 @@ CONTAINS
          n_neigh = neighbors_in(id_brd)
          If (n_neigh <= 0) n_neigh = 1
 
-         Call Random_number(rnd1)
-         Call Random_number(rnd2)
-         Call Random_number(rnd3)
-         r_trial(1) = rnd1
-         r_trial(2) = rnd2
-         r_trial(3) = rnd3
-
          Call Convert_CB_RU()
          e_old = En_tot
-         r_old(1:3) = r((id_brd - 1) * ndim + 1 : (id_brd - 1) * ndim + 3)
+         r_old(1:3) = r((id_brd - 1) * ndim : (id_brd - 1) * ndim + 2)
+         r_curr(1:3) = r_old(1:3)
 
-         r((id_brd - 1) * ndim + 1 : (id_brd - 1) * ndim + 3) = r_trial(1:3)
-         Call repopulate_checkerboard_cells()
-         Call CB_system_energy_GPU(1)
-         e_new = En_tot
-         delta_e = e_new - e_old
+         ! Generate K_trials independent trial positions in bulk V_out
+         Do m = 1, K_trials
+            Call Random_number(rnd1)
+            Call Random_number(rnd2)
+            Call Random_number(rnd3)
+            r_trials_box(1, m) = rnd1
+            r_trials_box(2, m) = rnd2
+            r_trials_box(3, m) = rnd3
 
-         prob_acc = (Real(nbrd * n_neigh, wp) / (Real(nnonassoc, wp) + 1.0_wp)) * &
-            (v_bind / v_box) * Exp(-beta * delta_e)
+            Call update_single_particle_cell(id_brd, r_curr, r_trials_box(1:3, m))
+            r((id_brd - 1) * ndim : (id_brd - 1) * ndim + 2) = r_trials_box(1:3, m)
+            r_curr(1:3) = r_trials_box(1:3, m)
+            Call CB_system_energy_GPU(1)
+            e_eval = En_tot
+            delta_e = e_eval - e_old
+            w_trials(m) = Exp(-beta * delta_e)
+         End Do
+         w_sum_bulk = Sum(w_trials(1:K_trials))
+         w_avg_bulk = w_sum_bulk / Real(K_trials, wp)
+
+         ! Dissociation acceptance criterion using Rosenbluth average w_avg_bulk
+         prob_acc = (Real(nnonassoc + 1, wp) / Real(nbrd * n_neigh, wp)) * &
+            (v_bind / v_box) * w_avg_bulk
 
          navbmc_out_att = navbmc_out_att + 1
 
          Call Random_number(rnd)
-         If (delta_e <= 0.0_wp .Or. rnd < prob_acc) Then
+         If (rnd < prob_acc .And. w_sum_bulk > 0.0_wp) Then
             navbmc_out_acc = navbmc_out_acc + 1
+            ! Select one of the K trial positions m_chosen with probability P(m) = w_m / w_sum_bulk
+            Call Random_number(r_pick)
+            r_pick = r_pick * w_sum_bulk
+            cum_w = 0.0_wp
+            m_chosen = K_trials
+            Do m = 1, K_trials
+               cum_w = cum_w + w_trials(m)
+               If (r_pick <= cum_w) Then
+                  m_chosen = m
+                  Exit
+               End If
+            End Do
+
+            Call update_single_particle_cell(id_brd, r_curr, r_trials_box(1:3, m_chosen))
+            r((id_brd - 1) * ndim : (id_brd - 1) * ndim + 2) = r_trials_box(1:3, m_chosen)
+            Call CB_system_energy_GPU(1)
          Else
-            r((id_brd - 1) * ndim + 1 : (id_brd - 1) * ndim + 3) = r_old(1:3)
-            Call repopulate_checkerboard_cells()
+            Call update_single_particle_cell(id_brd, r_curr, r_old)
+            r((id_brd - 1) * ndim : (id_brd - 1) * ndim + 2) = r_old(1:3)
             En_tot = e_old
          End If
       End Do
+
+      Call repopulate_checkerboard_cells()
+
+      Deallocate(w_trials)
+      Deallocate(r_trials_box)
 
    End Subroutine attempt_avbmc_pair_moves
 
