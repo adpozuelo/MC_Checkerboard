@@ -10,298 +10,299 @@
 !   evaluation and detailed balance acceptance criterion.
 ! ==============================================================================
 MODULE mod_avbmc
-    Use set_precision
-    Use configuration, Only : ndim
-    Use cudafor
-    Implicit None
+   Use set_precision
+   Use configuration, Only : ndim
+   Use cudafor
+   Implicit None
 
-    ! Number of border points and non-associated particles
-    Integer :: nbrd = 0
-    Integer :: nnonassoc = 0
+   ! Number of border points and non-associated particles
+   Integer :: nbrd = 0
+   Integer :: nnonassoc = 0
 
-    ! AVBMC move counters
-    Integer :: navbmc_in_att = 0, navbmc_in_acc = 0
-    Integer :: navbmc_out_att = 0, navbmc_out_acc = 0
+   ! AVBMC move counters
+   Integer :: navbmc_in_att = 0, navbmc_in_acc = 0
+   Integer :: navbmc_out_att = 0, navbmc_out_acc = 0
 
-    ! Host arrays
-    ! Flat coordinates array for border particles (size nbrd * ndim)
-    Real(wp), Allocatable, Dimension(:) :: r_brd
-    ! Original 1-based indices of border particles (size nbrd)
-    Integer, Allocatable, Dimension(:)  :: idx_brd
+   ! Host arrays
+   ! Flat coordinates array for border particles (size nbrd * ndim)
+   Real(wp), Allocatable, Dimension(:) :: r_brd
+   ! Original 1-based indices of border particles (size nbrd)
+   Integer, Allocatable, Dimension(:)  :: idx_brd
 
-    ! Flat coordinates array for non-associated particles (size nnonassoc * ndim)
-    Real(wp), Allocatable, Dimension(:) :: r_nonassoc
-    ! Original 1-based indices of non-associated particles (size nnonassoc)
-    Integer, Allocatable, Dimension(:)  :: idx_nonassoc
+   ! Flat coordinates array for non-associated particles (size nnonassoc * ndim)
+   Real(wp), Allocatable, Dimension(:) :: r_nonassoc
+   ! Original 1-based indices of non-associated particles (size nnonassoc)
+   Integer, Allocatable, Dimension(:)  :: idx_nonassoc
 
-    ! Device arrays for GPU transfer
-    Real(wp), Device, Allocatable, Dimension(:) :: gr_brd
-    Integer, Device, Allocatable, Dimension(:)  :: gidx_brd
-    Real(wp), Device, Allocatable, Dimension(:) :: gr_nonassoc
-    Integer, Device, Allocatable, Dimension(:)  :: gidx_nonassoc
+   ! Device arrays for GPU transfer
+   Real(wp), Device, Allocatable, Dimension(:) :: gr_brd
+   Integer, Device, Allocatable, Dimension(:)  :: gidx_brd
+   Real(wp), Device, Allocatable, Dimension(:) :: gr_nonassoc
+   Integer, Device, Allocatable, Dimension(:)  :: gidx_nonassoc
 
 CONTAINS
 
-    ! Subroutine to extract flat arrays for border points and non-associated particles
-    ! and transfer them to GPU device memory.
-    Subroutine extract_avbmc_data(natoms_in, r_in, label_in, is_border_in, cluster_mask_in)
-        Integer, Intent(IN) :: natoms_in
-        Real(wp), Intent(IN) :: r_in(natoms_in * ndim)
-        Integer, Intent(IN) :: label_in(natoms_in)
-        Logical, Intent(IN) :: is_border_in(natoms_in)
-        Integer, Intent(IN) :: cluster_mask_in(natoms_in)
+   ! Subroutine to extract flat arrays for border points and non-associated particles
+   ! and transfer them to GPU device memory.
+   Subroutine extract_avbmc_data(natoms_in, r_in, label_in, is_border_in, cluster_mask_in)
+      Integer, Intent(IN) :: natoms_in
+      Real(wp), Intent(IN) :: r_in(natoms_in * ndim)
+      Integer, Intent(IN) :: label_in(natoms_in)
+      Logical, Intent(IN) :: is_border_in(natoms_in)
+      Integer, Intent(IN) :: cluster_mask_in(natoms_in)
 
-        Integer :: i, k_brd, k_non, indx_src, indx_dst
+      Integer :: i, k_brd, k_non, indx_src, indx_dst
 
-        ! First pass: count border points and non-associated particles
-        nbrd = 0
-        nnonassoc = 0
+      ! First pass: count border points and non-associated particles
+      nbrd = 0
+      nnonassoc = 0
 
-        Do i = 1, natoms_in
-            If (is_border_in(i)) Then
-                nbrd = nbrd + 1
-            Else If (label_in(i) == 0 .And. cluster_mask_in(i) == 1) Then
-                nnonassoc = nnonassoc + 1
-            End If
-        End Do
+      Do i = 1, natoms_in
+         If (is_border_in(i)) Then
+            nbrd = nbrd + 1
+         Else If (label_in(i) == 0 .And. cluster_mask_in(i) == 1) Then
+            nnonassoc = nnonassoc + 1
+         End If
+      End Do
 
-        ! Deallocate old host arrays if allocated
-        If (Allocated(r_brd)) Deallocate(r_brd)
-        If (Allocated(idx_brd)) Deallocate(idx_brd)
-        If (Allocated(r_nonassoc)) Deallocate(r_nonassoc)
-        If (Allocated(idx_nonassoc)) Deallocate(idx_nonassoc)
+      ! Deallocate old host arrays if allocated
+      If (Allocated(r_brd)) Deallocate(r_brd)
+      If (Allocated(idx_brd)) Deallocate(idx_brd)
+      If (Allocated(r_nonassoc)) Deallocate(r_nonassoc)
+      If (Allocated(idx_nonassoc)) Deallocate(idx_nonassoc)
 
-        ! Deallocate old device arrays if allocated
-        If (Allocated(gr_brd)) Deallocate(gr_brd)
-        If (Allocated(gidx_brd)) Deallocate(gidx_brd)
-        If (Allocated(gr_nonassoc)) Deallocate(gr_nonassoc)
-        If (Allocated(gidx_nonassoc)) Deallocate(gidx_nonassoc)
+      ! Deallocate old device arrays if allocated
+      If (Allocated(gr_brd)) Deallocate(gr_brd)
+      If (Allocated(gidx_brd)) Deallocate(gidx_brd)
+      If (Allocated(gr_nonassoc)) Deallocate(gr_nonassoc)
+      If (Allocated(gidx_nonassoc)) Deallocate(gidx_nonassoc)
 
-        ! Allocate host arrays
-        Allocate(r_brd(Max(1, nbrd * ndim)))
-        Allocate(idx_brd(Max(1, nbrd)))
-        Allocate(r_nonassoc(Max(1, nnonassoc * ndim)))
-        Allocate(idx_nonassoc(Max(1, nnonassoc)))
+      ! Allocate host arrays
+      Allocate(r_brd(Max(1, nbrd * ndim)))
+      Allocate(idx_brd(Max(1, nbrd)))
+      Allocate(r_nonassoc(Max(1, nnonassoc * ndim)))
+      Allocate(idx_nonassoc(Max(1, nnonassoc)))
 
-        ! Populate host arrays
-        k_brd = 0
-        k_non = 0
+      ! Populate host arrays
+      k_brd = 0
+      k_non = 0
 
-        Do i = 1, natoms_in
-            indx_src = (i - 1) * ndim
-            If (is_border_in(i)) Then
-                k_brd = k_brd + 1
-                idx_brd(k_brd) = i
-                indx_dst = (k_brd - 1) * ndim
-                r_brd(indx_dst + 1 : indx_dst + ndim) = r_in(indx_src + 1 : indx_src + ndim)
-            Else If (label_in(i) == 0 .And. cluster_mask_in(i) == 1) Then
-                k_non = k_non + 1
-                idx_nonassoc(k_non) = i
-                indx_dst = (k_non - 1) * ndim
-                r_nonassoc(indx_dst + 1 : indx_dst + ndim) = r_in(indx_src + 1 : indx_src + ndim)
-            End If
-        End Do
+      Do i = 1, natoms_in
+         indx_src = (i - 1) * ndim
+         If (is_border_in(i)) Then
+            k_brd = k_brd + 1
+            idx_brd(k_brd) = i
+            indx_dst = (k_brd - 1) * ndim
+            r_brd(indx_dst + 1 : indx_dst + ndim) = r_in(indx_src + 1 : indx_src + ndim)
+         Else If (label_in(i) == 0 .And. cluster_mask_in(i) == 1) Then
+            k_non = k_non + 1
+            idx_nonassoc(k_non) = i
+            indx_dst = (k_non - 1) * ndim
+            r_nonassoc(indx_dst + 1 : indx_dst + ndim) = r_in(indx_src + 1 : indx_src + ndim)
+         End If
+      End Do
 
-        ! Allocate and copy to device memory
-        Allocate(gr_brd(Max(1, nbrd * ndim)))
-        Allocate(gidx_brd(Max(1, nbrd)))
-        Allocate(gr_nonassoc(Max(1, nnonassoc * ndim)))
-        Allocate(gidx_nonassoc(Max(1, nnonassoc)))
+      ! Allocate and copy to device memory
+      Allocate(gr_brd(Max(1, nbrd * ndim)))
+      Allocate(gidx_brd(Max(1, nbrd)))
+      Allocate(gr_nonassoc(Max(1, nnonassoc * ndim)))
+      Allocate(gidx_nonassoc(Max(1, nnonassoc)))
 
-        If (nbrd > 0) Then
-            gr_brd(1:nbrd*ndim) = r_brd(1:nbrd*ndim)
-            gidx_brd(1:nbrd)    = idx_brd(1:nbrd)
-        End If
+      If (nbrd > 0) Then
+         gr_brd(1:nbrd*ndim) = r_brd(1:nbrd*ndim)
+         gidx_brd(1:nbrd)    = idx_brd(1:nbrd)
+      End If
 
-        If (nnonassoc > 0) Then
-            gr_nonassoc(1:nnonassoc*ndim) = r_nonassoc(1:nnonassoc*ndim)
-            gidx_nonassoc(1:nnonassoc)    = idx_nonassoc(1:nnonassoc)
-        End If
+      If (nnonassoc > 0) Then
+         gr_nonassoc(1:nnonassoc*ndim) = r_nonassoc(1:nnonassoc*ndim)
+         gidx_nonassoc(1:nnonassoc)    = idx_nonassoc(1:nnonassoc)
+      End If
 
-        Write(*,'(A,I8,A,I8)') '     [AVBMC GPU Transfer] Border points: ', nbrd, &
-                               ' | Non-associated particles: ', nnonassoc
+      Write(*,'(A,I8,A,I8)') '     [AVBMC GPU Transfer] Border points: ', nbrd, &
+         ' | Non-associated particles: ', nnonassoc
 
-    End Subroutine extract_avbmc_data
+   End Subroutine extract_avbmc_data
 
-    ! Subroutine to deallocate host and device arrays
-    Subroutine avbmc_deallocate()
-        If (Allocated(r_brd)) Deallocate(r_brd)
-        If (Allocated(idx_brd)) Deallocate(idx_brd)
-        If (Allocated(r_nonassoc)) Deallocate(r_nonassoc)
-        If (Allocated(idx_nonassoc)) Deallocate(idx_nonassoc)
+   ! Subroutine to deallocate host and device arrays
+   Subroutine avbmc_deallocate()
+      If (Allocated(r_brd)) Deallocate(r_brd)
+      If (Allocated(idx_brd)) Deallocate(idx_brd)
+      If (Allocated(r_nonassoc)) Deallocate(r_nonassoc)
+      If (Allocated(idx_nonassoc)) Deallocate(idx_nonassoc)
 
-        If (Allocated(gr_brd)) Deallocate(gr_brd)
-        If (Allocated(gidx_brd)) Deallocate(gidx_brd)
-        If (Allocated(gr_nonassoc)) Deallocate(gr_nonassoc)
-        If (Allocated(gidx_nonassoc)) Deallocate(gidx_nonassoc)
-        
-        nbrd = 0
-        nnonassoc = 0
-    End Subroutine avbmc_deallocate
+      If (Allocated(gr_brd)) Deallocate(gr_brd)
+      If (Allocated(gidx_brd)) Deallocate(gidx_brd)
+      If (Allocated(gr_nonassoc)) Deallocate(gr_nonassoc)
+      If (Allocated(gidx_nonassoc)) Deallocate(gidx_nonassoc)
 
-    ! Subroutine to attempt AVBMC paired moves (In-move and Out-move)
-    Subroutine attempt_avbmc_pair_moves(neighbors_in, offset_in, adjacency_in)
-        Use rundata, Only : avbmc, beta, rcl
-        Use configuration, Only : r, Box, natoms, ndim
-        Use properties, Only : En_tot
-        Implicit None
+      nbrd = 0
+      nnonassoc = 0
+   End Subroutine avbmc_deallocate
 
-        Integer, Intent(IN) :: neighbors_in(natoms)
-        Integer, Intent(IN) :: offset_in(natoms)
-        Integer, Intent(IN) :: adjacency_in(:)
+   ! Subroutine to attempt AVBMC paired moves (In-move and Out-move)
+   Subroutine attempt_avbmc_pair_moves(neighbors_in, offset_in, adjacency_in)
+      Use rundata, Only : avbmc, beta
+      Use potential, Only : rangepp
+      Use configuration, Only : r, Box, natoms, ndim
+      Use properties, Only : En_tot
+      Implicit None
 
-        Integer :: i_non_idx, i_brd_idx, id_non, id_brd, id_target, n_neigh, k_pick, k_avbmc, navbmc_trials
-        Real(wp) :: r_bind, v_bind, v_box, pi
-        Real(wp) :: r_old(3), r_trial(3), r_target_real(3), dr(3), dist_r, u_dist
-        Real(wp) :: rnd, rnd1, rnd2, rnd3, phi, cos_th, sin_th
-        Real(wp) :: e_old, e_new, delta_e, prob_acc
+      Integer, Intent(IN) :: neighbors_in(natoms)
+      Integer, Intent(IN) :: offset_in(natoms)
+      Integer, Intent(IN) :: adjacency_in(:)
 
-        If (.Not. avbmc) Return
-        If (nbrd <= 0 .Or. nnonassoc <= 0) Return
+      Integer :: i_non_idx, i_brd_idx, id_non, id_brd, id_target, n_neigh, k_pick, k_avbmc, navbmc_trials
+      Real(wp) :: r_bind, v_bind, v_box, pi
+      Real(wp) :: r_old(3), r_trial(3), r_target_real(3), dr(3), dist_r, u_dist
+      Real(wp) :: rnd, rnd1, rnd2, rnd3, phi, cos_th, sin_th
+      Real(wp) :: e_old, e_new, delta_e, prob_acc
 
-        pi = Acos(-1.0_wp)
-        r_bind = 1.5_wp * rcl
-        v_bind = (4.0_wp / 3.0_wp) * pi * (r_bind**3)
-        v_box = Box(0) * Box(1) * Box(2)
-        navbmc_trials = Max(10, nnonassoc)
+      If (.Not. avbmc) Return
+      If (nbrd <= 0 .Or. nnonassoc <= 0) Return
 
-        Do k_avbmc = 1, navbmc_trials
-            If (nbrd <= 0 .Or. nnonassoc <= 0) Exit
+      pi = Acos(-1.0_wp)
+      r_bind = 1.5_wp * rangepp
+      v_bind = (4.0_wp / 3.0_wp) * pi * (r_bind**3)
+      v_box = Box(0) * Box(1) * Box(2)
+      navbmc_trials = min(nbrd, nnonassoc)
+      print *, 'navbmc_trials = ', navbmc_trials
+      Do k_avbmc = 1, navbmc_trials
+         If (nbrd <= 0 .Or. nnonassoc <= 0) Exit
 
-        ! ==================================================================
-        ! 1. AVBMC IN-MOVE (Addition from Non-associated to Cluster Border)
-        ! ==================================================================
-        Call Random_number(rnd)
-        i_non_idx = 1 + Int(rnd * Real(nnonassoc, wp))
-        If (i_non_idx > nnonassoc) i_non_idx = nnonassoc
-        id_non = idx_nonassoc(i_non_idx)
+         ! ==================================================================
+         ! 1. AVBMC IN-MOVE (Addition from Non-associated to Cluster Border)
+         ! ==================================================================
+         Call Random_number(rnd)
+         i_non_idx = 1 + Int(rnd * Real(nnonassoc, wp))
+         If (i_non_idx > nnonassoc) i_non_idx = nnonassoc
+         id_non = idx_nonassoc(i_non_idx)
 
-        Call Random_number(rnd)
-        i_brd_idx = 1 + Int(rnd * Real(nbrd, wp))
-        If (i_brd_idx > nbrd) i_brd_idx = nbrd
-        id_brd = idx_brd(i_brd_idx)
+         Call Random_number(rnd)
+         i_brd_idx = 1 + Int(rnd * Real(nbrd, wp))
+         If (i_brd_idx > nbrd) i_brd_idx = nbrd
+         id_brd = idx_brd(i_brd_idx)
 
-        n_neigh = neighbors_in(id_brd)
-        If (n_neigh > 0) Then
+         n_neigh = neighbors_in(id_brd)
+         If (n_neigh > 0) Then
             Call Random_number(rnd)
             k_pick = Int(rnd * Real(n_neigh, wp))
             If (k_pick >= n_neigh) k_pick = n_neigh - 1
             id_target = adjacency_in(offset_in(id_brd) + k_pick)
-        Else
+         Else
             id_target = id_brd
             n_neigh = 1
-        End If
+         End If
 
-        r_target_real(1) = r((id_target - 1) * ndim + 1) * Box(0)
-        r_target_real(2) = r((id_target - 1) * ndim + 2) * Box(1)
-        r_target_real(3) = r((id_target - 1) * ndim + 3) * Box(2)
+         r_target_real(1) = r((id_target - 1) * ndim + 1) * Box(0)
+         r_target_real(2) = r((id_target - 1) * ndim + 2) * Box(1)
+         r_target_real(3) = r((id_target - 1) * ndim + 3) * Box(2)
 
-        Call Random_number(rnd1)
-        Call Random_number(rnd2)
-        Call Random_number(rnd3)
-        phi = 2.0_wp * pi * rnd1
-        cos_th = 2.0_wp * rnd2 - 1.0_wp
-        sin_th = Sqrt(Max(0.0_wp, 1.0_wp - cos_th**2))
-        u_dist = rnd3**(1.0_wp / 3.0_wp)
-        dist_r = r_bind * u_dist
+         Call Random_number(rnd1)
+         Call Random_number(rnd2)
+         Call Random_number(rnd3)
+         phi = 2.0_wp * pi * rnd1
+         cos_th = 2.0_wp * rnd2 - 1.0_wp
+         sin_th = Sqrt(Max(0.0_wp, 1.0_wp - cos_th**2))
+         u_dist = rnd3**(1.0_wp / 3.0_wp)
+         dist_r = r_bind * u_dist
 
-        dr(1) = dist_r * sin_th * Cos(phi)
-        dr(2) = dist_r * sin_th * Sin(phi)
-        dr(3) = dist_r * cos_th
+         dr(1) = dist_r * sin_th * Cos(phi)
+         dr(2) = dist_r * sin_th * Sin(phi)
+         dr(3) = dist_r * cos_th
 
-        r_trial(1) = (r_target_real(1) + dr(1)) / Box(0)
-        r_trial(2) = (r_target_real(2) + dr(2)) / Box(1)
-        r_trial(3) = (r_target_real(3) + dr(3)) / Box(2)
+         r_trial(1) = (r_target_real(1) + dr(1)) / Box(0)
+         r_trial(2) = (r_target_real(2) + dr(2)) / Box(1)
+         r_trial(3) = (r_target_real(3) + dr(3)) / Box(2)
 
-        r_trial(1) = r_trial(1) - Anint(r_trial(1))
-        If (r_trial(1) < 0.0_wp) r_trial(1) = r_trial(1) + 1.0_wp
-        r_trial(2) = r_trial(2) - Anint(r_trial(2))
-        If (r_trial(2) < 0.0_wp) r_trial(2) = r_trial(2) + 1.0_wp
-        r_trial(3) = r_trial(3) - Anint(r_trial(3))
-        If (r_trial(3) < 0.0_wp) r_trial(3) = r_trial(3) + 1.0_wp
+         r_trial(1) = r_trial(1) - Anint(r_trial(1))
+         If (r_trial(1) < 0.0_wp) r_trial(1) = r_trial(1) + 1.0_wp
+         r_trial(2) = r_trial(2) - Anint(r_trial(2))
+         If (r_trial(2) < 0.0_wp) r_trial(2) = r_trial(2) + 1.0_wp
+         r_trial(3) = r_trial(3) - Anint(r_trial(3))
+         If (r_trial(3) < 0.0_wp) r_trial(3) = r_trial(3) + 1.0_wp
 
-        Call Convert_CB_RU()
-        e_old = En_tot
-        r_old(1:3) = r((id_non - 1) * ndim + 1 : (id_non - 1) * ndim + 3)
+         Call Convert_CB_RU()
+         e_old = En_tot
+         r_old(1:3) = r((id_non - 1) * ndim + 1 : (id_non - 1) * ndim + 3)
 
-        r((id_non - 1) * ndim + 1 : (id_non - 1) * ndim + 3) = r_trial(1:3)
-        Call repopulate_checkerboard_cells()
-        Call CB_system_energy_GPU(1)
-        e_new = En_tot
-        delta_e = e_new - e_old
+         r((id_non - 1) * ndim + 1 : (id_non - 1) * ndim + 3) = r_trial(1:3)
+         Call repopulate_checkerboard_cells()
+         Call CB_system_energy_GPU(1)
+         e_new = En_tot
+         delta_e = e_new - e_old
 
-        prob_acc = (Real(nnonassoc, wp) / (Real(nbrd * n_neigh, wp) + 1.0_wp)) * &
-                   (v_box / v_bind) * Exp(-beta * delta_e)
+         prob_acc = (Real(nnonassoc, wp) / (Real(nbrd * n_neigh, wp) + 1.0_wp)) * &
+            (v_box / v_bind) * Exp(-beta * delta_e)
 
-        navbmc_in_att = navbmc_in_att + 1
+         navbmc_in_att = navbmc_in_att + 1
 
-        Call Random_number(rnd)
-        If (delta_e <= 0.0_wp .Or. rnd < prob_acc) Then
+         Call Random_number(rnd)
+         If (delta_e <= 0.0_wp .Or. rnd < prob_acc) Then
             navbmc_in_acc = navbmc_in_acc + 1
-        Else
+         Else
             r((id_non - 1) * ndim + 1 : (id_non - 1) * ndim + 3) = r_old(1:3)
             Call repopulate_checkerboard_cells()
             En_tot = e_old
-        End If
+         End If
 
-        ! ===================================================================
-        ! 2. AVBMC OUT-MOVE (Destruction from Cluster Border to Box Volume)
-        ! ===================================================================
-        If (nbrd <= 0 .Or. nnonassoc <= 0) Return
+         ! ===================================================================
+         ! 2. AVBMC OUT-MOVE (Destruction from Cluster Border to Box Volume)
+         ! ===================================================================
+         If (nbrd <= 0 .Or. nnonassoc <= 0) Return
 
-        Call Random_number(rnd)
-        i_brd_idx = 1 + Int(rnd * Real(nbrd, wp))
-        If (i_brd_idx > nbrd) i_brd_idx = nbrd
-        id_brd = idx_brd(i_brd_idx)
+         Call Random_number(rnd)
+         i_brd_idx = 1 + Int(rnd * Real(nbrd, wp))
+         If (i_brd_idx > nbrd) i_brd_idx = nbrd
+         id_brd = idx_brd(i_brd_idx)
 
-        n_neigh = neighbors_in(id_brd)
-        If (n_neigh <= 0) n_neigh = 1
+         n_neigh = neighbors_in(id_brd)
+         If (n_neigh <= 0) n_neigh = 1
 
-        Call Random_number(rnd1)
-        Call Random_number(rnd2)
-        Call Random_number(rnd3)
-        r_trial(1) = rnd1
-        r_trial(2) = rnd2
-        r_trial(3) = rnd3
+         Call Random_number(rnd1)
+         Call Random_number(rnd2)
+         Call Random_number(rnd3)
+         r_trial(1) = rnd1
+         r_trial(2) = rnd2
+         r_trial(3) = rnd3
 
-        Call Convert_CB_RU()
-        e_old = En_tot
-        r_old(1:3) = r((id_brd - 1) * ndim + 1 : (id_brd - 1) * ndim + 3)
+         Call Convert_CB_RU()
+         e_old = En_tot
+         r_old(1:3) = r((id_brd - 1) * ndim + 1 : (id_brd - 1) * ndim + 3)
 
-        r((id_brd - 1) * ndim + 1 : (id_brd - 1) * ndim + 3) = r_trial(1:3)
-        Call repopulate_checkerboard_cells()
-        Call CB_system_energy_GPU(1)
-        e_new = En_tot
-        delta_e = e_new - e_old
+         r((id_brd - 1) * ndim + 1 : (id_brd - 1) * ndim + 3) = r_trial(1:3)
+         Call repopulate_checkerboard_cells()
+         Call CB_system_energy_GPU(1)
+         e_new = En_tot
+         delta_e = e_new - e_old
 
-        prob_acc = (Real(nbrd * n_neigh, wp) / (Real(nnonassoc, wp) + 1.0_wp)) * &
-                   (v_bind / v_box) * Exp(-beta * delta_e)
+         prob_acc = (Real(nbrd * n_neigh, wp) / (Real(nnonassoc, wp) + 1.0_wp)) * &
+            (v_bind / v_box) * Exp(-beta * delta_e)
 
-        navbmc_out_att = navbmc_out_att + 1
+         navbmc_out_att = navbmc_out_att + 1
 
-        Call Random_number(rnd)
-        If (delta_e <= 0.0_wp .Or. rnd < prob_acc) Then
+         Call Random_number(rnd)
+         If (delta_e <= 0.0_wp .Or. rnd < prob_acc) Then
             navbmc_out_acc = navbmc_out_acc + 1
-        Else
+         Else
             r((id_brd - 1) * ndim + 1 : (id_brd - 1) * ndim + 3) = r_old(1:3)
             Call repopulate_checkerboard_cells()
             En_tot = e_old
-        End If
-        End Do
+         End If
+      End Do
 
-    End Subroutine attempt_avbmc_pair_moves
+   End Subroutine attempt_avbmc_pair_moves
 
-    Subroutine print_avbmc_stats()
-        Real(wp) :: pct_in, pct_out
-        pct_in = 0.0_wp
-        pct_out = 0.0_wp
-        If (navbmc_in_att > 0) pct_in = (Real(navbmc_in_acc, wp) / Real(navbmc_in_att, wp)) * 100.0_wp
-        If (navbmc_out_att > 0) pct_out = (Real(navbmc_out_acc, wp) / Real(navbmc_out_att, wp)) * 100.0_wp
+   Subroutine print_avbmc_stats()
+      Real(wp) :: pct_in, pct_out
+      pct_in = 0.0_wp
+      pct_out = 0.0_wp
+      If (navbmc_in_att > 0) pct_in = (Real(navbmc_in_acc, wp) / Real(navbmc_in_att, wp)) * 100.0_wp
+      If (navbmc_out_att > 0) pct_out = (Real(navbmc_out_acc, wp) / Real(navbmc_out_att, wp)) * 100.0_wp
 
-        Write(*,'(A, I10, A, I10, A, F6.2, A)') &
-            '     [AVBMC IN-MOVES]  Attempts: ', navbmc_in_att, ' | Accepted: ', navbmc_in_acc, ' (', pct_in, '%)'
-        Write(*,'(A, I10, A, I10, A, F6.2, A)') &
-            '     [AVBMC OUT-MOVES] Attempts: ', navbmc_out_att, ' | Accepted: ', navbmc_out_acc, ' (', pct_out, '%)'
-    End Subroutine print_avbmc_stats
+      Write(*,'(A, I10, A, I10, A, F6.2, A)') &
+         '     [AVBMC IN-MOVES]  Attempts: ', navbmc_in_att, ' | Accepted: ', navbmc_in_acc, ' (', pct_in, '%)'
+      Write(*,'(A, I10, A, I10, A, F6.2, A)') &
+         '     [AVBMC OUT-MOVES] Attempts: ', navbmc_out_att, ' | Accepted: ', navbmc_out_acc, ' (', pct_out, '%)'
+   End Subroutine print_avbmc_stats
 
 END MODULE mod_avbmc
