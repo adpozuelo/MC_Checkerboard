@@ -3075,14 +3075,9 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
     a = 1000.0_wp; pi = acos(-1.0_wp); dospi = 2.0_wp*pi
     Indx_Cell = (threadIdx%x + (blockIdx%x-1)*blockDim%x) - 1
-    Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2)
-    jcell_z = Indx_Cell/(Nl0*Nl1)
-    jcell_y = (Indx_Cell - Nl0*Nl1*jcell_z)/Nl0
-    if (jcell_y == 0 .and. jcell_z == 0) then; jcell_x = Indx_Cell; else; jcell_x = mod(Indx_Cell, jcell_y*Nl0 + jcell_z*Nl0*Nl1); end if
-    
-    if (jcell_x < Nl0 .and. jcell_y < Nl1 .and. jcell_z < Nl2) then
+    If (Indx_Cell >= 0 .And. Indx_Cell < Ntot_Cell) Then
         Nat_Cell_ijk = Nat_Cell(Indx_Cell)
-        if (Nat_Cell_ijk > 0) then
+        If (Nat_Cell_ijk > 0) Then
           H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
           indx_atm_aux  = Indx_Cell * Nat_Cell_Max * 7; indx_atm_aux2 = Indx_Cell * Nat_Cell_Max * 2
           
@@ -3168,14 +3163,9 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
     pi = acos(-1.0_wp)
     Indx_Cell = (threadIdx%x + (blockIdx%x-1)*blockDim%x) - 1
-    Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2)
-    jcell_z = Indx_Cell/(Nl0*Nl1)
-    jcell_y = (Indx_Cell - Nl0*Nl1*jcell_z)/Nl0
-    if (jcell_y == 0 .and. jcell_z == 0) then; jcell_x = Indx_Cell; else; jcell_x = mod(Indx_Cell, jcell_y*Nl0 + jcell_z*Nl0*Nl1); end if
-    
-    if (jcell_x < Nl0 .and. jcell_y < Nl1 .and. jcell_z < Nl2) then
+    If (Indx_Cell >= 0 .And. Indx_Cell < Ntot_Cell) Then
         Nat_Cell_ijk = Nat_Cell(Indx_Cell)
-        if (Nat_Cell_ijk > 0) then
+        If (Nat_Cell_ijk > 0) Then
           H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
           indx_atm_aux  = Indx_Cell * Nat_Cell_Max * 7; indx_atm_aux2 = Indx_Cell * Nat_Cell_Max * 2
           
@@ -3263,14 +3253,9 @@ attributes(device) subroutine evaluate_cell_interactions( &
     real(wp) :: dx_neigh, dy_neigh, dz_neigh, Vrad, s_LJ_aux, eps_LJ_aux, VL0_aux, range_aux
 
     Indx_Cell = (threadIdx%x + (blockIdx%x-1)*blockDim%x) - 1
-    Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2)
-    jcell_z = Indx_Cell/(Nl0*Nl1)
-    jcell_y = (Indx_Cell - Nl0*Nl1*jcell_z)/Nl0
-    if (jcell_y == 0 .and. jcell_z == 0) then; jcell_x = Indx_Cell; else; jcell_x = mod(Indx_Cell, jcell_y*Nl0 + jcell_z*Nl0*Nl1); end if
-    
-    if (jcell_x < Nl0 .and. jcell_y < Nl1 .and. jcell_z < Nl2) then
+    If (Indx_Cell >= 0 .And. Indx_Cell < Ntot_Cell) Then
         Nat_Cell_ijk = Nat_Cell(Indx_Cell)
-        if (Nat_Cell_ijk > 0) then
+        If (Nat_Cell_ijk > 0) Then
           H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
           indx_atm_aux  = Indx_Cell * Nat_Cell_Max * 7; indx_atm_aux2 = Indx_Cell * Nat_Cell_Max * 2
           
@@ -3642,7 +3627,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
   subroutine compute_per_atom_energy_gpu(pot_int, bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, Npatches_max, Ntor_max, &
                                          sigma_tor_jon, sigp_factor, Rcp_factor, Rc_factor, Natoms_in, atom_energies_host)
     ! >>> Pull the CPU cell list data to safely mirror it to the GPU
-    use cell, only : Sphere_Cell, List_Cell, Nat_Cell, DR_Cell
+    use cell, only : Sphere_Cell, List_Cell, Nat_Cell, DR_Cell, Map_Cell, Nl_Cell
+    use configuration, only : h
     
     integer, intent(in) :: pot_int
     integer, intent(in) :: bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, Npatches_max, Ntor_max, Natoms_in
@@ -3659,15 +3645,23 @@ attributes(device) subroutine evaluate_cell_interactions( &
     patch_radial_factor_dev = patch_radial_factor
     
     ! ====================================================================
-    ! CRITICAL SYNC FOR trj_analysis:
-    ! Because trj_analysis reads frame-by-frame on the CPU, we must ensure 
-    ! the GPU has the absolutely updated cell lists, coordinates, and shifts
-    ! before executing the O(N) kernel.
+    ! CRITICAL SYNC FOR trj_analysis / AVBMC:
+    ! Ensure device cell list arrays are allocated before copying CPU data
     ! ====================================================================
+    If (.Not. Allocated(List_Cell_dev)) Allocate(List_Cell_dev(0:Ntot_Cell*Nat_Cell_Max*2-1))
+    If (.Not. Allocated(Nat_Cell_dev)) Allocate(Nat_Cell_dev(0:Ntot_Cell-1))
+    If (.Not. Allocated(DR_Cell_dev)) Allocate(DR_Cell_dev(0:Ntot_Cell*26*3-1))
+    If (.Not. Allocated(Map_Cell_dev)) Allocate(Map_Cell_dev(0:Ntot_Cell*26-1))
+    If (.Not. Allocated(Nl_Cell_dev)) Allocate(Nl_Cell_dev(0:Ndim-1))
+    If (.Not. Allocated(hdev)) Allocate(hdev(0:Ndim*Ndim-1))
+
     Sphere_Cell_dev = Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1)
     List_Cell_dev   = List_Cell(0:Ntot_Cell*Nat_Cell_Max*2-1)
     Nat_Cell_dev    = Nat_Cell(0:Ntot_Cell-1)
     DR_Cell_dev     = DR_Cell(0:Ntot_Cell*26*3-1)
+    Map_Cell_dev    = Map_Cell(0:Ntot_Cell*26-1)
+    Nl_Cell_dev     = Nl_Cell(0:Ndim-1)
+    hdev            = h
     
     ! We map One Thread to One Cell, matching enerGPU perfectly
     nblock = (Ntot_Cell + NTHREAD - 1) / NTHREAD

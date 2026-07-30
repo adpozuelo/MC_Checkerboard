@@ -1,0 +1,135 @@
+! ==============================================================================
+! MODULE: mod_avbmc
+! ==============================================================================
+! DESCRIPTION:
+!   Provides data structures and extraction subroutines for Aggregation Volume
+!   Bias Monte Carlo (AVBMC) moves. Manages flat coordinate arrays and particle
+!   index arrays for border points and non-associated particles, both on host
+!   and transferred to GPU device memory.
+! ==============================================================================
+MODULE mod_avbmc
+    Use set_precision
+    Use configuration, Only : ndim
+    Use cudafor
+    Implicit None
+
+    ! Number of border points and non-associated particles
+    Integer :: nbrd = 0
+    Integer :: nnonassoc = 0
+
+    ! Host arrays
+    ! Flat coordinates array for border particles (size nbrd * ndim)
+    Real(wp), Allocatable, Dimension(:) :: r_brd
+    ! Original 1-based indices of border particles (size nbrd)
+    Integer, Allocatable, Dimension(:)  :: idx_brd
+
+    ! Flat coordinates array for non-associated particles (size nnonassoc * ndim)
+    Real(wp), Allocatable, Dimension(:) :: r_nonassoc
+    ! Original 1-based indices of non-associated particles (size nnonassoc)
+    Integer, Allocatable, Dimension(:)  :: idx_nonassoc
+
+    ! Device arrays for GPU transfer
+    Real(wp), Device, Allocatable, Dimension(:) :: gr_brd
+    Integer, Device, Allocatable, Dimension(:)  :: gidx_brd
+    Real(wp), Device, Allocatable, Dimension(:) :: gr_nonassoc
+    Integer, Device, Allocatable, Dimension(:)  :: gidx_nonassoc
+
+CONTAINS
+
+    ! Subroutine to extract flat arrays for border points and non-associated particles
+    ! and transfer them to GPU device memory.
+    Subroutine extract_avbmc_data(natoms_in, r_in, label_in, is_border_in)
+        Integer, Intent(IN) :: natoms_in
+        Real(wp), Intent(IN) :: r_in(natoms_in * ndim)
+        Integer, Intent(IN) :: label_in(natoms_in)
+        Logical, Intent(IN) :: is_border_in(natoms_in)
+
+        Integer :: i, k_brd, k_non, indx_src, indx_dst
+
+        ! First pass: count border points and non-associated particles
+        nbrd = 0
+        nnonassoc = 0
+
+        Do i = 1, natoms_in
+            If (is_border_in(i)) Then
+                nbrd = nbrd + 1
+            Else If (label_in(i) == 0) Then
+                nnonassoc = nnonassoc + 1
+            End If
+        End Do
+
+        ! Deallocate old host arrays if allocated
+        If (Allocated(r_brd)) Deallocate(r_brd)
+        If (Allocated(idx_brd)) Deallocate(idx_brd)
+        If (Allocated(r_nonassoc)) Deallocate(r_nonassoc)
+        If (Allocated(idx_nonassoc)) Deallocate(idx_nonassoc)
+
+        ! Deallocate old device arrays if allocated
+        If (Allocated(gr_brd)) Deallocate(gr_brd)
+        If (Allocated(gidx_brd)) Deallocate(gidx_brd)
+        If (Allocated(gr_nonassoc)) Deallocate(gr_nonassoc)
+        If (Allocated(gidx_nonassoc)) Deallocate(gidx_nonassoc)
+
+        ! Allocate host arrays
+        Allocate(r_brd(Max(1, nbrd * ndim)))
+        Allocate(idx_brd(Max(1, nbrd)))
+        Allocate(r_nonassoc(Max(1, nnonassoc * ndim)))
+        Allocate(idx_nonassoc(Max(1, nnonassoc)))
+
+        ! Populate host arrays
+        k_brd = 0
+        k_non = 0
+
+        Do i = 1, natoms_in
+            indx_src = (i - 1) * ndim
+            If (is_border_in(i)) Then
+                k_brd = k_brd + 1
+                idx_brd(k_brd) = i
+                indx_dst = (k_brd - 1) * ndim
+                r_brd(indx_dst + 1 : indx_dst + ndim) = r_in(indx_src + 1 : indx_src + ndim)
+            Else If (label_in(i) == 0) Then
+                k_non = k_non + 1
+                idx_nonassoc(k_non) = i
+                indx_dst = (k_non - 1) * ndim
+                r_nonassoc(indx_dst + 1 : indx_dst + ndim) = r_in(indx_src + 1 : indx_src + ndim)
+            End If
+        End Do
+
+        ! Allocate and copy to device memory
+        Allocate(gr_brd(Max(1, nbrd * ndim)))
+        Allocate(gidx_brd(Max(1, nbrd)))
+        Allocate(gr_nonassoc(Max(1, nnonassoc * ndim)))
+        Allocate(gidx_nonassoc(Max(1, nnonassoc)))
+
+        If (nbrd > 0) Then
+            gr_brd(1:nbrd*ndim) = r_brd(1:nbrd*ndim)
+            gidx_brd(1:nbrd)    = idx_brd(1:nbrd)
+        End If
+
+        If (nnonassoc > 0) Then
+            gr_nonassoc(1:nnonassoc*ndim) = r_nonassoc(1:nnonassoc*ndim)
+            gidx_nonassoc(1:nnonassoc)    = idx_nonassoc(1:nnonassoc)
+        End If
+
+        Write(*,'(A,I8,A,I8)') '     [AVBMC GPU Transfer] Border points: ', nbrd, &
+                               ' | Non-associated particles: ', nnonassoc
+
+    End Subroutine extract_avbmc_data
+
+    ! Subroutine to deallocate host and device arrays
+    Subroutine avbmc_deallocate()
+        If (Allocated(r_brd)) Deallocate(r_brd)
+        If (Allocated(idx_brd)) Deallocate(idx_brd)
+        If (Allocated(r_nonassoc)) Deallocate(r_nonassoc)
+        If (Allocated(idx_nonassoc)) Deallocate(idx_nonassoc)
+
+        If (Allocated(gr_brd)) Deallocate(gr_brd)
+        If (Allocated(gidx_brd)) Deallocate(gidx_brd)
+        If (Allocated(gr_nonassoc)) Deallocate(gr_nonassoc)
+        If (Allocated(gidx_nonassoc)) Deallocate(gidx_nonassoc)
+        
+        nbrd = 0
+        nnonassoc = 0
+    End Subroutine avbmc_deallocate
+
+END MODULE mod_avbmc

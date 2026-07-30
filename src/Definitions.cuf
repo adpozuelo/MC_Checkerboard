@@ -98,6 +98,11 @@ MODULE rundata
    Real(wp) :: asym_threshold = 0.5_wp                 ! Geometric asymmetry threshold for border points
    Integer :: ncluster = 0                             ! Cluster analysis periodicity (0 = disabled)
    Integer :: cluster_types(10) = -1                   ! Site types to include in cluster search
+   Logical :: avbmc = .false.                          ! Flag for AVBMC moves and GPU memory transfer
+   Character(len=32) :: border_criterion = 'asymmetry' ! Border point criterion: 'asymmetry' or 'energy'
+   Real(wp) :: energy_threshold = -2.0_wp              ! Energy cutoff for surface/border atoms
+   Real(wp) :: energy_border_ratio = 0.5_wp            ! Energy ratio relative to bulk/inner cluster atoms
+   Logical  :: use_energy_ratio = .false.              ! Use relative energy ratio instead of absolute threshold
 
 END MODULE rundata
 

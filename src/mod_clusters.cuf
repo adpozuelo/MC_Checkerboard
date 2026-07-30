@@ -1,10 +1,13 @@
 MODULE mod_clusters
     Use set_precision
     Use configuration
-    Use rundata, Only : rcl, minPts, ncluster, cluster_types, istep_ini, pot_int, asym_threshold
+    Use rundata, Only : rcl, minPts, ncluster, cluster_types, istep_ini, pot_int, asym_threshold, avbmc, &
+                        border_criterion, energy_threshold, energy_border_ratio, use_energy_ratio
+    Use potential, Only : bool_tor, Npart_types, Nrb_sites_max, Ntor_max, sigma_tor_jon, sigp_factor, Rcp_factor, Rc_factor
+    Use mod_avbmc
     Use cudafor
     Use Cell, Only : Ntot_Cell, Nat_Cell_Max, Sphere_Cell, List_Cell, Nat_Cell, DR_Cell, Map_Cell
-    Use cuda_fortran, Only : Sphere_Celldev, List_Cell_dev, Map_Cell_dev, Nat_Cell_dev, DR_Cell_dev, hdev
+    Use cuda_fortran, Only : Sphere_Celldev, List_Cell_dev, Map_Cell_dev, Nat_Cell_dev, DR_Cell_dev, hdev, compute_per_atom_energy_gpu
     Implicit None
 
     Integer, Parameter :: maxnbpp = 128
@@ -360,6 +363,7 @@ CONTAINS
             Deallocate(offset)
             Deallocate(adjacency)
         End If
+        If (avbmc) Call avbmc_deallocate()
     End Subroutine clusters_dealloc
 
     Subroutine neighbor_search(Nsites_val)
@@ -440,8 +444,12 @@ CONTAINS
         Real(wp) :: pct
         Integer :: io_lastclconf = 112, io_lastbrdconf = 113, nbrd, id, indx_i, indx_j, maxcolor = 32
         Real(wp), Allocatable :: asym(:)
+        Logical, Allocatable :: is_border(:)
+        Real(wp), Allocatable :: atom_energies_host(:)
         Integer, Allocatable :: nbrd_in_cl(:)
         Real(wp) :: S(3), xi, yi, zi, dx, dy, dz, dx_real, dy_real, dz_real, dist
+        Real(wp) :: e_sum, e_avg, thresh_val
+        Integer :: count_cluster_atoms
         
         ! 1. Allocate memory if needed
         Call clusters_alloc()
@@ -595,57 +603,104 @@ CONTAINS
         end do
         close(io_lastclconf)
 
-        ! 9. Compute border points using geometric asymmetry criterion (normalized net neighbor vector magnitude)
-        Allocate(asym(natoms))
-        asym(:) = 0.0_wp
-        
-        Do i = 1, natoms
-            If (label(i) > 0 .And. neighbors(i) > 0) Then
-                S(1) = 0.0_wp; S(2) = 0.0_wp; S(3) = 0.0_wp
-                indx_i = (i - 1) * ndim
-                xi = r(indx_i + 1)
-                yi = r(indx_i + 2)
-                zi = r(indx_i + 3)
-                
-                Do k = offset(i), offset(i) + neighbors(i) - 1
-                    id = adjacency(k)
-                    indx_j = (id - 1) * ndim
-                    dx = r(indx_j + 1) - xi
-                    dy = r(indx_j + 2) - yi
-                    dz = r(indx_j + 3) - zi
-                    
-                    dx = dx - anint(dx)
-                    dy = dy - anint(dy)
-                    dz = dz - anint(dz)
-                    
-                    dx_real = dx * Box(0)
-                    dy_real = dy * Box(1)
-                    dz_real = dz * Box(2)
-                    
-                    dist = Sqrt(dx_real**2 + dy_real**2 + dz_real**2)
-                    If (dist > 0.0_wp) Then
-                        S(1) = S(1) + dx_real / dist
-                        S(2) = S(2) + dy_real / dist
-                        S(3) = S(3) + dz_real / dist
+        ! 9. Compute border points using chosen criterion (asymmetry or per-atom energy)
+        Allocate(is_border(natoms))
+        is_border(:) = .false.
+
+        If (trim(border_criterion) == 'energy') Then
+            Allocate(atom_energies_host(0:natoms-1))
+            Call compute_per_atom_energy_gpu(pot_int, bool_tor, ndim, Nat_cell_max, Ntot_Cell, Npart_types, &
+               Nrb_sites_max, Ntor_max, sigma_tor_jon, sigp_factor, Rcp_factor, Rc_factor, natoms, atom_energies_host)
+            
+            If (use_energy_ratio) Then
+                e_sum = 0.0_wp
+                count_cluster_atoms = 0
+                Do i = 1, natoms
+                    If (label(i) > 0) Then
+                        e_sum = e_sum + atom_energies_host(i-1)
+                        count_cluster_atoms = count_cluster_atoms + 1
                     End If
                 End Do
-                asym(i) = Sqrt(S(1)**2 + S(2)**2 + S(3)**2) / Real(neighbors(i), wp)
+                If (count_cluster_atoms > 0) Then
+                    e_avg = e_sum / Real(count_cluster_atoms, wp)
+                Else
+                    e_avg = 0.0_wp
+                End If
+                thresh_val = energy_border_ratio * e_avg
+            Else
+                thresh_val = energy_threshold
             End If
-        End Do
-        
+
+            Do i = 1, natoms
+                If (label(i) > 0 .And. atom_energies_host(i-1) >= thresh_val) Then
+                    is_border(i) = .true.
+                End If
+            End Do
+            Deallocate(atom_energies_host)
+
+            Write(*,'(A, F8.3, A, I10)') &
+                '     [BORDER] Per-atom energy (threshold: ', thresh_val, ') | Total border atoms: ', Count(is_border)
+
+        Else
+            ! Default: Geometric asymmetry criterion (normalized net neighbor vector magnitude)
+            Allocate(asym(natoms))
+            asym(:) = 0.0_wp
+            
+            Do i = 1, natoms
+                If (label(i) > 0 .And. neighbors(i) > 0) Then
+                    S(1) = 0.0_wp; S(2) = 0.0_wp; S(3) = 0.0_wp
+                    indx_i = (i - 1) * ndim
+                    xi = r(indx_i + 1)
+                    yi = r(indx_i + 2)
+                    zi = r(indx_i + 3)
+                    
+                    Do k = offset(i), offset(i) + neighbors(i) - 1
+                        id = adjacency(k)
+                        indx_j = (id - 1) * ndim
+                        dx = r(indx_j + 1) - xi
+                        dy = r(indx_j + 2) - yi
+                        dz = r(indx_j + 3) - zi
+                        
+                        dx = dx - anint(dx)
+                        dy = dy - anint(dy)
+                        dz = dz - anint(dz)
+                        
+                        dx_real = dx * Box(0)
+                        dy_real = dy * Box(1)
+                        dz_real = dz * Box(2)
+                        
+                        dist = Sqrt(dx_real**2 + dy_real**2 + dz_real**2)
+                        If (dist > 0.0_wp) Then
+                            S(1) = S(1) + dx_real / dist
+                            S(2) = S(2) + dy_real / dist
+                            S(3) = S(3) + dz_real / dist
+                        End If
+                    End Do
+                    asym(i) = Sqrt(S(1)**2 + S(2)**2 + S(3)**2) / Real(neighbors(i), wp)
+                End If
+            End Do
+
+            Do i = 1, natoms
+                If (label(i) > 0 .And. asym(i) >= asym_threshold) Then
+                    is_border(i) = .true.
+                End If
+            End Do
+            Deallocate(asym)
+
+            Write(*,'(A, F4.2, A, I10)') &
+                '     [BORDER] Geometric asymmetry (threshold: ', asym_threshold, ') | Total border atoms: ', Count(is_border)
+        End If
+
         Allocate(nbrd_in_cl(Max(1, cluster_id)))
         nbrd_in_cl(:) = 0
         nbrd = 0
         Do i = 1, natoms
-            If (label(i) > 0 .And. asym(i) >= asym_threshold) Then
+            If (is_border(i)) Then
                 nbrd = nbrd + 1
                 nbrd_in_cl(label(i)) = nbrd_in_cl(label(i)) + 1
             End If
         End Do
         
-        Write(*,'(A, F4.2, A, I10)') &
-            '     [BORDER] Geometric asymmetry (threshold: ', asym_threshold, ') | Total border atoms: ', nbrd
-            
         ! 10. Write last border configuration to mclast_brdconf.lammpstrj
         open(io_lastbrdconf, file='mclast_brdconf.lammpstrj', status='unknown')
         write(io_lastbrdconf, '(A)') 'ITEM: TIMESTEP'
@@ -664,7 +719,7 @@ CONTAINS
         End If
         
         do i = 1, natoms
-            if (label(i) > 0 .and. asym(i) >= asym_threshold) then
+            if (is_border(i)) then
                 indx = (i - 1) * ndim
                 type_cl = mod(nbrd_in_cl(label(i)), maxcolor)
                 If (pot_int < 1) Then
@@ -682,8 +737,12 @@ CONTAINS
         end do
         close(io_lastbrdconf)
         
+        If (avbmc) Then
+            Call extract_avbmc_data(natoms, r, label, is_border)
+        End If
+
         Deallocate(nbrd_in_cl)
-        Deallocate(asym)
+        Deallocate(is_border)
         
     End Subroutine run_cluster_analysis
 
