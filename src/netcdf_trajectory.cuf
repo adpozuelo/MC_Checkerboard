@@ -209,12 +209,12 @@ Contains
          atom_types(i) = itype_arr(i-1)+1
       EndDo
 
-      ! Fill coordinates
+      ! Fill coordinates (convert from reduced coordinates to real coordinates)
       Do i = 0, natoms-1
          Indx = i * Ndim
-         coords(1, i+1) = r(Indx)
-         coords(2, i+1) = r(Indx+1)
-         coords(3, i+1) = r(Indx+2)
+         coords(1, i+1) = r(Indx) * h(0)
+         coords(2, i+1) = r(Indx+1) * h(4)
+         coords(3, i+1) = r(Indx+2) * h(8)
       EndDo
 
       ! Fill quaternions

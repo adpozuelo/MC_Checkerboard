@@ -438,7 +438,7 @@ CONTAINS
         Integer :: count_cl(natoms)
         Logical :: file_exists
         Real(wp) :: pct
-        Integer :: io_lastclconf = 112, io_lastbrdconf = 113, nbrd, id, indx_i, indx_j
+        Integer :: io_lastclconf = 112, io_lastbrdconf = 113, nbrd, id, indx_i, indx_j, maxcolor = 32
         Real(wp), Allocatable :: asym(:)
         Integer, Allocatable :: nbrd_in_cl(:)
         Real(wp) :: S(3), xi, yi, zi, dx, dy, dz, dx_real, dy_real, dz_real, dist
@@ -559,8 +559,8 @@ CONTAINS
             istep, cluster_id, size_max, nclustered, pct
         Close(io_clusevol_file)
 
-        ! 8. Write last cluster configuration to last_clconf.lammpstrj
-        open(io_lastclconf, file='last_clconf.lammpstrj', status='unknown')
+        ! 8. Write last cluster configuration to mclast_clconf.lammpstrj
+        open(io_lastclconf, file='mclast_clconf.lammpstrj', status='unknown')
         write(io_lastclconf, '(A)') 'ITEM: TIMESTEP'
         write(io_lastclconf, '(I12)') istep
         write(io_lastclconf, '(A)') 'ITEM: NUMBER OF ATOMS'
@@ -579,7 +579,7 @@ CONTAINS
         do i = 1, natoms
             if (label(i) > 0) then
                 indx = (i - 1) * ndim
-                type_cl = min(count_cl(label(i)), 16)
+                type_cl = mod(count_cl(label(i)), maxcolor)
                 If (pot_int < 1) Then
                     write(io_lastclconf, '(I8,x,I8,x,I4,x,3F16.8)') &
                         i, label(i), type_cl, &
@@ -646,8 +646,8 @@ CONTAINS
         Write(*,'(A, F4.2, A, I10)') &
             '     [BORDER] Geometric asymmetry (threshold: ', asym_threshold, ') | Total border atoms: ', nbrd
             
-        ! 10. Write last border configuration to last_brdconf.lammpstrj
-        open(io_lastbrdconf, file='last_brdconf.lammpstrj', status='unknown')
+        ! 10. Write last border configuration to mclast_brdconf.lammpstrj
+        open(io_lastbrdconf, file='mclast_brdconf.lammpstrj', status='unknown')
         write(io_lastbrdconf, '(A)') 'ITEM: TIMESTEP'
         write(io_lastbrdconf, '(I12)') istep
         write(io_lastbrdconf, '(A)') 'ITEM: NUMBER OF ATOMS'
@@ -666,7 +666,7 @@ CONTAINS
         do i = 1, natoms
             if (label(i) > 0 .and. asym(i) >= asym_threshold) then
                 indx = (i - 1) * ndim
-                type_cl = min(nbrd_in_cl(label(i)), 16)
+                type_cl = mod(nbrd_in_cl(label(i)), maxcolor)
                 If (pot_int < 1) Then
                     write(io_lastbrdconf, '(I8,x,I8,x,I4,x,3F16.8)') &
                         i, label(i), type_cl, &

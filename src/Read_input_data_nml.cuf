@@ -671,8 +671,8 @@ Subroutine Write_final_conf2(istep)
       End Do
    End If
 
-   ! Write to last_conf.lammpstrj
-   open(675, file='last_conf.lammpstrj', status='unknown')
+   ! Write to mclast_conf.lammpstrj
+   open(675, file='mclast_conf.lammpstrj', status='unknown')
    write(675,'(A)') "ITEM: TIMESTEP"; write(675,'(I12)') istep
    write(675,'(A)') "ITEM: NUMBER OF ATOMS"; write(675,'(I12)') natoms
    write(675,'(A)') "ITEM: BOX BOUNDS pp pp pp"; write(675,'(2F15.6)') 0.0_wp, h(0); write(675,'(2F15.6)') 0.0_wp, h(4); write(675,'(2F15.6)') 0.0_wp, h(8)
