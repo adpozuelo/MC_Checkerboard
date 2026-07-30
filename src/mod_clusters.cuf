@@ -738,7 +738,7 @@ CONTAINS
         close(io_lastbrdconf)
         
         If (avbmc) Then
-            Call extract_avbmc_data(natoms, r, label, is_border)
+            Call extract_avbmc_data(natoms, r, label, is_border, cluster_mask_host)
         End If
 
         Deallocate(nbrd_in_cl)

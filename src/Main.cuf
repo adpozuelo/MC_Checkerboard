@@ -40,6 +40,7 @@ Program MC_CB_GPU
    Use cudafor                            ! Required for cudaEvent structures
    Use netcdf_trajectory
    Use mod_clusters
+   Use mod_avbmc
    Use lammps_hmc_wrapper, only: init_hmc_lammps, execute_hmc_step, close_hmc_lammps
    Use mpi
 
@@ -305,7 +306,7 @@ Program MC_CB_GPU
       end if
 
       ! Accumulate averages and adjust parameters
-      If( (i > Ieq) .AND. (mod(i,Nsave)==0) ) Then
+      If (mod(i,Nsave)==0) Then
          Call Accumulate_averages(i)
          if (pot_int < 1) then
             Ntrans=no_mc_real*Nmove
@@ -313,13 +314,29 @@ Program MC_CB_GPU
             Ntrans=no_mc_real*Nmove/2
             Nrot=no_mc_real*Nmove/2
          endif
-         prob_trans=dble(ntrans_ac)/dble(ntrans)
-         prob_rot=dble(nrot_ac)/dble(nrot)
-         prob_vol=dble(nvol_accept)/dble(nvol)
+         if (Ntrans > 0) then
+            prob_trans=dble(ntrans_ac)/dble(ntrans)
+         else
+            prob_trans=0.0d0
+         endif
+         if (Nrot > 0) then
+            prob_rot=dble(nrot_ac)/dble(nrot)
+         else
+            prob_rot=0.0d0
+         endif
+         if (nvol > 0) then
+            prob_vol=dble(nvol_accept)/dble(nvol)
+         else
+            prob_vol=0.0d0
+         endif
          ! Autoadjust maximum displacement up to 0.4
          If (displ_update) then
             hmaxo=hmax
-            hmax=hmax*dabs(prob_trans/0.4d0)
+            if (prob_trans > 0.001d0) then
+               hmax=hmax*dabs(prob_trans/0.4d0)
+            else
+               hmax=hmax*0.8d0
+            endif
             ! Put a limit to the displacement
             if(hmax/hmaxo > 1.5d0) hmax=hmaxo*1.5
             if(hmax/hmaxo < 0.5d0) hmax=hmaxo*0.5
@@ -327,13 +344,19 @@ Program MC_CB_GPU
             ! Maximum displacement is limited by half of the minimum W_RU
             ! which is the connected with the sise of subcells
             if(hmax > W_RU_min/2.d0 ) hmax =W_RU_min/2.d0
+            if(hmax < 0.001d0 / box(0)) hmax = 0.001d0 / box(0)
             if (pot_int > 0) then
                ! Autoadjust maximum rotation up to 0.5 radians
                omaxo=omax
-               omax=omax*dabs(prob_rot/0.4d00)
+               if (prob_rot > 0.001d0) then
+                  omax=omax*dabs(prob_rot/0.4d00)
+               else
+                  omax=omax*0.8d0
+               endif
                if(omax/omaxo.gt.1.5d00) omax=omaxo*1.5d00
                if(omax/omaxo.lt.0.5d00) omax=omaxo*0.5d00
                if(omax.gt.0.5d0) omax=0.5d0
+               if(omax < 0.01d0) omax = 0.01d0
             endif
             vmaxo(0:2)=vmax(0:2)
             boxmin=minval(box)
@@ -412,58 +435,7 @@ Program MC_CB_GPU
          istat = cudaEventRecord(startEvent, 0)
       EndIf
 
-      ! Print statistics during equilibration phase
-      If( (i <= Ieq) .AND. (mod(i,Nsave)==0) ) Then
-         If (pot_int < 1) Then
-            Ntrans = no_mc_real*Nmove
-         Else
-            Ntrans = no_mc_real*Nmove/2
-            Nrot = no_mc_real*Nmove/2
-         EndIf
-         prob_trans = dble(ntrans_ac)/dble(ntrans)
-         prob_rot = dble(nrot_ac)/dble(nrot)
-         prob_vol = dble(nvol_accept)/dble(nvol)
 
-         ! --- Compute Periodic Timers ---
-         call cpu_time(cpu_time_now)
-         diff_cpu_time = cpu_time_now - last_cpu_time
-         last_cpu_time = cpu_time_now
-
-         istat = cudaEventRecord(stopEvent, 0)
-         istat = cudaEventSynchronize(stopEvent)
-         istat = cudaEventElapsedTime(diff_gpu_time_ms, startEvent, stopEvent)
-
-         total_gpu_time = total_gpu_time + (real(diff_gpu_time_ms, wp) / 1000.0_wp)
-         istat = cudaEventElapsedTime(gpu_time_ms, startEvent, stopEvent)
-         last_gpu_time_ms = gpu_time_ms
-
-         ! --- Format terminal output based on ensemble ---
-         If (NpT) Then
-            If (pot_int < 1) Then
-               write(*,'(i10, f18.8, f13.8, f11.4, i11, 2f13.6, f11.4, f11.6, i13, 2f11.3)') &
-                  i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/Nsave, real(ntrans)/real(Nsave*natoms), hmax*box(0), prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
-            Else
-               write(*,'(i10, f18.8, f13.8, 2f11.4, i11, 3f13.6, f11.4, f11.6, i13, 2f11.3)') &
-                  i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, prob_rot, ntrans/Nsave, real(ntrans)/real(Nsave*natoms), hmax*box(0), omax, prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
-            EndIf
-         Else
-            If (pot_int < 1) Then
-               write(*,'(i10, f18.8, f13.8, f11.4, i11, 2f13.6, i13, 2f11.3)') &
-                  i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/Nsave,  real(ntrans)/real(Nsave*natoms), hmax*box(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
-            Else
-               write(*,'(i10, f18.8, f13.8, 2f11.4, i11, 3f13.6, i13, 2f11.3)') &
-                  i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, prob_rot, ntrans/Nsave,  real(ntrans)/real(Nsave*natoms), hmax*box(0), omax, Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
-            EndIf
-         EndIf
-
-         no_mc_real=0
-         ntrans_ac=0
-         nrot_ac=0
-         nvol=0
-         nvol_accept=0
-
-         istat = cudaEventRecord(startEvent, 0)
-      EndIf
 
       ! Write trajectory snapshots
       If( (i > Ieq) .AND. (mod(i,Nsave2)==0) ) Then
@@ -487,9 +459,13 @@ Program MC_CB_GPU
       ! NOTE: Clustering defaults to analyzing patch sites (internal types 1 and 3)
       ! using a neighborhood search cutoff 'rcl'. For physical correctness in patchy
       ! models, rcl should match the patch-patch interaction cutoff.
-      If( (i > Ieq) .AND. (ncluster > 0) .AND. (mod(i, ncluster) == 0) ) Then
+      If( (ncluster > 0) .AND. (mod(i, ncluster) == 0) ) Then
          Call Convert_CB_RU
          Call run_cluster_analysis(i)
+         If (avbmc) Then
+            Call attempt_avbmc_pair_moves(neighbors, offset, adjacency)
+            Call print_avbmc_stats()
+         End If
       EndIf
 
 
@@ -558,7 +534,13 @@ Program MC_CB_GPU
    Call Write_final_properties
    Call Write_final_conf
    Call Write_final_conf2(istep_ini+istep_fin)
-   If (ncluster > 0) Call run_cluster_analysis(istep_ini+istep_fin)
+   If (ncluster > 0) Then
+      Call run_cluster_analysis(istep_ini+istep_fin)
+      If (avbmc) Then
+         Call attempt_avbmc_pair_moves(neighbors, offset, adjacency)
+         Call print_avbmc_stats()
+      End If
+   End If
 
    if (Nmc_hmc > 0) call close_hmc_lammps()
    Call limpio

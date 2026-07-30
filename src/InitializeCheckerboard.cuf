@@ -459,3 +459,78 @@ End Subroutine Initialize_checkerboard
                  & MOD (IZ+Nl_Cell(2), Nl_Cell(2)) * Nl_Cell(0)*Nl_Cell(1)
     Return
     End function 
+
+! Subroutine to repopulate cell lists (Sphere_Cell, List_Cell, Nat_Cell) from main configuration arrays r, q, itype
+! without altering cell grid parameters, Offset_CB, or hmax.
+Subroutine repopulate_checkerboard_cells()
+   Use set_precision
+   Use Cell
+   Use configuration
+   Use potential
+   Implicit None
+
+   Integer :: i, Indice, Indx_Nat, Indice2, Indice_Q, ICell
+   Integer :: Indx(3)
+   Real(wp) :: XI, YI, ZI, XCell, YCell, ZCell
+
+   Nat_Cell = 0
+   List_Cell = 0
+   Sphere_Cell = 0.d0
+
+   Do i = 0, Natoms - 1
+      Indice = i * ndim
+      XI = r(Indice) 
+      YI = r(Indice + 1) 
+      ZI = r(Indice + 2) 
+
+      If (XI < 0.0_wp) XI = XI + Int(XI) + 1.0_wp 
+      If (XI > 1.0_wp) XI = XI - Int(XI) 
+
+      If (YI < 0.0_wp) YI = YI + Int(YI) + 1.0_wp 
+      If (YI > 1.0_wp) YI = YI - Int(YI) 
+
+      If (ZI < 0.0_wp) ZI = ZI + Int(ZI) + 1.0_wp 
+      If (ZI > 1.0_wp) ZI = ZI - Int(ZI) 
+
+      Indx(1) = Int(XI / w_RU(0)) 
+      Indx(2) = Int(YI / w_RU(1)) 
+      Indx(3) = Int(ZI / w_RU(2)) 
+
+      If (Indx(1) >= Nl_Cell(0)) Indx(1) = Nl_Cell(0) - 1
+      If (Indx(1) < 0) Indx(1) = 0
+      If (Indx(2) >= Nl_Cell(1)) Indx(2) = Nl_Cell(1) - 1
+      If (Indx(2) < 0) Indx(2) = 0
+      If (Indx(3) >= Nl_Cell(2)) Indx(3) = Nl_Cell(2) - 1
+      If (Indx(3) < 0) Indx(3) = 0
+ 
+      XCell = Indx(1) * w_RU(0) + w_RU(0) / 2.0_wp 
+      YCell = Indx(2) * w_RU(1) + w_RU(1) / 2.0_wp 
+      ZCell = Indx(3) * w_RU(2) + w_RU(2) / 2.0_wp 
+
+      Indice = ICell(Indx(1), Indx(2), Indx(3))
+      Indx_Nat = Nat_Cell(Indice) + 1
+
+      If (Indx_Nat > Nat_cell_max) Then
+          Print*, 'ERROR in repopulate_checkerboard_cells: Indx_Nat larger than Nat_cell_Max', Indx_Nat, Nat_cell_max
+          Stop
+      EndIf
+
+      Nat_Cell(Indice) = Indx_Nat
+
+      Indice2 = Indice * Nat_cell_max * (ndim + 4) + (Indx_Nat - 1) * (ndim + 4)
+
+      Indice_Q = i * 4
+      Sphere_Cell(Indice2)     = XI - XCell 
+      Sphere_Cell(Indice2 + 1) = YI - YCell 
+      Sphere_Cell(Indice2 + 2) = ZI - ZCell 
+      Sphere_Cell(Indice2 + 3) = q(Indice_Q)
+      Sphere_Cell(Indice2 + 4) = q(Indice_Q + 1)
+      Sphere_Cell(Indice2 + 5) = q(Indice_Q + 2)
+      Sphere_Cell(Indice2 + 6) = q(Indice_Q + 3)
+
+      Indice2 = Indice * Nat_cell_max * 2 + (Indx_Nat - 1) * 2
+
+      List_Cell(Indice2)     = i
+      List_Cell(Indice2 + 1) = itype(i)
+   End Do
+End Subroutine repopulate_checkerboard_cells

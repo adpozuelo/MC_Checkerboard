@@ -1685,7 +1685,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
         
         integer, shared :: Indx_Cell, Nat_Cell_ijk, itypei, Npatchesi
         real(wp) :: H11, H12, H13, H21, H22, H23, H31, H32, H33
-        real(wp) :: dx_neigh, dy_neigh, dz_neigh, norm, XJ, YJ, ZJ, prob
+        real(wp) :: dx_neigh, dy_neigh, dz_neigh, norm, XJ, YJ, ZJ, prob, rnd
         real(wp) :: Rnd_or(0:3), pi, e_old_inc, e_new_inc
         real(dkind) :: ener_new, ener_old, DE, de1
         real(wp) :: Q0_old, Q1_old, Q2_old, Q3_old, Qmove_0, Qmove_1, Qmove_2, Qmove_3
@@ -1818,7 +1818,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
                                 ener_old = 0.0_wp; ener_new = 0.0_wp
                                 do i=0,26; ener_old = ener_old + entot_old(i); ener_new = ener_new + entot_new(i); end do
                                 de1 = ener_new - ener_old; prob = exp(-beta*de1)
-                                if (curand_uniform(RND_state(Indx_Rnd)) < prob) then
+                                rnd = curand_uniform(RND_state(Indx_Rnd))
+                                if (rnd < prob) then
                                     Sphere_Cell(imol  ) = Dmove_x; Sphere_Cell(imol+1) = Dmove_y; Sphere_Cell(imol+2) = Dmove_z
                                     Sphere_Cell(imol+3) = Qmove_0; Sphere_Cell(imol+4) = Qmove_1; Sphere_Cell(imol+5) = Qmove_2; Sphere_Cell(imol+6) = Qmove_3
                                     DE = DE + de1; if (itras /= 0) then; ntrasa = ntrasa + 1; else; nrota = nrota + 1; end if
@@ -2383,8 +2384,6 @@ attributes(device) subroutine evaluate_cell_interactions( &
     integer :: nblock, i, ierror, Ntot_jobs
     integer :: Ndim1, Ndim2, Ndim3
     
-    ! FORCE UPDATE: The GPU must see the CPU's current Sphere_Cell
-    Sphere_Celldev = Sphere_Cell
     patch_radial_factor_dev = patch_radial_factor
     Ndim1 = Ntypes*Npatches_max*Ntypes*Npatches_max
     Ndim2 = Ntypes*Npatches_max
@@ -2463,6 +2462,19 @@ attributes(device) subroutine evaluate_cell_interactions( &
       init = 1
     end if
     
+    if (.not. allocated(Sphere_Celldev) .or. size(Sphere_Celldev) /= size(Sphere_Cell)) then
+      if (allocated(Sphere_Celldev)) deallocate(Sphere_Celldev)
+      allocate(Sphere_Celldev(0:size(Sphere_Cell)-1))
+    end if
+    if (.not. allocated(List_Cell_dev) .or. size(List_Cell_dev) /= size(List_Cell)) then
+      if (allocated(List_Cell_dev)) deallocate(List_Cell_dev)
+      allocate(List_Cell_dev(0:size(List_Cell)-1))
+    end if
+    if (.not. allocated(Nat_Cell_dev) .or. size(Nat_Cell_dev) /= size(Nat_Cell)) then
+      if (allocated(Nat_Cell_dev)) deallocate(Nat_Cell_dev)
+      allocate(Nat_Cell_dev(0:size(Nat_Cell)-1))
+    end if
+
     List_Cell_dev   = List_Cell
     Sphere_Celldev  = Sphere_Cell
     Nat_Cell_dev    = Nat_Cell
@@ -2497,9 +2509,9 @@ attributes(device) subroutine evaluate_cell_interactions( &
                                           Map_Cell_dev, Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, energydev)
     end if
 
+    ierror = cudaDeviceSynchronize()
     energy = energydev
     Sphere_Cell = Sphere_Celldev
-    ierror = cudaDeviceSynchronize()
     En_tot = 0.0d0
     do i=0, Ntot_Cell-1
       En_tot = En_tot + energy(i)
@@ -2544,7 +2556,6 @@ attributes(device) subroutine evaluate_cell_interactions( &
     real(dkind) :: Total_energy
     integer :: No_tras_ac_subsweep, No_rot_ac_subsweep
     integer, intent(in) :: pot_int
-    
     patch_radial_factor_dev = patch_radial_factor
 
     if (init_subsweep == 0) then
@@ -2573,6 +2584,19 @@ attributes(device) subroutine evaluate_cell_interactions( &
       init_subsweep = 1
     end if
     
+    if (.not. allocated(Sphere_Celldev) .or. size(Sphere_Celldev) /= size(Sphere_Cell)) then
+      if (allocated(Sphere_Celldev)) deallocate(Sphere_Celldev)
+      allocate(Sphere_Celldev(0:size(Sphere_Cell)-1))
+    end if
+    if (.not. allocated(List_Cell_dev) .or. size(List_Cell_dev) /= size(List_Cell)) then
+      if (allocated(List_Cell_dev)) deallocate(List_Cell_dev)
+      allocate(List_Cell_dev(0:size(List_Cell)-1))
+    end if
+    if (.not. allocated(Nat_Cell_dev) .or. size(Nat_Cell_dev) /= size(Nat_Cell)) then
+      if (allocated(Nat_Cell_dev)) deallocate(Nat_Cell_dev)
+      allocate(Nat_Cell_dev(0:size(Nat_Cell)-1))
+    end if
+
     Offset_dev = Offset_CB; Sphere_Celldev = Sphere_Cell; List_Cell_dev  = List_Cell; Nat_Cell_dev   = Nat_Cell; hdev = h
     overlap_error_dev = 0; Delta_E_dev = 0.0_wp; Ntras_ac_dev = 0; Nrot_ac_dev = 0
     
@@ -2602,12 +2626,12 @@ attributes(device) subroutine evaluate_cell_interactions( &
                                           Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Offset_dev, W_RU_dev, Delta_E_dev, Ntras_ac_dev, Nrot_ac_dev)
     end if
     
+    ierror = cudaDeviceSynchronize()
     Delta_E   = Delta_E_dev
     Ntras_ac  = Ntras_ac_dev
     Nrot_ac   = Nrot_ac_dev
     Sphere_Cell = Sphere_Celldev
     overlap_error = overlap_error_dev
-    ierror = cudaDeviceSynchronize()
 
     Total_energy = 0.0d0
     No_tras_ac_subsweep = 0
@@ -2652,6 +2676,19 @@ attributes(device) subroutine evaluate_cell_interactions( &
     end if
     
     Sphere_Cell_new = -10.0_wp; List_Cell_new = 0; Nat_Cell_new = 0
+    if (.not. allocated(Sphere_Celldev) .or. size(Sphere_Celldev) /= size(Sphere_Cell)) then
+      if (allocated(Sphere_Celldev)) deallocate(Sphere_Celldev)
+      allocate(Sphere_Celldev(0:size(Sphere_Cell)-1))
+    end if
+    if (.not. allocated(List_Cell_dev) .or. size(List_Cell_dev) /= size(List_Cell)) then
+      if (allocated(List_Cell_dev)) deallocate(List_Cell_dev)
+      allocate(List_Cell_dev(0:size(List_Cell)-1))
+    end if
+    if (.not. allocated(Nat_Cell_dev) .or. size(Nat_Cell_dev) /= size(Nat_Cell)) then
+      if (allocated(Nat_Cell_dev)) deallocate(Nat_Cell_dev)
+      allocate(Nat_Cell_dev(0:size(Nat_Cell)-1))
+    end if
+
     Sphere_Celldev = Sphere_Cell; List_Cell_dev = List_Cell; Nat_Cell_dev = Nat_Cell
     ivec_dev = ivec; disp_dev = disp; W_RU_dev = W_RU
     
@@ -2663,8 +2700,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
     call shiftGPU<<<nblock,NTHREAD>>>(Ndim, Nat_Cell_Max, Ntot_Cell, Nl_Cell_dev, Sphere_Celldev, &
                                       Sphere_Cell_new, List_Cell_dev, List_Cell_new, Nat_Cell_dev, Nat_Cell_new, &
                                       W_RU_dev, ivec_dev, disp_dev)
-    Sphere_Cell = Sphere_Cell_new; List_Cell = List_Cell_new; Nat_Cell = Nat_Cell_new
     ierror = cudaDeviceSynchronize()
+    Sphere_Cell = Sphere_Cell_new; List_Cell = List_Cell_new; Nat_Cell = Nat_Cell_new
   end subroutine shiftcellsgpu
 
   ! ==============================================================================
