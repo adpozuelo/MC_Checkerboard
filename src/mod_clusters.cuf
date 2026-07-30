@@ -1,7 +1,7 @@
 MODULE mod_clusters
     Use set_precision
     Use configuration
-    Use rundata, Only : rcl, minPts, ncluster, cluster_types, istep_ini, pot_int
+    Use rundata, Only : rcl, minPts, ncluster, cluster_types, istep_ini, pot_int, asym_threshold
     Use cudafor
     Use Cell, Only : Ntot_Cell, Nat_Cell_Max, Sphere_Cell, List_Cell, Nat_Cell, DR_Cell, Map_Cell
     Use cuda_fortran, Only : Sphere_Celldev, List_Cell_dev, Map_Cell_dev, Nat_Cell_dev, DR_Cell_dev, hdev
@@ -438,7 +438,10 @@ CONTAINS
         Integer :: count_cl(natoms)
         Logical :: file_exists
         Real(wp) :: pct
-        Integer :: io_lastclconf = 112
+        Integer :: io_lastclconf = 112, io_lastbrdconf = 113, nbrd, id, indx_i, indx_j
+        Real(wp), Allocatable :: asym(:)
+        Integer, Allocatable :: nbrd_in_cl(:)
+        Real(wp) :: S(3), xi, yi, zi, dx, dy, dz, dx_real, dy_real, dz_real, dist
         
         ! 1. Allocate memory if needed
         Call clusters_alloc()
@@ -591,6 +594,96 @@ CONTAINS
             end if
         end do
         close(io_lastclconf)
+
+        ! 9. Compute border points using geometric asymmetry criterion (normalized net neighbor vector magnitude)
+        Allocate(asym(natoms))
+        asym(:) = 0.0_wp
+        
+        Do i = 1, natoms
+            If (label(i) > 0 .And. neighbors(i) > 0) Then
+                S(1) = 0.0_wp; S(2) = 0.0_wp; S(3) = 0.0_wp
+                indx_i = (i - 1) * ndim
+                xi = r(indx_i + 1)
+                yi = r(indx_i + 2)
+                zi = r(indx_i + 3)
+                
+                Do k = offset(i), offset(i) + neighbors(i) - 1
+                    id = adjacency(k)
+                    indx_j = (id - 1) * ndim
+                    dx = r(indx_j + 1) - xi
+                    dy = r(indx_j + 2) - yi
+                    dz = r(indx_j + 3) - zi
+                    
+                    dx = dx - anint(dx)
+                    dy = dy - anint(dy)
+                    dz = dz - anint(dz)
+                    
+                    dx_real = dx * Box(0)
+                    dy_real = dy * Box(1)
+                    dz_real = dz * Box(2)
+                    
+                    dist = Sqrt(dx_real**2 + dy_real**2 + dz_real**2)
+                    If (dist > 0.0_wp) Then
+                        S(1) = S(1) + dx_real / dist
+                        S(2) = S(2) + dy_real / dist
+                        S(3) = S(3) + dz_real / dist
+                    End If
+                End Do
+                asym(i) = Sqrt(S(1)**2 + S(2)**2 + S(3)**2) / Real(neighbors(i), wp)
+            End If
+        End Do
+        
+        Allocate(nbrd_in_cl(Max(1, cluster_id)))
+        nbrd_in_cl(:) = 0
+        nbrd = 0
+        Do i = 1, natoms
+            If (label(i) > 0 .And. asym(i) >= asym_threshold) Then
+                nbrd = nbrd + 1
+                nbrd_in_cl(label(i)) = nbrd_in_cl(label(i)) + 1
+            End If
+        End Do
+        
+        Write(*,'(A, F4.2, A, I10)') &
+            '     [BORDER] Geometric asymmetry (threshold: ', asym_threshold, ') | Total border atoms: ', nbrd
+            
+        ! 10. Write last border configuration to last_brdconf.lammpstrj
+        open(io_lastbrdconf, file='last_brdconf.lammpstrj', status='unknown')
+        write(io_lastbrdconf, '(A)') 'ITEM: TIMESTEP'
+        write(io_lastbrdconf, '(I12)') istep
+        write(io_lastbrdconf, '(A)') 'ITEM: NUMBER OF ATOMS'
+        write(io_lastbrdconf, '(I12)') nbrd
+        write(io_lastbrdconf, '(A)') 'ITEM: BOX BOUNDS pp pp pp'
+        write(io_lastbrdconf, '(2F15.7)') 0.0_wp, Box(0)
+        write(io_lastbrdconf, '(2F15.7)') 0.0_wp, Box(1)
+        write(io_lastbrdconf, '(2F15.7)') 0.0_wp, Box(2)
+        
+        If (pot_int < 1) Then
+            write(io_lastbrdconf, '(A)') 'ITEM: ATOMS id mol type x y z'
+        Else
+            write(io_lastbrdconf, '(A)') 'ITEM: ATOMS id mol type x y z quatw quati quatj quatk'
+        End If
+        
+        do i = 1, natoms
+            if (label(i) > 0 .and. asym(i) >= asym_threshold) then
+                indx = (i - 1) * ndim
+                type_cl = min(nbrd_in_cl(label(i)), 16)
+                If (pot_int < 1) Then
+                    write(io_lastbrdconf, '(I8,x,I8,x,I4,x,3F16.8)') &
+                        i, label(i), type_cl, &
+                        r(indx) * Box(0), r(indx + 1) * Box(1), r(indx + 2) * Box(2)
+                Else
+                    indxq = (i - 1) * 4
+                    write(io_lastbrdconf, '(I8,x,I8,x,I4,x,3F16.8,x,4F16.8)') &
+                        i, label(i), type_cl, &
+                        r(indx) * Box(0), r(indx + 1) * Box(1), r(indx + 2) * Box(2), &
+                        q(indxq), q(indxq + 1), q(indxq + 2), q(indxq + 3)
+                End If
+            end if
+        end do
+        close(io_lastbrdconf)
+        
+        Deallocate(nbrd_in_cl)
+        Deallocate(asym)
         
     End Subroutine run_cluster_analysis
 

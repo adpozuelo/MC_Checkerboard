@@ -95,6 +95,7 @@ MODULE rundata
    Character(len=256) :: data_file = 'data.atoms'      ! Configuration file name
    Real(wp) :: rcl = 1.8_wp                            ! Cutoff distance for clustering
    Integer :: minPts = 3                               ! Min points for core nodes in DBSCAN
+   Real(wp) :: asym_threshold = 0.5_wp                 ! Geometric asymmetry threshold for border points
    Integer :: ncluster = 0                             ! Cluster analysis periodicity (0 = disabled)
    Integer :: cluster_types(10) = -1                   ! Site types to include in cluster search
 

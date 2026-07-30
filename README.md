@@ -169,7 +169,8 @@ See `examples/LJG/` directory for example input filesi for LJG patchy systems.
 - `data.restart` - Restart file configuration
 - `input-restart.nml` - Restart input file with current parameters
 - `clusevol_mc.dat` - Time evolution of clusters showing step, total clusters, maximum cluster size, total number of clustered particles, and percentage of clustered particles.
-
+- `last_clconf.lammpstrj` - Final cluster configuration output formatted in LAMMPS trajectory format for VMD visualization.
+- `last_brdconf.lammpstrj` - Final cluster border configuration based on geometric asymmetry criterion formatted in LAMMPS trajectory format.
 
 **Standard Output**: Energy, acceptance rates, timing information
 
@@ -193,6 +194,7 @@ See `examples/LJG/` directory for example input filesi for LJG patchy systems.
 - `ncluster` - Perform cluster analysis every `ncluster` steps (default: `0`, which disables clustering)
 - `rcl` - Cutoff distance for clustering (default: `1.8`). For patchy particle models, `rcl` should be set to the patch-patch interaction cutoff distance (e.g. $R_{\text{cut}} \approx 0.337$) to correctly identify physically bonded networks.
 - `minPts` - Minimum number of neighbors for a core node in DBSCAN (default: `3`)
+- `asym_threshold` - Geometric asymmetry parameter threshold (normalized net neighbor displacement vector magnitude) for identifying surface/border points of clusters (default: `0.5`)
 - `cluster_types` - Integer array of up to 10 particle species to include in cluster analysis. Default is `-1` (unspecified). Accepts either 0-based (`0`) or 1-based (`1`) indexing for species selection (e.g., both `cluster_types = 0` and `cluster_types = 1` select the first species).
 
 ### Thermodynamic Parameters
@@ -374,6 +376,11 @@ Computing resources provided by CSIC.
 ---
 
 ## Version History
+
+- **V2.3.1** (July 2026) Cluster Border Points Analysis & Geometric Asymmetry Criterion
+  - Implemented geometric asymmetry criterion (normalized net neighbor displacement vector magnitude) to identify surface/border particles in clusters.
+  - Added configurable threshold `asym_threshold` (default `0.5`) in `Control_Params` namelist.
+  - Generates `last_brdconf.lammpstrj` output following the exact prescription of `last_clconf.lammpstrj`.
 
 - **V2.3** (August 2026) Multi-state (S1-A1 to S1-A3, S1-A1 to S2-A2, S2-A2 to S3-A3) and Hybrid (MC to HMC) transitions
   - LAMMPS potential definitions are now stored in external files `potential_ssp_analytic.lmp` and `potential_ssp_table.lmp` and included in the LAMMPS input script.
