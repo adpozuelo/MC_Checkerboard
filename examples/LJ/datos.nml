@@ -8,7 +8,8 @@
   Nrestart = 5000,
   imovie = .true.,
   traj_format = 'both',
-  Npart_types = 2
+  Npart_types = 2,
+  asym_threshold = 0.5
 /
 &MC_Params
   hmax = 0.0125,
