@@ -27,6 +27,7 @@ Lennard-Jones reduced units are used. Potentials are truncated and shifted at ra
 - **GPU Acceleration**: CUDA Fortran implementation with checkerboard parallelization
 - **Anisotropic Interactions**: Lennard-Jones core with angular (patch-patch) and torsional terms
 - **Multiple Ensembles**: Supports both NVT (canonical) and NpT (isothermal-isobaric)
+- **Aggregation Volume Bias MC (AVBMC)**: Advanced cluster swap moves (association & dissociation) with Configurable Rosenbluth (CBMC) bulk probing scheme and $O(1)$ single-particle cell list updates
 - **Flexible Particle Models**: Up to 7 patches per particle with customizable geometries
 - **Adaptive MC Parameters**: Automatic adjustment of displacement parameters for optimal acceptance rates
 - **Temperature Annealing**: Linear temperature ramping capability
@@ -57,6 +58,7 @@ Lennard-Jones reduced units are used. Potentials are truncated and shifted at ra
 #### Core Modules
 - `Definitions.cuf` - Module definitions (precision, configuration, potential, properties, cell structure)
 - `Main.cuf` - Main program with MC loop and simulation control
+- `mod_avbmc.cuf` - Aggregation Volume Bias MC (AVBMC) module, CBMC Rosenbluth scheme, and border/bulk particle transfers
 
 #### Energy and Interactions
 - `energy.cuf` - CPU energy calculation for verification
@@ -198,6 +200,13 @@ See `examples/LJG/` directory for example input filesi for LJG patchy systems.
 - `asym_threshold` - Geometric asymmetry parameter threshold (normalized net neighbor displacement vector magnitude) for identifying surface/border points of clusters (default: `0.5`)
 - `cluster_types` - Integer array of up to 10 particle species to include in cluster analysis. Default is `-1` (unspecified). Accepts either 0-based (`0`) or 1-based (`1`) indexing for species selection (e.g., both `cluster_types = 0` and `cluster_types = 1` select the first species).
 
+### Aggregation Volume Bias MC (AVBMC) Control
+- `avbmc` - Enable AVBMC cluster association/dissociation moves (`.true.` / `.false.`, default: `.false.`)
+- `border_criterion` - Surface/border particle detection method: `'energy'` (energy threshold relative to bulk) or `'asymmetry'` (geometric displacement asymmetry) (default: `'energy'`)
+- `energy_border_ratio` - Energy ratio relative to bulk binding energy for border particle identification when `border_criterion = 'energy'` (default: `0.9`)
+- `avbmc_k_trials` - Number of trial positions ($K$) generated in the bulk for Configurable Rosenbluth (CBMC) bulk volume probing (default: `10`)
+- `avbmc_max_trials` - Maximum number of pair attempts per AVBMC step to bound execution time for large systems (default: `50`)
+
 ### Thermodynamic Parameters
 - `temp0`, `temp1` - Initial and final temperatures (Kelvin)
 - `pres` - Pressure (NpT ensemble)
@@ -266,6 +275,26 @@ Where:
    * $d_p > R_{cp}$:
      $$V_{\text{patch}}(d_p) = 0$$
    Where $r_{\text{patch}} = sigp\_factor \cdot R_c$ is the patch radius, $R_{cp} = Rcp\_factor \cdot R_c$ is the patch interaction cutoff, and $V_{\alpha\beta}$ is the interaction strength defined in the `Vpot_matrix`.
+
+#### Aggregation Volume Bias MC (AVBMC) & CBMC Rosenbluth Scheme
+
+AVBMC moves sample particle swaps between non-associated bulk particles and cluster border particles to accelerate cluster condensation and dissociation kinetics. To overcome low acceptance in dense bulk phases, a Configurable Rosenbluth (CBMC) scheme probabilistically probes bulk volume using $K$ trial positions:
+
+1. **Dissociation Move ($V_{\text{in}} \rightarrow V_{\text{out}}$)**:
+   When attempting to move a bound border particle from cluster binding volume $V_{\text{in}}$ to bulk $V_{\text{out}}$:
+   - Generate $K$ independent trial positions $m=1 \dots K$ randomly in bulk $V_{\text{out}}$.
+   - Evaluate interaction energy $u_m$ for each trial position on the GPU and calculate the Rosenbluth weight:
+     $$W_{\text{new}} = \sum_{m=1}^K \exp(-\beta u_m)$$
+   - Acceptance probability:
+     $$\text{acc}(n \rightarrow o) = \min\left(1, \; \frac{N_{\text{out}} + 1}{N_{\text{in}} \cdot N_{\text{neigh}}} \cdot \frac{V_{\text{in}}}{V_{\text{out}}} \cdot \frac{W_{\text{new}}}{K \cdot \exp(-\beta u_{\text{cluster\_state}})}\right)$$
+   - If accepted, select one of the $K$ bulk trial positions $m$ with probability $P(m) = \exp(-\beta u_m) / W_{\text{new}}$.
+
+2. **Association Move ($V_{\text{out}} \rightarrow V_{\text{in}}$)**:
+   When attempting to move a non-associated bulk particle into the binding shell $V_{\text{in}}$ of a cluster border particle:
+   - Calculate Rosenbluth weight $W_{\text{old}}$ of the original bulk state using $K-1$ additional dummy bulk trial positions.
+   - Sample a new target position in $V_{\text{in}}$ and compute its cluster interaction energy $u_{\text{cluster\_state}}$.
+   - Acceptance probability:
+     $$\text{acc}(o \rightarrow n) = \min\left(1, \; \frac{N_{\text{in}} \cdot N_{\text{neigh}} + 1}{N_{\text{out}}} \cdot \frac{V_{\text{out}}}{V_{\text{in}}} \cdot \frac{K \cdot \exp(-\beta u_{\text{cluster\_state}})}{W_{\text{old}}}\right)$$
 
 #### Mapping SSP to LAMMPS
 
@@ -377,6 +406,13 @@ Computing resources provided by CSIC.
 ---
 
 ## Version History
+
+- **V2.4** (July 2026) Aggregation Volume Bias Monte Carlo (AVBMC) & CBMC Rosenbluth Scheme
+  - Implemented AVBMC cluster association (bulk $\rightarrow V_{\text{in}}$) and dissociation ($V_{\text{in}} \rightarrow$ bulk) pair moves (`mod_avbmc.cuf`).
+  - Integrated Configurable Rosenbluth (CBMC) $K$-trial scheme for probabilistic bulk volume sampling ($W_{\text{new}} = \sum_{m=1}^K \exp(-\beta u_m)$).
+  - Added namelist control parameters `avbmc`, `border_criterion`, `energy_border_ratio`, `avbmc_k_trials` (default `10`), and `avbmc_max_trials` (default `50`).
+  - Implemented $O(1)$ single-particle cell list updates (`update_single_particle_cell`) with orientation preservation and global grid fallback search.
+  - Corrected 0-indexed position array `r` slicing offsets (`(id-1)*ndim : (id-1)*ndim+2`) and replaced boundary wrapping with exact `Floor` functions, achieving 53%+ AVBMC move acceptance and clean 5,000-step simulation execution.
 
 - **V2.3.1** (July 2026) Cluster Border Points Analysis & Geometric Asymmetry Criterion
   - Implemented geometric asymmetry criterion (normalized net neighbor displacement vector magnitude) to identify surface/border particles in clusters.

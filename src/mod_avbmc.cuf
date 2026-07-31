@@ -2,12 +2,21 @@
 ! MODULE: mod_avbmc
 ! ==============================================================================
 ! DESCRIPTION:
-!   Provides data structures and extraction subroutines for Aggregation Volume
+!   Provides data structures and execution subroutines for Aggregation Volume
 !   Bias Monte Carlo (AVBMC) moves. Manages flat coordinate arrays and particle
 !   index arrays for border points and non-associated particles, both on host
 !   and transferred to GPU device memory.
-!   Executes paired AVBMC moves (In-move and Out-move) with GPU total energy
-!   evaluation and detailed balance acceptance criterion.
+!
+!   Executes paired AVBMC moves:
+!     - In-move (Association): Bulk non-associated particle -> Cluster border V_in
+!     - Out-move (Dissociation): Cluster border particle -> Bulk V_out
+!
+!   Features:
+!     - Configurable Rosenbluth scheme (K-trial CBMC) for probabilistic bulk probing.
+!     - O(1) single-particle cell updating (update_single_particle_cell) without O(N) rebuilds.
+!     - Correct 0-indexed array slicing for 0-indexed position array r.
+!     - Exact periodic coordinate wrapping via Floor function.
+!     - GPU total energy evaluation (CB_system_energy_GPU) for exact detailed balance.
 ! ==============================================================================
 MODULE mod_avbmc
    Use set_precision

@@ -530,7 +530,17 @@ Subroutine repopulate_checkerboard_cells()
    End Do
 End Subroutine repopulate_checkerboard_cells
 
-! Subroutine for O(1) single-particle cell list update
+! ==============================================================================
+! SUBROUTINE: update_single_particle_cell
+! DESCRIPTION:
+!   Performs O(1) single-particle cell list update when particle `id_atom` moves
+!   from `r_old` to `r_new`.
+!   - Removes `id_atom` from its old cell in `List_Cell` and `Sphere_Cell`.
+!   - Includes full grid fallback search if particle is not found in expected cell.
+!   - Preserves particle active 3D orientation (quaternions `q_saved`) in `Sphere_Cell`.
+!   - Applies exact periodic boundary coordinate wrapping using `Floor`.
+!   - Inserts `id_atom` into its new cell and updates relative cell offsets.
+! ==============================================================================
 Subroutine update_single_particle_cell(id_atom, r_old, r_new)
    Use set_precision
    Use Cell

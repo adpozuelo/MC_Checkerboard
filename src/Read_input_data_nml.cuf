@@ -166,6 +166,13 @@ Subroutine Read_Input_Data
    Character(len=256) :: line
 
   
+   ! Namelists for simulation control, MC parameters, and potential parameters.
+   ! Control_Params include AVBMC options:
+   !   avbmc: .true. / .false. (Enable AVBMC moves)
+   !   border_criterion: 'asymmetry' / 'energy' (Surface particle detection method)
+   !   energy_border_ratio: Ratio for energy-based border identification (default 0.5)
+   !   avbmc_k_trials: Number of Rosenbluth trial positions (K) in bulk (default 10)
+   !   avbmc_max_trials: Cap on maximum AVBMC pair attempts per step (default 50)
    Namelist /Control_Params/ istep_ini, istep_fin, Neq, Nmove, Nsave, Nsave2, Nrestart, imovie, traj_format, Npart_types, Ecpu_check, data_file, &
                               rcl, minPts, asym_threshold, ncluster, cluster_types, Nmc_hmc, Nmd_hmc, tstep_hmc, avbmc, &
                               border_criterion, energy_threshold, energy_border_ratio, use_energy_ratio, avbmc_k_trials, avbmc_max_trials
