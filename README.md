@@ -16,7 +16,7 @@ Instituto de Química Física Blas Cabrera (IQF-CSIC)
 
 ## Overview
 
-This code implements a GPU-parallelized Monte Carlo simulation for systems of patchy particles with Lennard-Jones-Gauss (LJG) potential, Kern-Frenkel (K-F) and Lennard-Jones mixtures. The implementation uses a checkerboard cell decomposition scheme to enable conflict-free parallel Monte Carlo moves on GPU, achieving significant speedup compared to traditional CPU implementations.
+This code implements a GPU-parallelized Monte Carlo simulation for systems of patchy particles with Lennard-Jones-Gauss (LJG) potential, Kern-Frenkel (K-F) and Lennard-Jones mixtures. The implementation uses a checkerboard cell decomposition scheme [1] to enable conflict-free parallel Monte Carlo moves on GPU, achieving significant speedup compared to traditional CPU implementations.
 
 ### Note
 
@@ -24,14 +24,15 @@ Lennard-Jones reduced units are used. Potentials are truncated and shifted at ra
 
 ### Key Features
 
-- **GPU Acceleration**: CUDA Fortran implementation with checkerboard parallelization
+- **GPU Acceleration**: CUDA Fortran implementation with checkerboard parallelization [1]
 - **Anisotropic Interactions**: Lennard-Jones core with angular (patch-patch) and torsional terms
 - **Multiple Ensembles**: Supports both NVT (canonical) and NpT (isothermal-isobaric)
-- **Aggregation Volume Bias MC (AVBMC)**: Advanced cluster swap moves (association & dissociation) with Configurable Rosenbluth (CBMC) bulk probing scheme and $O(1)$ single-particle cell list updates
+- **Aggregation Volume Bias MC (AVBMC)**: Advanced cluster swap moves (association & dissociation) [3] with Configurable Rosenbluth (CBMC) bulk probing scheme and $O(1)$ single-particle cell list updates
 - **Flexible Particle Models**: Up to 7 patches per particle with customizable geometries
 - **Adaptive MC Parameters**: Automatic adjustment of displacement parameters for optimal acceptance rates
 - **Temperature Annealing**: Linear temperature ramping capability
 - **Efficient Neighbor Lists**: Cell-based neighbor lists with periodic boundary conditions
+- **Hybrid Monte Carlo (HMC)**: Integration of GPU MC moves with LAMMPS Molecular Dynamics (MD) rigid body segments [4]
 - **Restart Capability**: Checkpoint and restart functionality for long simulations
 - **NetCDF Trajectory Output**: Efficient binary format with integrated quaternions and metadata (~35× smaller than text files)
 
@@ -225,7 +226,7 @@ See `examples/LJG/` directory for example input filesi for LJG patchy systems.
   - `sigma_tor_jon` - Torsional interaction width
   - `rangepp` - Interaction cutoff
   - `xop` - Radial distance where the angular modulation switch activates
-- **SSP (Site-Site Patchy / Palaia Potential)**: Uses Weeks-Chandler-Andersen (WCA) core + attractive cosine-squared tail.
+- **SSP (Site-Site Patchy / Palaia Potential)**: Uses Weeks-Chandler-Andersen (WCA) core + attractive cosine-squared tail [2].
   - `sigp_factor` - Patch radius scaling factor (default: `0.1`)
   - `Rcp_factor` - Patch cutoff scaling factor (default: `0.3`)
   - `Rc_factor` - Core tail cutoff scaling factor (default: `2.0`)
@@ -278,7 +279,7 @@ Where:
 
 #### Aggregation Volume Bias MC (AVBMC) & CBMC Rosenbluth Scheme
 
-AVBMC moves sample particle swaps between non-associated bulk particles and cluster border particles to accelerate cluster condensation and dissociation kinetics. To overcome low acceptance in dense bulk phases, a Configurable Rosenbluth (CBMC) scheme probabilistically probes bulk volume using $K$ trial positions:
+AVBMC moves [3] sample particle swaps between non-associated bulk particles and cluster border particles to accelerate cluster condensation and dissociation kinetics. To overcome low acceptance in dense bulk phases, a Configurable Rosenbluth (CBMC) scheme probabilistically probes bulk volume using $K$ trial positions:
 
 1. **Dissociation Move ($V_{\text{in}} \rightarrow V_{\text{out}}$)**:
    When attempting to move a bound border particle from cluster binding volume $V_{\text{in}}$ to bulk $V_{\text{out}}$:
@@ -296,9 +297,9 @@ AVBMC moves sample particle swaps between non-associated bulk particles and clus
    - Acceptance probability:
      $$\text{acc}(o \rightarrow n) = \min\left(1, \; \frac{N_{\text{in}} \cdot N_{\text{neigh}} + 1}{N_{\text{out}}} \cdot \frac{V_{\text{out}}}{V_{\text{in}}} \cdot \frac{K \cdot \exp(-\beta u_{\text{cluster\_state}})}{W_{\text{old}}}\right)$$
 
-#### Mapping SSP to LAMMPS
+#### Mapping SSP to LAMMPS [4]
 
-To simulate this model in LAMMPS, we represent each colloid-patch assembly as a rigid molecule (with 1 center site + 4 patch sites) and configure a hybrid pair style:
+To simulate this model in LAMMPS [4], we represent each colloid-patch assembly as a rigid molecule (with 1 center site + 4 patch sites) and configure a hybrid pair style:
 * **Rigid Bodies**: Use `atom_style molecular` and define the rigid bodies via `fix rigid/nvt/small molecule` (or `fix rigid/small molecule`).
 * **Pair Potential**: Use `pair_style hybrid/overlay` to overlay `lj/cut` and `cosine/squared` interactions.
 * **WCA Shift**: To reproduce the $+1.0\epsilon$ shift in the core $V_{\text{core}}(r)$ equation, you must add **`pair_modify shift yes`** in the LAMMPS input script. This shifts the truncated `lj/cut` core interaction so that the energy goes smoothly to $0$ at the cutoff $R_c = 2^{1/6}\sigma$.
@@ -323,7 +324,7 @@ The codebase has a decoupled potential architecture that allows developers to ea
 
 ## Checkerboard Decomposition
 
-The code uses a 3D checkerboard decomposition that divides the simulation box into cells:
+The code uses a 3D checkerboard decomposition [1] that divides the simulation box into cells:
 
 - **8 Checkerboard Sets**: In 3D, cells are grouped into 8 sets based on (x,y,z) parity
 - **Conflict-Free Parallelization**: All cells in a set can be updated simultaneously
@@ -353,13 +354,29 @@ This scheme enables efficient GPU parallelization while maintaining detailed bal
 
 ---
 
-## Citation
+## Citation & References
 
 If you use this code in your research, please cite:
 
 ```
 Eva González Noya, Enrique Lomba, and Antonio Díaz Pozuelo, "GPU-Accelerated Monte Carlo for Simple Fluid and Patchy Particle mixtures: A high-performance GPU-accelerated Monte Carlo simulation code for patchy particle systems with anisotropic interactions and simple mixtures in NVT and NpT ensembles.", CSIC-Madrid (2026)
 ```
+
+### Methodological References
+
+1. **Checkerboard GPU Decomposition**:
+   - J. A. Anderson, E. Jankowski, T. L. Grubb, M. Engel, and S. C. Glotzer, *"Massively parallel Monte Carlo for many-particle simulations on GPUs"*, *Journal of Computational Physics*, **254**, 27–38 (2013). DOI: [10.1016/j.jcp.2013.07.023](https://doi.org/10.1016/j.jcp.2013.07.023)
+
+2. **Site-Site Patchy (SSP) Potential**:
+   - I. Palaia and A. Šarić, *"Controlling cluster size in 2D phase-separating binary mixtures with specific interactions"*, *The Journal of Chemical Physics*, **156**, 194902 (2022). DOI: [10.1063/5.0087769](https://doi.org/10.1063/5.0087769)
+
+3. **Aggregation Volume Bias Monte Carlo (AVBMC) Moves**:
+   - T. D. Loeffler, A. Sepehri, and B. Chen, *"Improved Monte Carlo Scheme for Efficient Particle Transfer in Heterogeneous Systems in the Grand Canonical Ensemble: Application to Vapor–Liquid Nucleation"*, *Journal of Chemical Theory and Computation*, **11**(2), 542–552 (2015). DOI: [10.1021/ct500958y](https://doi.org/10.1021/ct500958y)
+   - B. Chen and J. I. Siepmann, *"Aggregation-Volume-Bias Monte Carlo for Simulating Association in Physical Systems"*, *The Journal of Physical Chemistry B*, **104**(36), 8725–8733 (2000). DOI: [10.1021/jp001952u](https://doi.org/10.1021/jp001952u)
+
+4. **LAMMPS Molecular Dynamics Engine**:
+   - A. P. Thompson, H. M. Aktulga, R. Berger, D. S. Bolintineanu, W. M. Brown, P. S. Crozier, P. J. in 't Veld, A. Kohlmeyer, S. G. Moore, T. D. Nguyen, R. Shan, M. J. Stevens, J. Tranchida, C. Trott, and S. J. Plimpton, *"LAMMPS - a flexible simulation tool for particle-based materials modeling at the atomic, meso, and continuum scales"*, *Computer Physics Communications*, **271**, 108171 (2022). DOI: [10.1016/j.cpc.2021.108171](https://doi.org/10.1016/j.cpc.2021.108171)
+   - S. Plimpton, *"Fast Parallel Algorithms for Short-Range Molecular Dynamics"*, *Journal of Computational Physics*, **117**, 1–19 (1995). DOI: [10.1006/jcph.1995.1039](https://doi.org/10.1006/jcph.1995.1039)
 
 ---
 
