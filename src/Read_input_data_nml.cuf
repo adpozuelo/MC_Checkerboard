@@ -210,7 +210,9 @@ Subroutine Read_Input_Data
    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
    write(*,'(A)') c_cyan // '                              SIMULATION PARAMETERS LOADED                              ' // c_reset
    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
-   write(*,'(A,I10,A,I10)') '  -> MC Cycles (Ini / Fin):   ', istep_ini, ' / ', istep_fin
+   write(*,'(A,I10,A,I10)') '  -> MC Cycles (Ini / Fin):   ', istep_ini, ' / ', istep_ini + Neq + istep_fin
+   write(*,'(A,I10)')       '     - Equilibration Steps:   ', Neq
+   write(*,'(A,I10)')       '     - Production Steps:      ', istep_fin
    write(*,'(A,I10)')       '  -> Random Seed:             ', seed
    write(*,'(A)') ''
    write(*,'(A)') c_cyan // ' --- Thermodynamic State ---' // c_reset

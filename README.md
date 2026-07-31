@@ -408,6 +408,7 @@ Computing resources provided by CSIC.
 ## Version History
 
 - **V2.5** (July 2026) Uncluttered Terminal Table Output & Feature Integration
+  - Refactored Monte Carlo loop bounds (`Main.cuf`, `Tools.cuf`): `Neq` is now executed as dedicated equilibration steps *in addition* to `istep_fin` production steps (total run steps = `istep_ini + Neq + istep_fin`). Trajectory frames and thermodynamic production averages automatically begin accumulating at step `istep_ini + Neq + 1`.
   - Streamlined main Monte Carlo progress table: `hmax*L` and `omax` displacement limits are removed from the periodic step table and displayed exclusively in startup and final parameter summaries.
   - Dynamically integrated cluster analysis metrics (`N_Clust`, `Max_Cl`, `%Clust`) and AVBMC acceptance ratios (`P_AV_in`, `P_AV_out`) into the single progress table line whenever cluster analysis (`ncluster > 0`) or AVBMC (`avbmc = .true.`) are enabled.
   - Suppressed multi-line console spams (`[BORDER]`, `[AVBMC GPU Transfer]`, `[AVBMC IN/OUT]`) during the main loop to maintain a clean, single-line terminal output. Full time-series cluster metrics continue to be saved quietly to `clusevol_mc.dat`.

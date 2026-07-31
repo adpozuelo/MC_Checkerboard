@@ -260,7 +260,7 @@ End Subroutine Initialize_variables
 Subroutine Accumulate_averages(in_step)
    Use set_precision
    Use properties 
-   Use rundata, Only: temp, Neq
+   Use rundata, Only: temp, Neq, istep_ini
    Use configuration
    Implicit None
    integer, intent(in) :: in_step
@@ -271,7 +271,7 @@ Subroutine Accumulate_averages(in_step)
    endif
    
    rho=natoms/vol
-   If (in_step > Neq) Then
+   If (in_step > istep_ini + Neq) Then
       rho_av=rho_av+natoms/vol
       en_av=en_av+en_tot
       lx_av=lx_av+box(0)
