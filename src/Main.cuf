@@ -241,9 +241,11 @@ Program MC_CB_GPU
    Temp = Temp0
    beta=1.d0/Temp
 
-   write(*,'(A,i10)')    '     Number of temperature jumps: ', Njumps
-   write(*,'(A,f12.8)')  '     DeltaT: ', DeltaT
-   write(*,*)
+   If (abs(DeltaT) > 1.0e-12_wp) Then
+      write(*,'(A,i10)')    '     Number of temperature jumps: ', Njumps
+      write(*,'(A,f12.8)')  '     DeltaT: ', DeltaT
+      write(*,*)
+   End If
 
    ! --------------------------------------------------------------------------
    ! MAIN MONTE CARLO LOOP

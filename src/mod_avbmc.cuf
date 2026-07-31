@@ -362,6 +362,7 @@ CONTAINS
       End Do
 
       Call repopulate_checkerboard_cells()
+      Call CB_system_energy_GPU(1)
 
       Deallocate(w_trials)
       Deallocate(r_trials_box)

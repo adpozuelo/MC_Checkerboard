@@ -2701,6 +2701,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
                                       W_RU_dev, ivec_dev, disp_dev)
     ierror = cudaDeviceSynchronize()
     Sphere_Cell = Sphere_Cell_new; List_Cell = List_Cell_new; Nat_Cell = Nat_Cell_new
+    Sphere_Celldev = Sphere_Cell_new; List_Cell_dev = List_Cell_new; Nat_Cell_dev = Nat_Cell_new
   end subroutine shiftcellsgpu
 
   ! ==============================================================================

@@ -103,7 +103,9 @@ cmake ../cmake \
   -DGPU_API=cuda \
   -DGPU_ARCH=auto \
   -DPKG_MOLECULE=ON \
-  -DPKG_RIGID=ON
+  -DPKG_RIGID=ON \
+  -DPKG_NETCDF=ON \
+  -DNETCDF_DIR=/usr/local/netcdf-nv
 
 # 6. Compile LAMMPS shared library
 echo "Compiling LAMMPS dynamic library..."
