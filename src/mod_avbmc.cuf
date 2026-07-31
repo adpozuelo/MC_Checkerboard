@@ -28,6 +28,10 @@ MODULE mod_avbmc
    Integer :: nbrd = 0
    Integer :: nnonassoc = 0
 
+   ! Latest AVBMC acceptance ratios for table output
+   Real(wp) :: last_avbmc_p_in = 0.0_wp
+   Real(wp) :: last_avbmc_p_out = 0.0_wp
+
    ! AVBMC move counters
    Integer :: navbmc_in_att = 0, navbmc_in_acc = 0
    Integer :: navbmc_out_att = 0, navbmc_out_acc = 0
@@ -127,8 +131,8 @@ CONTAINS
          gidx_nonassoc(1:nnonassoc)    = idx_nonassoc(1:nnonassoc)
       End If
 
-      Write(*,'(A,I8,A,I8)') '     [AVBMC GPU Transfer] Border points: ', nbrd, &
-         ' | Non-associated particles: ', nnonassoc
+!      Write(*,'(A,I8,A,I8)') '     [AVBMC GPU Transfer] Border points: ', nbrd, &
+!         ' | Non-associated particles: ', nnonassoc
 
    End Subroutine extract_avbmc_data
 
@@ -365,16 +369,8 @@ CONTAINS
    End Subroutine attempt_avbmc_pair_moves
 
    Subroutine print_avbmc_stats()
-      Real(wp) :: pct_in, pct_out
-      pct_in = 0.0_wp
-      pct_out = 0.0_wp
-      If (navbmc_in_att > 0) pct_in = (Real(navbmc_in_acc, wp) / Real(navbmc_in_att, wp)) * 100.0_wp
-      If (navbmc_out_att > 0) pct_out = (Real(navbmc_out_acc, wp) / Real(navbmc_out_att, wp)) * 100.0_wp
-
-      Write(*,'(A, I10, A, I10, A, F6.2, A)') &
-         '     [AVBMC IN-MOVES]  Attempts: ', navbmc_in_att, ' | Accepted: ', navbmc_in_acc, ' (', pct_in, '%)'
-      Write(*,'(A, I10, A, I10, A, F6.2, A)') &
-         '     [AVBMC OUT-MOVES] Attempts: ', navbmc_out_att, ' | Accepted: ', navbmc_out_acc, ' (', pct_out, '%)'
+      If (navbmc_in_att > 0) last_avbmc_p_in = Real(navbmc_in_acc, wp) / Real(navbmc_in_att, wp)
+      If (navbmc_out_att > 0) last_avbmc_p_out = Real(navbmc_out_acc, wp) / Real(navbmc_out_att, wp)
    End Subroutine print_avbmc_stats
 
 END MODULE mod_avbmc

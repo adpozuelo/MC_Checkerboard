@@ -49,6 +49,8 @@ Program MC_CB_GPU
    Integer :: ierr
    Integer :: ngpus,gpuid,Njumps, Nsteps_DeltaT, Natoms_aux, lammps_devNum
    Integer :: total_sites
+   Character(len=256) :: hdr_title, hdr_sep
+   Integer :: len_hdr, k
 
    Real(wp) :: rnd, disp(0:ndim-1), start, finish, omaxo, hmaxo, prob_vol, vmaxo(0:ndim-1)
    Real(wp) :: rnd_vec(ndim), prob_trans, prob_rot, boxmin, W_RU_min
@@ -246,27 +248,42 @@ Program MC_CB_GPU
    ! --------------------------------------------------------------------------
    ! MAIN MONTE CARLO LOOP
    ! --------------------------------------------------------------------------
-   write(*,'(A)') c_blue // '=================================================================================================================================' // c_reset
    write(*,'(A)') c_cyan // '                                               MAIN MONTE CARLO LOOP STARTED                                                     ' // c_reset
-   write(*,'(A)') c_blue // '=================================================================================================================================' // c_reset
-   ! Formatted headers for NpT vs NVT
+   
+   ! Formatted headers for NpT vs NVT with optional cluster analysis and AVBMC columns
+   hdr_title = ''
    If (NpT) Then
       If (pot_int < 1) Then
-         write(*,'(A)') c_yellow // '      Step          En_tot/N    En_tot/Ns    P_Trans  N_Trans/step    move/part     hmax*L      P_Vol       vmax       N_Cell     CPU(s)     GPU(s)' // c_reset
-         write(*,'(A)') c_blue // '-------------------------------------------------------------------------------------------------------------------------------------------------' // c_reset
+         hdr_title = '      Step          En_tot/N    En_tot/Ns    P_Trans N_Trans/step    move/part      P_Vol       vmax       N_Cell'
       Else
-         write(*,'(A)') c_yellow // '      Step          En_tot/N    En_tot/Ns    P_Trans      P_Rot  N_Trans/step  move/part     hmax*L         omax      P_Vol       vmax       N_Cell     CPU(s)     GPU(s)' // c_reset
-         write(*,'(A)') c_blue // '-------------------------------------------------------------------------------------------------------------------------------------------------------------------' // c_reset
+         hdr_title = '      Step          En_tot/N    En_tot/Ns    P_Trans      P_Rot N_Trans/step    move/part      P_Vol       vmax       N_Cell'
       EndIf
    Else
       If (pot_int < 1) Then
-         write(*,'(A)') c_yellow // '      Step          En_tot/N    En_tot/Ns    P_Trans  N_Trans/step  move/part     hmax*L       N_Cell     CPU(s)     GPU(s)' // c_reset
-         write(*,'(A)') c_blue // '---------------------------------------------------------------------------------------------------------------------------' // c_reset
+         hdr_title = '      Step          En_tot/N    En_tot/Ns    P_Trans N_Trans/step    move/part       N_Cell'
       Else
-         write(*,'(A)') c_yellow // '      Step          En_tot/N    En_tot/Ns    P_Trans      P_Rot  N_Trans/step  move/part     hmax*L         omax       N_Cell     CPU(s)     GPU(s)' // c_reset
-         write(*,'(A)') c_blue // '-----------------------------------------------------------------------------------------------------------------------------------------------------' // c_reset
+         hdr_title = '      Step          En_tot/N    En_tot/Ns    P_Trans      P_Rot N_Trans/step    move/part       N_Cell'
       EndIf
    EndIf
+
+   If (ncluster > 0) Then
+      hdr_title = trim(hdr_title) // '  N_Clust   Max_Cl  %Clust'
+   EndIf
+
+   If (avbmc) Then
+      hdr_title = trim(hdr_title) // '   P_AV_in  P_AV_out'
+   EndIf
+
+   hdr_title = trim(hdr_title) // '     CPU(s)     GPU(s)'
+   len_hdr = len_trim(hdr_title)
+   hdr_sep = ''
+   Do k = 1, len_hdr
+      hdr_sep(k:k) = '-'
+   End Do
+
+   write(*,'(A)') c_blue // hdr_sep(1:len_hdr) // c_reset
+   write(*,'(A)') c_yellow // trim(hdr_title) // c_reset
+   write(*,'(A)') c_blue // hdr_sep(1:len_hdr) // c_reset
 
    ! --- Initialize Timers ---
    istat = cudaEventCreate(startEvent)
@@ -394,31 +411,68 @@ Program MC_CB_GPU
 
          istat = cudaEventRecord(stopEvent, 0)
          istat = cudaEventSynchronize(stopEvent)
-         ! >>> FIX: Measure the exact non-cumulative block interval directly
          istat = cudaEventElapsedTime(diff_gpu_time_ms, startEvent, stopEvent)
-
-         ! >>> FIX: Add the pristine operational math time to our accumulator
+         If (diff_gpu_time_ms /= diff_gpu_time_ms .or. diff_gpu_time_ms <= 0.0) diff_gpu_time_ms = Real(diff_cpu_time * 1000.0_wp, 4)
          total_gpu_time = total_gpu_time + (real(diff_gpu_time_ms, wp) / 1000.0_wp)
-         istat = cudaEventElapsedTime(gpu_time_ms, startEvent, stopEvent)
-         !diff_gpu_time_ms = gpu_time_ms - last_gpu_time_ms
-         last_gpu_time_ms = gpu_time_ms
 
-         ! --- Format terminal output based on ensemble ---
+         ! Execute cluster analysis and AVBMC moves if scheduled for this step
+         If( (ncluster > 0) .AND. (mod(i, ncluster) == 0) ) Then
+            Call Convert_CB_RU
+            Call run_cluster_analysis(i)
+            If (avbmc) Then
+               Call attempt_avbmc_pair_moves(neighbors, offset, adjacency)
+               Call print_avbmc_stats()
+            End If
+         EndIf
+
+         ! --- Format terminal output based on ensemble and active features ---
          If (NpT) Then
             If (pot_int < 1) Then
-               write(*,'(i10, f18.8, f13.8, f11.4, i11, 2f13.6, f11.4, f11.6, i13, 2f11.3)') &
-                  i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), hmax*box(0), prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               If (ncluster > 0 .and. avbmc) Then
+                  write(*,'(i10, f18.8, f13.8, f11.4, i12, f13.6, 2f11.4, i13, 2i9, f8.2, 2f10.4, 2f11.3)') &
+                     i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, last_avbmc_p_in, last_avbmc_p_out, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               ElseIf (ncluster > 0) Then
+                  write(*,'(i10, f18.8, f13.8, f11.4, i12, f13.6, 2f11.4, i13, 2i9, f8.2, 2f11.3)') &
+                     i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               Else
+                  write(*,'(i10, f18.8, f13.8, f11.4, i12, f13.6, 2f11.4, i13, 2f11.3)') &
+                     i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               EndIf
             Else
-               write(*,'(i10, f18.8, f13.8, 2f11.4, i11, 3f13.6, f11.4, f11.6, i13, 2f11.3)') &
-                  i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, prob_rot, ntrans/nsave, real(ntrans)/real(nsave*natoms), hmax*box(0), omax, prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               If (ncluster > 0 .and. avbmc) Then
+                  write(*,'(i10, f18.8, f13.8, 2f11.4, i12, f13.6, 2f11.4, i13, 2i9, f8.2, 2f10.4, 2f11.3)') &
+                     i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, prob_rot, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, last_avbmc_p_in, last_avbmc_p_out, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               ElseIf (ncluster > 0) Then
+                  write(*,'(i10, f18.8, f13.8, 2f11.4, i12, f13.6, 2f11.4, i13, 2i9, f8.2, 2f11.3)') &
+                     i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, prob_rot, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               Else
+                  write(*,'(i10, f18.8, f13.8, 2f11.4, i12, f13.6, 2f11.4, i13, 2f11.3)') &
+                     i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, prob_rot, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               EndIf
             EndIf
          Else
             If (pot_int < 1) Then
-               write(*,'(i10, f18.8, f13.8, f11.4, i11, 2f13.6, i13, 2f11.3)') &
-                  i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/nsave,  real(ntrans)/real(nsave*natoms), hmax*box(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               If (ncluster > 0 .and. avbmc) Then
+                  write(*,'(i10, f18.8, f13.8, f11.4, i12, f13.6, i13, 2i9, f8.2, 2f10.4, 2f11.3)') &
+                     i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, last_avbmc_p_in, last_avbmc_p_out, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               ElseIf (ncluster > 0) Then
+                  write(*,'(i10, f18.8, f13.8, f11.4, i12, f13.6, i13, 2i9, f8.2, 2f11.3)') &
+                     i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               Else
+                  write(*,'(i10, f18.8, f13.8, f11.4, i12, f13.6, i13, 2f11.3)') &
+                     i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               EndIf
             Else
-               write(*,'(i10, f18.8, f13.8, 2f11.4, i11, 3f13.6, i13, 2f11.3)') &
-                  i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, prob_rot, ntrans/nsave,  real(ntrans)/real(nsave*natoms), hmax*box(0), omax, Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               If (ncluster > 0 .and. avbmc) Then
+                  write(*,'(i10, f18.8, f13.8, 2f11.4, i12, f13.6, i13, 2i9, f8.2, 2f10.4, 2f11.3)') &
+                     i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, prob_rot, ntrans/nsave, real(ntrans)/real(nsave*natoms), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, last_avbmc_p_in, last_avbmc_p_out, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               ElseIf (ncluster > 0) Then
+                  write(*,'(i10, f18.8, f13.8, 2f11.4, i12, f13.6, i13, 2i9, f8.2, 2f11.3)') &
+                     i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, prob_rot, ntrans/nsave, real(ntrans)/real(nsave*natoms), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               Else
+                  write(*,'(i10, f18.8, f13.8, 2f11.4, i12, f13.6, i13, 2f11.3)') &
+                     i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, prob_rot, ntrans/nsave, real(ntrans)/real(nsave*natoms), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               EndIf
             EndIf
          EndIf
 
@@ -430,22 +484,14 @@ Program MC_CB_GPU
 
          Temp=Temp+DeltaT
          beta=1.d0/Temp
-         ! >>> FIX: Re-anchor the event timer for the next mathematical block.
-         ! Since the terminal freeze happened above, this completely discards the pause!
          istat = cudaEventRecord(startEvent, 0)
       EndIf
-
-
 
       ! Write trajectory snapshots
       If( (i > Ieq) .AND. (mod(i,Nsave2)==0) ) Then
          Call Convert_CB_RU
-         ! Compute per-atom energies prior to NetCDF writing using the GPU.
-         ! Pass dynamic patchy potential scaling parameters (sigp_factor, Rcp_factor, Rc_factor)
-         ! configured via the namelist input (defaulting to 0.1, 0.3, and 2.0 respectively).
          Call compute_per_atom_energy_gpu(pot_int, bool_tor, ndim, Nat_cell_max, Ntot_Cell, Npart_types, &
             Nrb_sites_max, Ntor_max, sigma_tor_jon, sigp_factor, Rcp_factor, Rc_factor, Natoms, atom_energies_host)
-         !Call get_per_atom_energies(atom_energies_host)
 
          If (trim(traj_format) == 'plain' .or. trim(traj_format) == 'both') Then
             Call Write_movie(i)
@@ -454,18 +500,6 @@ Program MC_CB_GPU
          If (trim(traj_format) == 'netcdf' .or. trim(traj_format) == 'both') Then
             Call netcdf_write_frame(i, Natoms, r, q, itype, h, beta, atom_energies_host)
          EndIf
-      EndIf
-      ! Perform cluster analysis if enabled
-      ! NOTE: Clustering defaults to analyzing patch sites (internal types 1 and 3)
-      ! using a neighborhood search cutoff 'rcl'. For physical correctness in patchy
-      ! models, rcl should match the patch-patch interaction cutoff.
-      If( (ncluster > 0) .AND. (mod(i, ncluster) == 0) ) Then
-         Call Convert_CB_RU
-         Call run_cluster_analysis(i)
-         If (avbmc) Then
-            Call attempt_avbmc_pair_moves(neighbors, offset, adjacency)
-            Call print_avbmc_stats()
-         End If
       EndIf
 
 
@@ -532,15 +566,19 @@ Program MC_CB_GPU
    Call Convert_CB_RU
    Call Calculate_averages
    Call Write_final_properties
-   Call Write_final_conf
-   Call Write_final_conf2(istep_ini+istep_fin)
+
    If (ncluster > 0) Then
-      Call run_cluster_analysis(istep_ini+istep_fin)
       If (avbmc) Then
+         Call run_cluster_analysis(istep_ini+istep_fin)
          Call attempt_avbmc_pair_moves(neighbors, offset, adjacency)
          Call print_avbmc_stats()
       End If
+      ! Final cluster analysis on post-AVBMC state so all cluster outputs match the final configuration
+      Call run_cluster_analysis(istep_ini+istep_fin)
    End If
+
+   Call Write_final_conf
+   Call Write_final_conf2(istep_ini+istep_fin)
 
    if (Nmc_hmc > 0) call close_hmc_lammps()
    Call limpio

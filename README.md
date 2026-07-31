@@ -175,7 +175,7 @@ See `examples/LJG/` directory for example input filesi for LJG patchy systems.
 - `mclast_clconf.lammpstrj` - Final cluster configuration output formatted in LAMMPS trajectory format for VMD visualization.
 - `mclast_brdconf.lammpstrj` - Final cluster border configuration based on geometric asymmetry criterion formatted in LAMMPS trajectory format.
 
-**Standard Output**: Energy, acceptance rates, timing information
+**Standard Output**: Clean single-line progress table containing step index, total and per-site potential energies, translation/rotation acceptance ratios, moves per particle, cell grid size, CPU/GPU timing, and conditionally integrated cluster metrics (`N_Clust`, `Max_Cl`, `%Clust`) and AVBMC acceptance ratios (`P_AV_in`, `P_AV_out`).
 
 ---
 
@@ -406,6 +406,12 @@ Computing resources provided by CSIC.
 ---
 
 ## Version History
+
+- **V2.5** (July 2026) Uncluttered Terminal Table Output & Feature Integration
+  - Streamlined main Monte Carlo progress table: `hmax*L` and `omax` displacement limits are removed from the periodic step table and displayed exclusively in startup and final parameter summaries.
+  - Dynamically integrated cluster analysis metrics (`N_Clust`, `Max_Cl`, `%Clust`) and AVBMC acceptance ratios (`P_AV_in`, `P_AV_out`) into the single progress table line whenever cluster analysis (`ncluster > 0`) or AVBMC (`avbmc = .true.`) are enabled.
+  - Suppressed multi-line console spams (`[BORDER]`, `[AVBMC GPU Transfer]`, `[AVBMC IN/OUT]`) during the main loop to maintain a clean, single-line terminal output. Full time-series cluster metrics continue to be saved quietly to `clusevol_mc.dat`.
+  - Configured `mclast_clconf.lammpstrj` and `mclast_brdconf.lammpstrj` to write only active cluster ($N_{\text{clustered}}$) and border ($N_{\text{brd}}$) particles with the unified 10-column LAMMPS trajectory header (`ITEM: ATOMS id mol type x y z quatw quati quatj quatk`).
 
 - **V2.4** (July 2026) Aggregation Volume Bias Monte Carlo (AVBMC) & CBMC Rosenbluth Scheme
   - Implemented AVBMC cluster association (bulk $\rightarrow V_{\text{in}}$) and dissociation ($V_{\text{in}} \rightarrow$ bulk) pair moves (`mod_avbmc.cuf`).

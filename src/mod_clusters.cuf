@@ -34,6 +34,11 @@ MODULE mod_clusters
     Integer :: io_clusevol_file = 111
     Character(len=32) :: clusevol_filename = 'clusevol_mc.dat'
 
+    ! Latest cluster statistics for table output
+    Integer :: last_nclusters = 0
+    Integer :: last_max_size = 0
+    Real(wp) :: last_pct_clustered = 0.0_wp
+
 CONTAINS
 
     ! GPU BFS kernel
@@ -549,11 +554,9 @@ CONTAINS
             pct = 0.0_wp
         End If
         
-        ! 7. Print stats to console and write to evolution file
-        Write(*,'(A, I10, A, I6, A, I6, A, I6, A, F6.2, A)') &
-            '     [CLUSTERS] Step ', istep, ' | Total clusters: ', cluster_id, &
-            ' | Max size: ', size_max, ' | Clustered: ', nclustered, &
-            ' (', pct, '%)'
+        last_nclusters = cluster_id
+        last_max_size = size_max
+        last_pct_clustered = pct
             
         Inquire(File=clusevol_filename, Exist=file_exists)
         If (.Not. file_exists .Or. istep == istep_ini + ncluster) Then
@@ -587,7 +590,7 @@ CONTAINS
         do i = 1, natoms
             if (label(i) > 0) then
                 indx = (i - 1) * ndim
-                type_cl = mod(count_cl(label(i)), maxcolor)
+                type_cl = 1 + mod(count_cl(label(i)), maxcolor)
                 If (pot_int < 1) Then
                     write(io_lastclconf, '(I8,x,I8,x,I4,x,3F16.8)') &
                         i, label(i), type_cl, &
@@ -638,8 +641,8 @@ CONTAINS
             End Do
             Deallocate(atom_energies_host)
 
-            Write(*,'(A, F8.3, A, I10)') &
-                '     [BORDER] Per-atom energy (threshold: ', thresh_val, ') | Total border atoms: ', Count(is_border)
+!            Write(*,'(A, F8.3, A, I10)') &
+!                '     [BORDER] Per-atom energy (threshold: ', thresh_val, ') | Total border atoms: ', Count(is_border)
 
         Else
             ! Default: Geometric asymmetry criterion (normalized net neighbor vector magnitude)
@@ -687,8 +690,8 @@ CONTAINS
             End Do
             Deallocate(asym)
 
-            Write(*,'(A, F4.2, A, I10)') &
-                '     [BORDER] Geometric asymmetry (threshold: ', asym_threshold, ') | Total border atoms: ', Count(is_border)
+!            Write(*,'(A, F4.2, A, I10)') &
+!                '     [BORDER] Geometric asymmetry (threshold: ', asym_threshold, ') | Total border atoms: ', Count(is_border)
         End If
 
         Allocate(nbrd_in_cl(Max(1, cluster_id)))
@@ -721,7 +724,7 @@ CONTAINS
         do i = 1, natoms
             if (is_border(i)) then
                 indx = (i - 1) * ndim
-                type_cl = mod(nbrd_in_cl(label(i)), maxcolor)
+                type_cl = 1 + mod(nbrd_in_cl(label(i)), maxcolor)
                 If (pot_int < 1) Then
                     write(io_lastbrdconf, '(I8,x,I8,x,I4,x,3F16.8)') &
                         i, label(i), type_cl, &
