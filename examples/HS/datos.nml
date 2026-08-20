@@ -1,0 +1,28 @@
+&Control_Params
+  istep_ini = 0,
+  istep_fin = 40000,
+  Neq = 0,
+  Nmove = 10,
+  Nsave = 50,
+  Nsave2 = 100,
+  Nrestart = 5000,
+  imovie = .true.,
+  traj_format = 'both',
+  Npart_types = 2
+/
+&MC_Params
+  hmax = 0.0125,
+  omax = 0.5,
+  vmax = 0.1, 0.1, 0.1,
+  displ_update = .true.,
+  npt = .false.,
+  iscale = 0,
+  pres = 0.1,
+  seed = 345
+/
+&Potential_Params
+  model = 'HS',
+/
+  --- HS SIGMA MATRIX ---
+1.000  1.100
+1.100  1.400

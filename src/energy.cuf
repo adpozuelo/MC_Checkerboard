@@ -247,7 +247,7 @@ Subroutine ener_LJ(i1, i2, en, overlap)
    vl0_aux      = vl0(Indx)       
 
    IF (R12 < 0.5_wp) THEN
-        en = 9.e+33_wp  
+        en = 9.e+33_wp
         overlap = .true.
    ELSEIF (R12 < rangep_aux) THEN
         if (table_mc .and. has_table(itypei, itypej)) then
@@ -257,3 +257,54 @@ Subroutine ener_LJ(i1, i2, en, overlap)
         end if
    END IF
 End Subroutine ener_LJ
+
+! ==============================================================================
+! CPU ROUTINE: ener_HS (Hard Sphere pair, possibly non-additive mixture)
+! DESCRIPTION: Athermal contact interaction. The energy is zero unless the two
+! spheres overlap (center-center distance below the pair diameter sigma_ij), in
+! which case the configuration is forbidden. Used only for CPU verification of
+! the initial/final configuration.
+! ==============================================================================
+Subroutine ener_HS(i1, i2, en, overlap)
+   Use set_precision
+   Use configuration
+   Use potential
+   Implicit None
+
+   Integer, Intent(in)   :: i1, i2
+   Real(wp), Intent(out) :: en
+   Logical, Intent(out)  :: overlap
+
+   Integer  :: itypei, itypej, Indx, Indxi, Indxj
+   Real(wp) :: X1, Y1, Z1, X2, Y2, Z2, DX, DY, DZ
+   Real(wp) :: DXP, DYP, DZP, RSQ, sigma_HS_aux
+
+   Indxi = I1 * Ndim
+   X1 = r(Indxi); Y1 = r(Indxi+1); Z1 = r(Indxi+2)
+   itypei = itype(I1)
+
+   Indxj = I2 * Ndim
+   X2 = r(Indxj); Y2 = r(Indxj+1); Z2 = r(Indxj+2)
+   itypej = itype(I2)
+
+   DX = X2 - X1; DY = Y2 - Y1; DZ = Z2 - Z1
+   DX = DX - NINT(DX)
+   DY = DY - NINT(DY)
+   DZ = DZ - NINT(DZ)
+
+   DXP = H(0)*DX + H(1)*DY + H(2)*DZ
+   DYP = H(3)*DX + H(4)*DY + H(5)*DZ
+   DZP = H(6)*DX + H(7)*DY + H(8)*DZ
+
+   RSQ = DXP**2.0_wp + DYP**2.0_wp + DZP**2.0_wp
+
+   en = 0.0_wp
+   overlap = .false.
+   Indx = itypei * Npart_types + itypej
+   sigma_HS_aux = sigma_LJ(Indx)
+
+   IF (RSQ < sigma_HS_aux*sigma_HS_aux) THEN
+        en = 9.e+33_wp
+        overlap = .true.
+   END IF
+End Subroutine ener_HS

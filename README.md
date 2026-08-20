@@ -24,7 +24,12 @@ Lennard-Jones reduced units are used. Potentials are truncated and shifted at ra
 
 ### Key Features
 
+<<<<<<< ours
 - **GPU Acceleration**: CUDA Fortran implementation with checkerboard parallelization [1]
+=======
+- **GPU Acceleration**: CUDA Fortran implementation with checkerboard parallelization
+- **Multiple Potentials**: Hard-sphere (HS, including non-additive mixtures), Lennard-Jones (LJ) mixtures, and patchy (LJG / SSP) models
+>>>>>>> theirs
 - **Anisotropic Interactions**: Lennard-Jones core with angular (patch-patch) and torsional terms
 - **Multiple Ensembles**: Supports both NVT (canonical) and NpT (isothermal-isobaric)
 - **Aggregation Volume Bias MC (AVBMC)**: Advanced cluster swap moves (association & dissociation) [3] with Configurable Rosenbluth (CBMC) bulk probing scheme and $O(1)$ single-particle cell list updates
@@ -160,6 +165,7 @@ mc_gpu.exe filename.nml 1
 
 See `examples/LJG/` directory for example input filesi for LJG patchy systems.
     `examples/LJ`directory for plain LJ mixture
+    `examples/HS`directory for a (non-additive) hard-sphere mixture
 ### Output Files
 
 **Trajectory Files** (format depends on `traj_format` selection):
@@ -220,6 +226,7 @@ See `examples/LJG/` directory for example input filesi for LJG patchy systems.
 - `displ_update` - Enable adaptive adjustment
 
 ### Potential Model
+- **HS (Hard Sphere)**: Isotropic, athermal potential for hard-sphere fluids and **mixtures (not necessarily additive)**. Only the pair diameters `sigma_ij` are read (a full `Npart_types x Npart_types` matrix); there is **no epsilon matrix and temperature is not required** as input. Two particles overlap (forbidden configuration) when their center-center distance is below `sigma_ij`, otherwise the energy is zero. The Metropolis test reduces to a pure overlap test (a translation is accepted iff it creates no overlap). Because the mixture may be non-additive, `sigma_ij` can differ from `(sigma_ii + sigma_jj)/2` and is taken verbatim from the matrix. The contact distance `sigma_ij` also sets the checkerboard cell size, so no `rangepp` is needed.
 - **LJ (Lennard-Jones)**: Isotropic potential for simple systems/mixtures (without patches).
 - **LJG (Lennard-Jones-Gauss)**: Anisotropic potential with Kern-Frenkel type angular (and optional torsional) patch-patch modulations.
   - `sigma_jon_aux` - Angular interaction width
@@ -231,6 +238,13 @@ See `examples/LJG/` directory for example input filesi for LJG patchy systems.
   - `Rcp_factor` - Patch cutoff scaling factor (default: `0.3`)
   - `Rc_factor` - Core tail cutoff scaling factor (default: `2.0`)
   - `epsp_factor` - Core attractive tail depth $\epsilon_{\text{tail}}$ (overrides default core tail depth)
+
+#### Mathematical Formulation of HS
+For the center-center distance $r$ between particles of types $i$ and $j$ with pair diameter $\sigma_{ij}$:
+$$V_{ij}(r) = \begin{cases} \infty & r < \sigma_{ij} \\ 0 & r \ge \sigma_{ij} \end{cases}$$
+The potential is athermal, so the temperature never enters the Metropolis acceptance in the NVT ensemble; a trial move is accepted if and only if it produces no overlap. For **non-additive** mixtures the cross diameter is independent, $\sigma_{ij} \ne \tfrac{1}{2}(\sigma_{ii}+\sigma_{jj})$, and is read directly from the `--- HS SIGMA MATRIX ---`.
+
+> **NpT note:** In the NpT ensemble the acceptance rule is $\exp[-\beta P\,\Delta V + N\ln(V'/V)]$. Since HS is athermal the code fixes $\beta = 1$, so the input `pres` is interpreted as the **reduced pressure** $P^* = P/k_BT$ (equivalently $\beta P$).
 
 #### Mathematical Formulation of LJ
 For distance $r$:

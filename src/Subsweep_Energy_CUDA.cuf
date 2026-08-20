@@ -980,6 +980,95 @@ attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, N
   end subroutine enerGPU_LJ
 
   ! ==============================================================================
+  ! KERNEL: enerGPU_HS (Hard Sphere, possibly non-additive mixture)
+  ! DESCRIPTION: Athermal analogue of enerGPU_LJ. The total energy of a valid
+  ! hard-sphere configuration is identically zero; this kernel simply verifies
+  ! that no pair of spheres overlaps (center-center distance below the pair
+  ! diameter sigma_ij). On overlap it flags a huge energy so the caller aborts.
+  ! ==============================================================================
+  attributes(global) subroutine enerGPU_HS(Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, &
+                                         sigma_LJ, h, Sphere_Cell, List_Cell, Map_Cell, Nl_Cell, &
+                                         Nat_Cell, DR_Cell, energy)
+    integer, intent(in), value :: Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes
+    real(wp), intent(in), device :: sigma_LJ(0:Ntypes*Ntypes-1), h(0:Ndim*Ndim-1)
+    real(wp), intent(in), device :: Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1)
+    integer, intent(in), device :: List_Cell(0:Ntot_Cell*Nat_Cell_Max*2-1), Map_Cell(0:Ntot_Cell*26-1)
+    integer, intent(in), device :: Nl_Cell(0:Ndim-1), Nat_Cell(0:Ntot_Cell-1)
+    real(wp), intent(in), device :: DR_Cell(0:Ntot_Cell*26*3-1)
+    real(dkind), intent(out), device :: energy(0:Ntot_Cell-1)
+
+    integer :: imol, jmol, l, m, Indx_Cell2, Indx_Cell3, Nat_Cell_ijk, Nat_Cell_neigh
+    integer :: Nl0, Nl1, Nl2, ICell, imol2, jmol2, itypei, itypej, Indx
+    integer :: indx_atm_aux, indx_atm_aux2, indx_neigh_aux2, indx_neigh_auxp, jcell_x, jcell_y, jcell_z, Indx_Cell
+
+    real(wp) :: xi, yi, zi, DX, DY, DZ, RSQ, H11, H12, H13, H21, H22, H23, H31, H32, H33, DXP, DYP, DZP
+    real(wp) :: dx_neigh, dy_neigh, dz_neigh, s_HS_aux
+
+    Indx_Cell = (threadIdx%x + (blockIdx%x-1)*blockDim%x) - 1
+    Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2)
+    jcell_z = Indx_Cell/(Nl0*Nl1)
+    jcell_y = (Indx_Cell - Nl0*Nl1*jcell_z)/Nl0
+    if (jcell_y == 0 .and. jcell_z == 0) then; jcell_x = Indx_Cell; else; jcell_x = mod(Indx_Cell, jcell_y*Nl0 + jcell_z*Nl0*Nl1); end if
+
+    if (jcell_x < Nl0 .and. jcell_y < Nl1 .and. jcell_z < Nl2) then
+        Nat_Cell_ijk = Nat_Cell(Indx_Cell)
+        energy(Indx_Cell) = 0.0_wp
+
+        if (Nat_Cell_ijk > 0) then
+          H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
+          indx_atm_aux  = Indx_Cell * Nat_Cell_Max * 7; indx_atm_aux2 = Indx_Cell * Nat_Cell_Max * 2
+
+          do m=0, Nat_Cell_ijk-1
+            imol = indx_atm_aux + m*7; imol2 = indx_atm_aux2 + m*2
+            xi = Sphere_Cell(imol); yi = Sphere_Cell(imol + 1); zi = Sphere_Cell(imol + 2)
+            itypei = List_Cell(imol2 + 1)
+
+            do l=0, Nat_Cell_ijk-1
+              if (l /= m) then
+                jmol = indx_atm_aux + l*7; jmol2 = indx_atm_aux2 + l*2
+                DX = Sphere_Cell(jmol) - xi; DY = Sphere_Cell(jmol + 1) - yi; DZ = Sphere_Cell(jmol + 2) - zi
+                itypej = List_Cell(jmol2 + 1); Indx = itypei*Ntypes + itypej
+                s_HS_aux = sigma_LJ(Indx)
+
+                DXP = DX - anint(DX); DYP = DY - anint(DY); DZP = DZ - anint(DZ)
+                DX = H11*DXP + H12*DYP + H13*DZP; DY = H21*DXP + H22*DYP + H23*DZP; DZ = H31*DXP + H32*DYP + H33*DZP
+                RSQ = DX*DX + DY*DY + DZ*DZ
+
+                if (RSQ < s_HS_aux*s_HS_aux) then
+                  energy(Indx_Cell) = 9.0d99; return
+                end if
+              end if
+            end do
+
+            do ICell=0,25
+              Indx_Cell2 = Indx_Cell*26 + ICell; Indx_Cell2 = Map_Cell(Indx_Cell2); Nat_Cell_neigh = Nat_Cell(Indx_Cell2)
+              Indx_Cell3 = Indx_Cell*26*3 + ICell*3
+              dx_neigh = DR_Cell(Indx_Cell3); dy_neigh = DR_Cell(Indx_Cell3+1); dz_neigh = DR_Cell(Indx_Cell3+2)
+
+              if (Nat_Cell_neigh > 0) then
+                indx_neigh_aux2 = Indx_Cell2 * Nat_Cell_Max * 7; indx_neigh_auxp = Indx_Cell2 * Nat_Cell_Max * 2
+                do l=0, Nat_Cell_neigh-1
+                  jmol = indx_neigh_aux2 + l*7; jmol2 = indx_neigh_auxp + l*2
+                  DX = Sphere_Cell(jmol) - xi + dx_neigh; DY = Sphere_Cell(jmol+1) - yi + dy_neigh; DZ = Sphere_Cell(jmol+2) - zi + dz_neigh
+                  itypej = List_Cell(jmol2 + 1); Indx   = itypei*Ntypes + itypej
+                  s_HS_aux = sigma_LJ(Indx)
+
+                  DXP = DX - anint(DX); DYP = DY - anint(DY); DZP = DZ - anint(DZ)
+                  DX = H11*DXP + H12*DYP + H13*DZP; DY = H21*DXP + H22*DYP + H23*DZP; DZ = H31*DXP + H32*DYP + H33*DZP
+                  RSQ = DX*DX + DY*DY + DZ*DZ
+
+                  if (RSQ < s_HS_aux*s_HS_aux) then
+                    energy(Indx_Cell) = 9.0d99; return
+                  end if
+                end do
+              end if
+            end do
+          end do
+        end if
+      end if
+  end subroutine enerGPU_HS
+
+  ! ==============================================================================
   ! DEVICE FUNCTION: calc_pair_energy
   ! DESCRIPTION: Computes the isolated pairwise interaction energy specifically 
   ! extracted for use within the Monte Carlo trial moves (`subsweep`). It evaluates 
@@ -2208,6 +2297,150 @@ attributes(device) subroutine evaluate_cell_interactions( &
   end subroutine subsweep_LJ
 
   ! ==============================================================================
+  ! KERNEL: subsweep_HS (Hard Sphere, possibly non-additive mixture)
+  ! DESCRIPTION: Athermal analogue of subsweep_LJ. Hard spheres carry no energy,
+  ! so the Metropolis test collapses to a pure overlap test: a trial translation
+  ! is accepted if and only if the moved sphere does not overlap any neighbor
+  ! (center-center distance below the pair diameter sigma_ij). Temperature/beta
+  ! play no role. Only translation moves are performed (isotropic particles).
+  ! ==============================================================================
+  attributes(global) subroutine subsweep_HS(RND_state, nstates, overlap_error, Ndim, Nmove, Nat_Cell_Max, &
+                                         Ntot_Cell, Nsubset_Cell, Ntypes, sigma_LJ, h, hmax, Sphere_Cell, List_Cell, Map_Cell, &
+                                         Nl_Cell, Nat_Cell, DR_Cell, Offset_CB, W_RU, Delta_energy, Ntras_ac, Nrot_ac)
+    type(curandStateXORWOW), intent(inout) :: RND_state(0:nstates-1)
+    integer, value :: nstates
+    integer, device, intent(inout) :: overlap_error(0:Ntot_Cell-1)
+    integer, device, intent(in) :: List_Cell(0:Ntot_Cell*Nat_Cell_Max*2-1), Map_Cell(0:Ntot_Cell*26-1)
+    integer, device, intent(in) :: Nl_Cell(0:Ndim-1), Nat_Cell(0:Ntot_Cell-1), Offset_CB(0:Ndim-1)
+    integer, device, intent(inout) :: Ntras_ac(0:Ntot_Cell-1), Nrot_ac(0:Ntot_Cell-1)
+    integer, value :: Ndim, Nmove, Nat_Cell_Max, Ntot_Cell, Nsubset_Cell, Ntypes
+    real(wp), device, intent(in) :: sigma_LJ(0:Ntypes*Ntypes-1)
+    real(wp), device, intent(in) :: h(0:Ndim*Ndim-1), DR_Cell(0:Ntot_Cell*26*3-1)
+    real(dkind), device, intent(in) :: W_RU(0:Ndim-1)
+    real(wp), value :: hmax
+    real(wp), device, intent(inout) :: Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1)
+    real(dkind), device, intent(out) :: Delta_energy(0:Ntot_Cell-1)
+
+    integer :: Nl0, Nl1, Nl2, Nl02, Nl12, Nl22, Indx_Rnd, indx_atm_aux, indx_atm_aux2
+    integer :: j, l, s, overlap, imol, imol2, ICELL, indx_test, jmol, jmol2, ntrasa
+    integer :: Indx_Cell2, Indx_Cell3, Nat_Cell_neigh, indx_neigh_aux2, indx_neigh_auxp, itypej
+    integer :: Indxk, i, indx_thread, indx_rnd_x, indx_rnd_y, indx_rnd_z
+    integer :: jcell_x, jcell_y, jcell_z
+    integer, shared :: Indx_Cell, Nat_Cell_ijk, itypei
+    real(wp) :: DX, DY, DZ, DXn, DYn, DZn, distn, dist, RSQ, RSQn, H11, H12, H13, H21, H22, H23, H31, H32, H33
+    real(wp) :: dx_neigh, dy_neigh, dz_neigh, XJ, YJ, ZJ, sigsq, sigma_HS_aux
+    real(dkind) :: DE
+    real(wp) :: Qmove_0, Qmove_1, Qmove_2, Qmove_3
+    real(wp), shared :: Dx_old, Dy_old, Dz_old, Dmove_x, Dmove_y, Dmove_z
+    integer, shared :: overlap_aux(0:NTHREAD-1)
+
+    indx_rnd = blockIdx%x - 1; Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2); Nl02 = Nl0/2; Nl12 = Nl1/2; Nl22 = Nl2/2
+    indx_rnd_z = indx_rnd/(Nl02*Nl12); indx_rnd_y = (indx_rnd - Nl02*Nl12*indx_rnd_z)/Nl02
+    if (indx_rnd_y == 0 .and. indx_rnd_z == 0) then; indx_rnd_x = indx_rnd; else; indx_rnd_x = mod(indx_rnd, indx_rnd_y*Nl02 + indx_rnd_z*Nl02*Nl12); end if
+    jcell_x = 2*indx_rnd_x + Offset_CB(0); jcell_y = 2*indx_rnd_y + Offset_CB(1); jcell_z = 2*indx_rnd_z + Offset_CB(2)
+    indx_thread = threadIdx%x - 1
+
+    if (jcell_x < Nl0 .and. jcell_y < Nl1 .and. jcell_z < Nl2) then
+      Indx_Cell = mod(jcell_x+Nl0, Nl0) + mod(jcell_y+Nl1, Nl1)*Nl0 + mod(jcell_z+Nl2, Nl2)*Nl0*Nl1
+      Indx_Rnd = mod(indx_rnd_x+Nl02, Nl02) + mod(indx_rnd_y+Nl12, Nl12)*Nl02 + mod(indx_rnd_z+Nl22, Nl22)*Nl02*Nl12
+      Nat_Cell_ijk = Nat_Cell(Indx_Cell)
+      DE = 0.0_wp; ntrasa = 0
+      call syncthreads()
+
+      if (Nat_Cell_ijk > 0) then
+        H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
+        indx_atm_aux  = Indx_Cell * Nat_Cell_Max * 7; indx_atm_aux2 = Indx_Cell * Nat_Cell_Max * 2
+
+        do s=0, Nmove-1
+          if (indx_thread == 0) then
+            indx_test = int(Nat_Cell_ijk * curand_uniform(RND_state(Indx_Rnd)))
+            if (indx_test >= Nat_Cell_ijk) indx_test = Nat_Cell_ijk-1; if (indx_test < 0) indx_test = 0
+            imol = indx_atm_aux  + indx_test*7; imol2= indx_atm_aux2 + indx_test*2
+            itypei = List_Cell(imol2+1)
+
+            Dx_old = Sphere_Cell(imol); Dy_old = Sphere_Cell(imol+1); Dz_old = Sphere_Cell(imol+2)
+
+            ! Preserve orientations even though they don't change during HS moves
+            Qmove_0 = Sphere_Cell(imol+3); Qmove_1 = Sphere_Cell(imol+4); Qmove_2 = Sphere_Cell(imol+5); Qmove_3 = Sphere_Cell(imol+6)
+
+            ! Hard sphere: translation move only
+            Dmove_x = Dx_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
+            Dmove_y = Dy_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
+            Dmove_z = Dz_old + (curand_uniform(RND_state(Indx_Rnd))-0.5_wp)*hmax
+          end if
+
+          overlap_aux(indx_thread) = 0
+          call syncthreads()
+
+          if (abs(Dmove_x) < 0.5_wp*W_RU(0) .and. abs(Dmove_y) < 0.5_wp*W_RU(1) .and. abs(Dmove_z) < 0.5_wp*W_RU(2)) then
+            if (indx_thread == 0) then
+              overlap = 0
+              do j=0, Nat_Cell_ijk-1
+                if (j /= indx_test) then
+                  jmol  = indx_atm_aux  + j*7; jmol2 = indx_atm_aux2 + j*2
+                  XJ = Sphere_Cell(jmol); YJ = Sphere_Cell(jmol+1); ZJ = Sphere_Cell(jmol+2)
+                  itypej = List_Cell(jmol2+1); Indxk = Ntypes*itypei + itypej
+                  sigma_HS_aux = sigma_LJ(Indxk); sigsq = sigma_HS_aux*sigma_HS_aux
+
+                  call get_dist(XJ,YJ,ZJ, Dx_old,Dy_old,Dz_old, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX,DY,DZ, RSQ, dist)
+                  call get_dist(XJ,YJ,ZJ, Dmove_x,Dmove_y,Dmove_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DXn,DYn,DZn, RSQn, distn)
+
+                  if (RSQ < sigsq) then; overlap_error(Indx_Cell) = 1; return; end if
+                  if (RSQn < sigsq) overlap = 1
+                end if
+              end do
+              overlap_aux(indx_thread) = overlap
+            else
+              ICELL = indx_thread - 1; overlap = 0
+              if (ICELL < 26) then
+                Indx_Cell2 = Indx_Cell*26 + ICELL; Indx_Cell2 = Map_Cell(Indx_Cell2); Nat_Cell_neigh = Nat_Cell(Indx_Cell2)
+                Indx_Cell3 = Indx_Cell*26*3 + ICELL*3
+                dx_neigh = DR_Cell(Indx_Cell3); dy_neigh = DR_Cell(Indx_Cell3+1); dz_neigh = DR_Cell(Indx_Cell3+2)
+
+                if (Nat_Cell_neigh > 0) then
+                  indx_neigh_aux2 = Indx_Cell2 * Nat_Cell_Max * 7; indx_neigh_auxp = Indx_Cell2 * Nat_Cell_Max * 2
+                  do l=0, Nat_Cell_neigh-1
+                    jmol = indx_neigh_aux2 + l*7; jmol2= indx_neigh_auxp + l*2
+                    XJ = Sphere_Cell(jmol)   + dx_neigh; YJ = Sphere_Cell(jmol+1) + dy_neigh; ZJ = Sphere_Cell(jmol+2) + dz_neigh
+                    itypej = List_Cell(jmol2 + 1); Indxk = Ntypes*itypei + itypej
+                    sigma_HS_aux = sigma_LJ(Indxk); sigsq = sigma_HS_aux*sigma_HS_aux
+
+                    call get_dist(XJ,YJ,ZJ, Dx_old,Dy_old,Dz_old, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX,DY,DZ, RSQ, dist)
+                    call get_dist(XJ,YJ,ZJ, Dmove_x,Dmove_y,Dmove_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DXn,DYn,DZn, RSQn, distn)
+
+                    if (RSQ < sigsq) then; overlap_error(Indx_Cell) = 1; return; end if
+                    if (RSQn < sigsq) overlap = 1
+                  end do
+                end if
+                overlap_aux(indx_thread) = overlap
+              end if
+            end if
+            call syncthreads()
+
+            if (indx_thread == 0) then
+              overlap = 0
+              do i=0,26; if (overlap_aux(i) == 1) overlap = 1; end do
+              if (overlap == 0) then
+                Sphere_Cell(imol  ) = Dmove_x; Sphere_Cell(imol+1) = Dmove_y; Sphere_Cell(imol+2) = Dmove_z
+                Sphere_Cell(imol+3) = Qmove_0; Sphere_Cell(imol+4) = Qmove_1; Sphere_Cell(imol+5) = Qmove_2; Sphere_Cell(imol+6) = Qmove_3
+                ntrasa = ntrasa + 1
+              end if
+            end if
+            call syncthreads()
+          end if
+          call syncthreads()
+        end do
+        call syncthreads()
+      end if
+      call syncthreads()
+
+      if (indx_thread == 0) then
+        Delta_energy(Indx_Cell) = DE; Ntras_ac(Indx_Cell) = ntrasa; Nrot_ac (Indx_Cell) = 0
+      end if
+    end if
+  end subroutine subsweep_HS
+
+  ! ==============================================================================
   ! KERNEL: shiftGPU
   ! DESCRIPTION: Detects if a particle has crossed a cell boundary. If so, updates
   ! its fractional coordinates via Minimum Image Convention and moves it from the 
@@ -2490,7 +2723,12 @@ attributes(device) subroutine evaluate_cell_interactions( &
 ! ==========================================================
     ! Route to the proper highly-optimized Device Kernel
     ! ==========================================================
-    if (pot_int < 1) then
+    if (pot_int == -1) then
+        ! Hard Sphere Route (athermal, overlap-only)
+        call enerGPU_HS<<<nblock, NTHREAD>>>(Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, &
+                                          sigma_LJ_dev, hdev, Sphere_Celldev, &
+                                          List_Cell_dev, Map_Cell_dev, Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, energydev)
+    else if (pot_int < 1) then
         ! [NEW] Pure LJ Route
         call enerGPU_LJ<<<nblock, NTHREAD>>>(Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, &
                                           range_dev, sigma_LJ_dev, epsilon_LJ_dev, VL0_dev, hdev, Sphere_Celldev, &
@@ -2605,7 +2843,11 @@ attributes(device) subroutine evaluate_cell_interactions( &
     if (Ntot_jobs < Nsubset_Cell) nblock = nblock + 1
 
     ! Host side routing implementation
-    if (pot_int < 1) then
+    if (pot_int == -1) then
+        call subsweep_HS<<<nblock,NTHREAD>>>(RND_States, TOTAL_THREADS, overlap_error_dev, Ndim, Nmove, Nat_Cell_Max, &
+                                          Ntot_Cell, Nsubset_Cell, Npart_types, sigma_LJ_dev, hdev, hmax, Sphere_Celldev, List_Cell_dev, Map_Cell_dev, &
+                                          Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Offset_dev, W_RU_dev, Delta_E_dev, Ntras_ac_dev, Nrot_ac_dev)
+    else if (pot_int < 1) then
         call subsweep_LJ<<<nblock,NTHREAD>>>(RND_States, TOTAL_THREADS, overlap_error_dev, bool_tor, Ndim, Nmove, Nat_Cell_Max, &
                                           Ntot_Cell, Nsubset_Cell, Npatches_max, Ntor_max, Npart_types, &
                                           Npatches_dev, patchdev, ref_tor_dev, sigma_jon_dev, sigma_tor, sigma_LJ_dev, epsilon_LJ_dev, range_dev, VL0_dev, XOP_dev, &
@@ -3703,7 +3945,10 @@ attributes(device) subroutine evaluate_cell_interactions( &
     ! We map One Thread to One Cell, matching enerGPU perfectly
     nblock = (Ntot_Cell + NTHREAD - 1) / NTHREAD
 
-    If (pot_int < 1) Then
+    If (pot_int == -1) Then
+       ! Hard spheres are athermal: every per-atom energy is identically zero.
+       atom_ener_dev = 0.0_wp
+    Else If (pot_int < 1) Then
        call cell_per_atom_enerGPU_LJ<<<nblock, NTHREAD>>>(Ndim, Natoms_in, Nat_Cell_Max, Ntot_Cell, Ntypes, &
                                          range_dev, sigma_LJ_dev, epsilon_LJ_dev, VL0_dev, hdev, Sphere_Cell_dev, List_Cell_dev, Map_Cell_dev, Nl_Cell_dev, &
                                          Nat_Cell_dev, DR_Cell_dev, atom_ener_dev)

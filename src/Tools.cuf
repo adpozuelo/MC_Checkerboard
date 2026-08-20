@@ -86,6 +86,7 @@ Subroutine System_energy(overlap)
 
    overlap=.false.
    en_tot=0.e0
+<<<<<<< ours
    en_core_tot=0.e0
    en_patch_tot=0.e0
    ener_part=0.0_wp
@@ -171,6 +172,45 @@ Subroutine System_energy(overlap)
          ener_part(i) = ener_part(i) + en
          ener_part(j) = ener_part(j) + en
          en_tot = en_tot + en
+=======
+   ener_part=0
+   if (pot_int == -1) then
+      ! Hard sphere mixture: only overlap detection matters (athermal, en = 0).
+      Do I=0,Natoms-2
+         Do J=i+1,Natoms-1
+          call ener_HS(I,J,en,overlap)
+          if(overlap) Then
+               en_tot=9.e+33
+               Return
+          EndIf
+         End Do
+      End Do
+   else if (pot_int < 1) then
+      Do I=0,Natoms-2
+         Do J=i+1,Natoms-1
+          call ener_LJ(I,J,en,overlap)
+          ener_part(i)=ener_part(i)+en
+          ener_part(j)=ener_part(j)+en
+          if(overlap) Then
+               en_tot=9.e+33
+               Return
+          EndIf
+          en_tot= en_tot + en
+         End Do
+      End Do
+   else
+      Do I=0,Natoms-2
+         Do J=i+1,Natoms-1
+          call ener(I,J,en,overlap)
+          ener_part(i)=ener_part(i)+en
+          ener_part(j)=ener_part(j)+en
+          if(overlap) Then
+               en_tot=9.e+33
+               Return
+          EndIf
+          en_tot= en_tot + en
+         End Do
+>>>>>>> theirs
       End Do
    End Do
 

@@ -58,9 +58,22 @@ Subroutine Write_Input_File(istep)
    Write(21,*) "/"
 
    ! =========================================================================
+   ! BRANCH: HARD SPHERE MODE (diameter matrix only, no energy scale)
+   ! =========================================================================
+   If (pot_int == -1) Then
+      Write(21,*) "--- HS SIGMA MATRIX ---"
+      Do I=0,Npart_types-1
+           Indx = I*Npart_types
+           Do J = 0, Npart_types-1
+              Write(21,'(F6.3)',advance='no') sigma_LJ(indx+j)
+           EndDo
+           Write(21,*)
+      EndDo
+
+   ! =========================================================================
    ! BRANCH: PURE LENNARD-JONES MODE
    ! =========================================================================
-   If (pot_int < 1) Then
+   Else If (pot_int < 1) Then
       Write(21,*) "--- LJ SIGMA MATRIX ---"
       Do I=0,Npart_types-1
            Indx = I*Npart_types
@@ -184,18 +197,27 @@ Subroutine Read_Input_Data
    traj_format = 'netcdf'; data_file = 'data.atoms'
    imovie = .false.; displ_update = .false.; npt = .false.; 
    sigma_jon_aux = 0.0_wp; sigma_tor_jon = 0.0_wp; rangepp = 0.0_wp
+<<<<<<< ours
    sigp_factor = 0.1_wp; Rcp_factor = 0.3_wp; Rc_factor = 2.0_wp; epsp_factor = -1.0_wp; patch_radial_factor = 0.5_wp
    rcl = 1.8_wp; minPts = 3; asym_threshold = 0.5_wp; ncluster = 0; cluster_types(:) = -1; avbmc = .false.
    border_criterion = 'asymmetry'; energy_threshold = -2.0_wp; energy_border_ratio = 0.5_wp; use_energy_ratio = .false.
    Nmc_hmc = 0; Nmd_hmc = 0; tstep_hmc = 0.0025_wp
    table_mc = .false.; table_lammps = .false.
    table_file_mc = ""; table_file_lammps = ""
+=======
+   sigp_factor = 0.1_wp; Rcp_factor = 0.3_wp; Rc_factor = 2.0_wp; epsp_factor = -1.0_wp
+   rcl = 1.8_wp; minPts = 3; ncluster = 0; cluster_types(:) = 0
+   ! Temperature defaults (HS mixtures do not require temperature as input)
+   temp0 = 1.0_wp; temp1 = 1.0_wp
+>>>>>>> theirs
 
    Open(20,file=input_filename, status='old')
    Read(20, NML=Control_Params)
    Read(20, NML=MC_Params)
    Read(20, NML=Potential_Params)
-   if (trim(model)=='LJ') then
+   if (trim(model)=='HS') then
+      pot_int = -1
+   else if (trim(model)=='LJ') then
       pot_int = 0
    else if (trim(model)=='LJG') then
       pot_int = 1
@@ -243,7 +265,11 @@ Subroutine Read_Input_Data
    
    write(*,'(A)') ''
    write(*,'(A)') c_cyan // ' --- Output & Potential Model ---' // c_reset
-   If (pot_int < 1) Then
+   If (pot_int == -1) Then
+      write(*,'(A)') c_green // '  -> Potential Mode:          HARD SPHERE (possibly non-additive mixture)' // c_reset
+      write(*,'(A)') c_yellow// '  -> Temperature:             IGNORED (athermal potential)' // c_reset
+      write(*,'(A)') c_yellow// '  -> Patch Data:              IGNORED (Skipping Quaternions)' // c_reset
+   Else If (pot_int < 1) Then
       write(*,'(A)') c_green // '  -> Potential Mode:          PURE ISOTROPIC LENNARD-JONES' // c_reset
       write(*,'(A)') c_yellow// '  -> Patch Data:              IGNORED (Skipping Quaternions)' // c_reset
    Else
@@ -266,18 +292,57 @@ Subroutine Read_Input_Data
 
    Allocate( Nrb_sites(0:Npart_types) )
 
-   If (pot_int < 1) Then
+   If (pot_int == -1) Then
+      ! ==========================================================================
+      ! HARD SPHERE (HS) mixtures (possibly non-additive).
+      ! Only the diameter matrix sigma_ij is read; there is no epsilon matrix and
+      ! temperature is irrelevant (athermal). The contact distance sigma_ij plays
+      ! the role of the interaction range for the checkerboard cell decomposition.
+      ! ==========================================================================
       Nrb_sites = 0
       ! Allocate dummy variables to prevent GPU interface bounds errors
       Allocate( patch(1) ); Allocate( ref_tor_vec(1) ); Allocate( Ntor_angle(1) )
       Allocate( tor_angle(1) ); Allocate( Vpot_Matrix(1) ); Allocate( sigma_jon(1) )
       patch=0.d0; ref_tor_vec=0.d0; Ntor_angle=0; tor_angle=0.d0; Vpot_Matrix=0.d0; sigma_jon=0.d0
-      
-      ! Fast forward input_filename to the LJ matrix section
-      Do 
+
+      ! Fast forward input_filename to the HS diameter matrix section
+      Do
          Read(20, '(A)', IOSTAT=ios) line
          If (ios /= 0) Exit
-         If (index(line, '--- LJ SIGMA MATRIX ---') > 0) Exit 
+         If (index(line, '--- HS SIGMA MATRIX ---') > 0) Exit
+      End Do
+
+      Allocate ( sigma_LJ(0:Npart_types*Npart_types-1) )
+      Allocate ( epsilon_LJ(0:Npart_types*Npart_types-1) )
+      Allocate ( rangep(0:Npart_types*Npart_types-1) )
+      Allocate ( VL0(0:Npart_types*Npart_types-1) )
+      Allocate ( xop(0:Npart_types*Npart_types-1) )
+      ! HS carries no energy scale; these are kept only for interface consistency.
+      epsilon_LJ = 0.0_wp; VL0 = 0.0_wp; xop = 0.0_wp
+
+      Do I=0,Npart_types-1
+           Indx = I*Npart_types
+           Do J = 0, Npart_types-1
+              Read(20,'(F6.3)',advance='no') sigma_jon_ij
+              sigma_LJ(indx+j) = sigma_jon_ij
+              ! For HS the contact distance sigma_ij is the interaction cutoff/range.
+              rangep(indx+j) = sigma_jon_ij
+           EndDo
+           Read(20,*)
+      EndDo
+
+   Else If (pot_int < 1) Then
+      Nrb_sites = 0
+      ! Allocate dummy variables to prevent GPU interface bounds errors
+      Allocate( patch(1) ); Allocate( ref_tor_vec(1) ); Allocate( Ntor_angle(1) )
+      Allocate( tor_angle(1) ); Allocate( Vpot_Matrix(1) ); Allocate( sigma_jon(1) )
+      patch=0.d0; ref_tor_vec=0.d0; Ntor_angle=0; tor_angle=0.d0; Vpot_Matrix=0.d0; sigma_jon=0.d0
+
+      ! Fast forward input_filename to the LJ matrix section
+      Do
+         Read(20, '(A)', IOSTAT=ios) line
+         If (ios /= 0) Exit
+         If (index(line, '--- LJ SIGMA MATRIX ---') > 0) Exit
       End Do
 
       Allocate ( sigma_LJ(0:Npart_types*Npart_types-1) )
