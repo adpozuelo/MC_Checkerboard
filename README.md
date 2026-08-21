@@ -1,6 +1,6 @@
 # GPU-Accelerated Monte Carlo for Patchy Particles/Simple fluid mixtures
 
-A high-performance GPU-accelerated Monte Carlo simulation code for patchy particle systems and simple fluid mixtures with anisotropic interactions in NVT and NpT ensembles.
+A high-performance GPU-accelerated Monte Carlo simulation code for patchy particle systems  with anisotropic interactionsi and simple fluid mixtures in NVT and NpT ensembles.
 
 ## Authors
 
@@ -16,7 +16,7 @@ Instituto de Química Física Blas Cabrera (IQF-CSIC)
 
 ## Overview
 
-This code implements a GPU-parallelized Monte Carlo simulation for systems of patchy particles with Lennard-Jones-Gauss (LJG) potential, Kern-Frenkel (K-F) and Lennard-Jones mixtures, as well as (possibly non-additive) Hard-Sphere (HS) mixtures and Lennard-Jones mixtures. The implementation uses a checkerboard cell decomposition scheme [1] to enable conflict-free parallel Monte Carlo moves on GPU, achieving significant speedup compared to traditional CPU implementations.
+This code implements a GPU-parallelized Monte Carlo simulation for systems of patchy particles with Lennard-Jones-Gauss (LJG) potential, Kern-Frenkel (K-F) and Lennard-Jones mixtures, as well as (possibly non-additive) Hard-Sphere (HS) mixtures. The implementation uses a checkerboard cell decomposition scheme [1] to enable conflict-free parallel Monte Carlo moves on GPU, achieving significant speedup compared to traditional CPU implementations.
 
 ### Note
 
