@@ -10,13 +10,13 @@ A high-performance GPU-accelerated Monte Carlo simulation code for patchy partic
 
 Instituto de Química Física Blas Cabrera (IQF-CSIC)
 
-**Date:** July 2026
+**Date:** August 2026
 
 ---
 
 ## Overview
 
-This code implements a GPU-parallelized Monte Carlo simulation for systems of patchy particles with Lennard-Jones-Gauss (LJG) potential, Kern-Frenkel (K-F) and Lennard-Jones mixtures. The implementation uses a checkerboard cell decomposition scheme [1] to enable conflict-free parallel Monte Carlo moves on GPU, achieving significant speedup compared to traditional CPU implementations.
+This code implements a GPU-parallelized Monte Carlo simulation for systems of patchy particles with Lennard-Jones-Gauss (LJG) potential, Kern-Frenkel (K-F) and Lennard-Jones mixtures, as well as (possibly non-additive) Hard-Sphere (HS) mixtures. The implementation uses a checkerboard cell decomposition scheme [1] to enable conflict-free parallel Monte Carlo moves on GPU, achieving significant speedup compared to traditional CPU implementations.
 
 ### Note
 
@@ -24,12 +24,8 @@ Lennard-Jones reduced units are used. Potentials are truncated and shifted at ra
 
 ### Key Features
 
-<<<<<<< ours
 - **GPU Acceleration**: CUDA Fortran implementation with checkerboard parallelization [1]
-=======
-- **GPU Acceleration**: CUDA Fortran implementation with checkerboard parallelization
 - **Multiple Potentials**: Hard-sphere (HS, including non-additive mixtures), Lennard-Jones (LJ) mixtures, and patchy (LJG / SSP) models
->>>>>>> theirs
 - **Anisotropic Interactions**: Lennard-Jones core with angular (patch-patch) and torsional terms
 - **Multiple Ensembles**: Supports both NVT (canonical) and NpT (isothermal-isobaric)
 - **Aggregation Volume Bias MC (AVBMC)**: Advanced cluster swap moves (association & dissociation) [3] with Configurable Rosenbluth (CBMC) bulk probing scheme and $O(1)$ single-particle cell list updates
@@ -78,7 +74,7 @@ Lennard-Jones reduced units are used. Potentials are truncated and shifted at ra
 - `Shift_Cells.cuf` - Random cell boundary shifts to avoid artifacts
 
 #### I/O and Utilities
-- `Read_input_data.cuf` - Read input parameters and configurations
+- `Read_input_data_nml.cuf` - Read input parameters and configurations
 - `Volume_move.cuf` - NPT volume change moves
 - `netcdf_trajectory.cuf` - NetCDF trajectory output module
 - Various output routines for trajectories and properties
@@ -163,9 +159,15 @@ mc_gpu.exe filename.nml 1
 
 ### Example Input Structure
 
-See `examples/LJG/` directory for example input filesi for LJG patchy systems.
-    `examples/LJ`directory for plain LJ mixture
-    `examples/HS`directory for a (non-additive) hard-sphere mixture
+Each potential model has a self-contained example directory under `examples/`, with its own namelist input and `data.atoms` configuration:
+
+- **`examples/HS/`** - Non-additive binary hard-sphere mixture (`datos.nml`)
+- **`examples/LJ/`** - Plain (isotropic) Lennard-Jones mixture (`datos.nml`)
+- **`examples/LJG/`** - Lennard-Jones-Gauss patchy system with angular/torsional patches (`input.d`)
+- **`examples/SSP/`** - Site-Site Patchy (tetrahedral, 4-patch) system (`datos_ssp_tetrahedral.nml`); also includes `data.atoms_lammps` / `data.atoms_lammps_reduced` and, at `examples/in.ssp`, `examples/forcefield.lj`, `examples/log.lammps`, the companion LAMMPS input/output used to cross-validate the SSP potential against LAMMPS (see [Mapping SSP to LAMMPS](#mapping-ssp-to-lammps-4) below)
+
+The namelist filename passed as the first command-line argument to `mc_gpu.exe` is arbitrary (`datos.nml`, `input.d`, etc. are just naming conventions used across these examples).
+
 ### Output Files
 
 **Trajectory Files** (format depends on `traj_format` selection):
@@ -182,7 +184,7 @@ See `examples/LJG/` directory for example input filesi for LJG patchy systems.
 - `mclast_clconf.lammpstrj` - Final cluster configuration output formatted in LAMMPS trajectory format for VMD visualization.
 - `mclast_brdconf.lammpstrj` - Final cluster border configuration based on geometric asymmetry criterion formatted in LAMMPS trajectory format.
 
-**Standard Output**: Clean single-line progress table containing step index, total and per-site potential energies, translation/rotation acceptance ratios, moves per particle, cell grid size, CPU/GPU timing, and conditionally integrated cluster metrics (`N_Clust`, `Max_Cl`, `%Clust`) and AVBMC acceptance ratios (`P_AV_in`, `P_AV_out`).
+**Standard Output**: Clean single-line progress table containing step index, total and per-site potential energies, translation/rotation acceptance ratios, moves per particle, cell grid size, CPU/GPU timing, and conditionally integrated cluster metrics (`N_Clust`, `Max_Cl`, `%Clust`) and AVBMC acceptance ratios (`P_AV_in`, `P_AV_out`). For **Hard-Sphere (HS)** runs only, an additional `[P_HS]` line reporting the instantaneous virial pressure is printed at the same cadence, once the equilibration phase (`Neq` steps) has finished (see [HS Virial Pressure](#virial-pressure-hs-only) below).
 
 ---
 
@@ -245,6 +247,16 @@ $$V_{ij}(r) = \begin{cases} \infty & r < \sigma_{ij} \\ 0 & r \ge \sigma_{ij} \e
 The potential is athermal, so the temperature never enters the Metropolis acceptance in the NVT ensemble; a trial move is accepted if and only if it produces no overlap. For **non-additive** mixtures the cross diameter is independent, $\sigma_{ij} \ne \tfrac{1}{2}(\sigma_{ii}+\sigma_{jj})$, and is read directly from the `--- HS SIGMA MATRIX ---`.
 
 > **NpT note:** In the NpT ensemble the acceptance rule is $\exp[-\beta P\,\Delta V + N\ln(V'/V)]$. Since HS is athermal the code fixes $\beta = 1$, so the input `pres` is interpreted as the **reduced pressure** $P^* = P/k_BT$ (equivalently $\beta P$).
+
+#### Virial Pressure (HS only)
+
+Because hard-sphere forces are impulsive, there is no smooth pairwise virial to sum as for LJ. Instead the code uses the exact Lebowitz-Percus contact theorem for a multicomponent hard-sphere mixture:
+$$P = \rho T + \frac{2\pi}{3} T \sum_{a,b} \rho_a \rho_b\, \sigma_{ab}^3\, g_{ab}(\sigma_{ab}^+)$$
+where $\rho_a = N_a/V$ is the partial number density of species $a$ and $g_{ab}(\sigma_{ab}^+)$ is the contact value of the pair correlation function for species pair $(a,b)$.
+
+Since $g_{ab}(\sigma_{ab}^+)$ has no analytic form, it is measured directly from the current configuration (`HS_Virial_Pressure` in `energy.cuf`): pair separations for each species pair are histogrammed into a few thin shells starting right at contact ($r \in [\sigma_{ab},\, \sigma_{ab} + N_{\text{bins}}\,\delta_{ab})$, with $\delta_{ab} = 0.01\,\sigma_{ab}$ and $N_{\text{bins}} = 5$), giving $g_{ab}(r)$ at each shell midpoint, and a linear least-squares fit through those shells is extrapolated back to $r = \sigma_{ab}$.
+
+This is a single-configuration (instantaneous, not time-averaged) estimate, evaluated at the same cadence as the periodic progress table (`Nsave`) but only once the equilibration phase has finished, and only for HS runs (`pot_int == -1`). Being an $O(N^2)$ pairwise measurement, it adds a comparable amount of CPU time to each `Nsave` interval during production.
 
 #### Mathematical Formulation of LJ
 For distance $r$:
@@ -437,6 +449,13 @@ Computing resources provided by CSIC.
 ---
 
 ## Version History
+
+- **V2.6** (August 2026) Non-Additive Hard-Sphere (HS) Potential & Virial Pressure
+  - Added an athermal Hard-Sphere (HS) potential (`pot_int = -1`) for (possibly non-additive) multi-component mixtures, dispatched consistently across the CPU verification routines (`ener_HS` in `energy.cuf`) and the GPU checkerboard kernels alongside the existing LJ/LJG/SSP potentials.
+  - Pair diameters $\sigma_{ij}$ are read from a dedicated `--- HS SIGMA MATRIX ---` block in `data.atoms`; no epsilon matrix or temperature input is required, and the contact distance sets the checkerboard cell size directly.
+  - Added an instantaneous virial pressure calculation for HS runs from the Lebowitz-Percus multicomponent contact theorem, measuring the contact value $g_{ab}(\sigma_{ab}^+)$ by histogramming near-contact pair separations and extrapolating to contact (`HS_Virial_Pressure` in `energy.cuf`). Printed as a `[P_HS]` line at the same cadence as the periodic progress table, once past equilibration.
+  - Fixed the step index marking the end of equilibration (`Ieq` in `Main.cuf`), which was declared but never assigned, so the "EQUILIBRATION PHASE FINISHED" message and periodic counter reset were not firing at the correct step.
+  - Added `examples/HS/` (non-additive binary HS mixture) and consolidated the SSP validation example (`data.atoms`, `datos_ssp_tetrahedral.nml`, and the companion LAMMPS cross-validation files) into its own `examples/SSP/` directory, mirroring `HS/`, `LJ/`, and `LJG/`.
 
 - **V2.5** (July 2026) Uncluttered Terminal Table Output & Feature Integration
   - Refactored Monte Carlo loop bounds (`Main.cuf`, `Tools.cuf`): `Neq` is now executed as dedicated equilibration steps *in addition* to `istep_fin` production steps (total run steps = `istep_ini + Neq + istep_fin`). Trajectory frames and thermodynamic production averages automatically begin accumulating at step `istep_ini + Neq + 1`.
