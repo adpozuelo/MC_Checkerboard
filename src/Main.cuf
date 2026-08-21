@@ -55,6 +55,7 @@ Program MC_CB_GPU
    Real(wp) :: rnd, disp(0:ndim-1), start, finish, omaxo, hmaxo, prob_vol, vmaxo(0:ndim-1)
    Real(wp) :: rnd_vec(ndim), prob_trans, prob_rot, boxmin, W_RU_min
    Real(wp) :: total_gpu_time
+   Real(wp) :: P_HS
    Real(dkind) :: En_tot_old
    Logical :: overlap=.false.
 
@@ -234,6 +235,9 @@ Program MC_CB_GPU
    no_mc_real=0
    ntrans_ac=0
    nrot_ac=0
+
+   ! Absolute step index at which equilibration ends and production begins
+   Ieq = istep_ini + Neq
 
    ! Setup temperature annealing schedule
    Njumps=(istep_fin-istep_ini)/Nsave
@@ -476,6 +480,13 @@ Program MC_CB_GPU
                      i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, prob_rot, ntrans/nsave, real(ntrans)/real(nsave*natoms), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
                EndIf
             EndIf
+         EndIf
+
+         ! Virial pressure (hard-sphere runs only), reported once production has started
+         If (pot_int == -1 .and. i > Ieq) Then
+            Call Convert_CB_RU
+            Call HS_Virial_Pressure(P_HS)
+            write(*,'(A,i10,A,f14.6)') c_cyan // '            [P_HS] Step ' // c_reset, i, '   Virial pressure = ', P_HS
          EndIf
 
          no_mc_real=0
