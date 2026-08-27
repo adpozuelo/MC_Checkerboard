@@ -2385,7 +2385,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
                   call get_dist(XJ,YJ,ZJ, Dx_old,Dy_old,Dz_old, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX,DY,DZ, RSQ, dist)
                   call get_dist(XJ,YJ,ZJ, Dmove_x,Dmove_y,Dmove_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DXn,DYn,DZn, RSQn, distn)
 
-                  if (RSQ < sigsq) then; overlap_error(Indx_Cell) = 1; return; end if
+                  if (RSQ < 0.249999_wp) then; overlap_error(Indx_Cell) = 1; return; end if
                   if (RSQn < sigsq) overlap = 1
                 end if
               end do
@@ -2408,7 +2408,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
                     call get_dist(XJ,YJ,ZJ, Dx_old,Dy_old,Dz_old, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX,DY,DZ, RSQ, dist)
                     call get_dist(XJ,YJ,ZJ, Dmove_x,Dmove_y,Dmove_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DXn,DYn,DZn, RSQn, distn)
 
-                    if (RSQ < sigsq) then; overlap_error(Indx_Cell) = 1; return; end if
+                    if (RSQ < 0.249999_wp) then; overlap_error(Indx_Cell) = 1; return; end if
                     if (RSQn < sigsq) overlap = 1
                   end do
                 end if
