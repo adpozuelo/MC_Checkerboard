@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Suppressed repetitive cell info prints during periodic $NpT$ volume updates in `UpdateCheckerboard.cuf`.
 
 ### Documentation
-- Updated `README.md` with algorithmic formulation, checkerboard parallelization mechanics, and input parameters for identity swap moves.
+- Updated `README.md` with algorithmic formulation, checkerboard parallelization mechanics, input parameters, and methodological citations for identity swap moves.
 - Updated `examples/HS/datos.nml` with commented identity swap configuration options.
 
 ---

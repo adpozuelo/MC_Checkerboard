@@ -26,7 +26,7 @@ Lennard-Jones reduced units are used. Potentials are truncated and shifted at ra
 
 - **GPU Acceleration**: CUDA Fortran implementation with checkerboard parallelization [1]
 - **Multiple Potentials**: Hard-sphere (HS, including non-additive mixtures), Lennard-Jones (LJ) mixtures, and patchy (LJG / SSP) models
-- **GPU-Accelerated Identity Swaps**: Massively parallel identity swap moves ($A \leftrightarrow B$) for binary hard-sphere mixtures leveraging checkerboard cellular decomposition and long-range sublattice swaps to accelerate compositional mixing
+- **GPU-Accelerated Identity Swaps**: Massively parallel identity swap moves ($A \leftrightarrow B$) for binary hard-sphere mixtures leveraging checkerboard cellular decomposition and long-range sublattice swaps to accelerate compositional mixing [5]
 - **Anisotropic Interactions**: Lennard-Jones core with angular (patch-patch) and torsional terms
 - **Multiple Ensembles**: Supports both NVT (canonical) and NpT (isothermal-isobaric)
 - **Aggregation Volume Bias MC (AVBMC)**: Advanced cluster swap moves (association & dissociation) [3] with Configurable Rosenbluth (CBMC) bulk probing scheme and $O(1)$ single-particle cell list updates
@@ -266,7 +266,7 @@ This is a single-configuration (instantaneous, not time-averaged) estimate, eval
 
 #### GPU Checkerboard Identity Swaps (Binary HS Mixtures)
 
-In dense multicomponent fluid mixtures, traditional single-particle translation moves frequently encounter severe sampling bottlenecks caused by local steric cages (compositional jamming), resulting in sluggish structural relaxation and slow convergence. Identity swap moves ($A \leftrightarrow B$) overcome this barrier by exchanging particle species identities without displacing atomic center-of-mass positions, dramatically accelerating phase space exploration and thermodynamic equilibration.
+In dense multicomponent fluid mixtures, traditional single-particle translation moves frequently encounter severe sampling bottlenecks caused by local steric cages (compositional jamming), resulting in sluggish structural relaxation and slow convergence. Identity swap moves ($A \leftrightarrow B$) [5] overcome this barrier by exchanging particle species identities without displacing atomic center-of-mass positions, dramatically accelerating phase space exploration and thermodynamic equilibration.
 
 **Checkerboard Parallelization Strategy:**
 1. **Intra-Cell Identity Swaps (`subsweep_HS_swap`)**:
@@ -429,6 +429,11 @@ Eva González Noya, Enrique Lomba, and Antonio Díaz Pozuelo, "GPU-Accelerated M
 4. **LAMMPS Molecular Dynamics Engine**:
    - A. P. Thompson, H. M. Aktulga, R. Berger, D. S. Bolintineanu, W. M. Brown, P. S. Crozier, P. J. in 't Veld, A. Kohlmeyer, S. G. Moore, T. D. Nguyen, R. Shan, M. J. Stevens, J. Tranchida, C. Trott, and S. J. Plimpton, *"LAMMPS - a flexible simulation tool for particle-based materials modeling at the atomic, meso, and continuum scales"*, *Computer Physics Communications*, **271**, 108171 (2022). DOI: [10.1016/j.cpc.2021.108171](https://doi.org/10.1016/j.cpc.2021.108171)
    - S. Plimpton, *"Fast Parallel Algorithms for Short-Range Molecular Dynamics"*, *Journal of Computational Physics*, **117**, 1–19 (1995). DOI: [10.1006/jcph.1995.1039](https://doi.org/10.1006/jcph.1995.1039)
+
+5. **Identity Swap Monte Carlo Moves**:
+   - D. A. Kofke and E. D. Glandt, *"Monte Carlo simulation of multicomponent equilibria in a semigrand canonical ensemble"*, *Molecular Physics*, **64**(6), 1105–1131 (1988). DOI: [10.1080/00268978800100761](https://doi.org/10.1080/00268978800100761)
+   - A. J. Schultz and D. A. Kofke, *"Semigrand canonical Monte Carlo simulation: Comparison of methods for identity exchange"*, *The Journal of Chemical Physics*, **133**(10), 104101 (2010). DOI: [10.1063/1.3486085](https://doi.org/10.1063/1.3486085)
+   - D. Frenkel and B. Smit, *"Understanding Molecular Simulation: From Algorithms to Applications"*, 2nd ed., Academic Press, San Diego (2002).
 
 ---
 
