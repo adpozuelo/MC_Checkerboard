@@ -98,7 +98,7 @@ Subroutine Volume_Move
    ! --------------------------------------------------------------------------
    Vol_new = box(0)*box(1)*box(2)
    rangeP_max=maxval(rangeP)
-   wv = 1.010d0*rangeP_max
+   wv = 1.10d0*rangeP_max
    w_aux(:) = (/ wv, wv, wv /)
    W_RU_aux = W_aux /box 
    Nl_aux(:) = 1.d0 / W_RU_aux (:)

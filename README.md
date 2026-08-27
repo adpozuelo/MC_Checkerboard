@@ -26,6 +26,7 @@ Lennard-Jones reduced units are used. Potentials are truncated and shifted at ra
 
 - **GPU Acceleration**: CUDA Fortran implementation with checkerboard parallelization [1]
 - **Multiple Potentials**: Hard-sphere (HS, including non-additive mixtures), Lennard-Jones (LJ) mixtures, and patchy (LJG / SSP) models
+- **GPU-Accelerated Identity Swaps**: Massively parallel identity swap moves ($A \leftrightarrow B$) for binary hard-sphere mixtures leveraging checkerboard cellular decomposition and long-range sublattice swaps to accelerate compositional mixing
 - **Anisotropic Interactions**: Lennard-Jones core with angular (patch-patch) and torsional terms
 - **Multiple Ensembles**: Supports both NVT (canonical) and NpT (isothermal-isobaric)
 - **Aggregation Volume Bias MC (AVBMC)**: Advanced cluster swap moves (association & dissociation) [3] with Configurable Rosenbluth (CBMC) bulk probing scheme and $O(1)$ single-particle cell list updates
@@ -216,6 +217,11 @@ The namelist filename passed as the first command-line argument to `mc_gpu.exe` 
 - `avbmc_k_trials` - Number of trial positions ($K$) generated in the bulk for Configurable Rosenbluth (CBMC) bulk volume probing (default: `10`)
 - `avbmc_max_trials` - Maximum number of pair attempts per AVBMC step to bound execution time for large systems (default: `50`)
 
+### Identity Swap Moves (Binary Mixtures)
+- `swap_moves` - Enable GPU-accelerated identity swap moves ($A \leftrightarrow B$) (`.true.` / `.false.`, default: `.false.`).
+  > **Note / Consistency Requirement:** Identity swap moves are **exclusively implemented for binary hard-sphere mixtures** (`Npart_types = 2` and `model = 'HS'`). Setting `swap_moves = .true.` with $N_{\text{part\_types}} \ne 2$ or non-HS models will trigger an immediate fatal error and cleanly terminate the simulation during input initialization.
+- `Nswap` - Number of swap sub-passes executed per MC cycle (default: `1`). Each sub-pass performs 8 checkerboard subset intra-cell sweeps and 4 long-range cross-cell sweeps.
+
 ### Thermodynamic Parameters
 - `temp0`, `temp1` - Initial and final temperatures (Kelvin)
 - `pres` - Pressure (NpT ensemble)
@@ -257,6 +263,26 @@ where $\rho_a = N_a/V$ is the partial number density of species $a$ and $g_{ab}(
 Since $g_{ab}(\sigma_{ab}^+)$ has no analytic form, it is measured directly from the current configuration (`HS_Virial_Pressure` in `energy.cuf`): pair separations for each species pair are histogrammed into a few thin shells starting right at contact ($r \in [\sigma_{ab},\, \sigma_{ab} + N_{\text{bins}}\,\delta_{ab})$, with $\delta_{ab} = 0.01\,\sigma_{ab}$ and $N_{\text{bins}} = 5$), giving $g_{ab}(r)$ at each shell midpoint, and a linear least-squares fit through those shells is extrapolated back to $r = \sigma_{ab}$.
 
 This is a single-configuration (instantaneous, not time-averaged) estimate, evaluated at the same cadence as the periodic progress table (`Nsave`) but only once the equilibration phase has finished, and only for HS runs (`pot_int == -1`). Being an $O(N^2)$ pairwise measurement, it adds a comparable amount of CPU time to each `Nsave` interval during production.
+
+#### GPU Checkerboard Identity Swaps (Binary HS Mixtures)
+
+In dense multicomponent fluid mixtures, traditional single-particle translation moves frequently encounter severe sampling bottlenecks caused by local steric cages (compositional jamming), resulting in sluggish structural relaxation and slow convergence. Identity swap moves ($A \leftrightarrow B$) overcome this barrier by exchanging particle species identities without displacing atomic center-of-mass positions, dramatically accelerating phase space exploration and thermodynamic equilibration.
+
+**Checkerboard Parallelization Strategy:**
+1. **Intra-Cell Identity Swaps (`subsweep_HS_swap`)**:
+   - In each of the 8 cellular checkerboard subsets, all active cells are separated by $\ge 1$ buffer cell from each other, ensuring completely conflict-free parallel execution.
+   - For every active cell possessing both species ($n_A \ge 1$ and $n_B \ge 1$), a candidate pair $(a \in A, b \in B)$ is chosen.
+   - GPU warp threads concurrently test the central cell and all 26 neighboring cells for hard-core overlaps under the swapped state ($a \to B, b \to A$).
+   - If zero overlaps occur, the move is accepted unconditionally ($\alpha = 1.0$) because the cell composition $(n_A, n_B)$ remains invariant.
+2. **Long-Range Cross-Cell Identity Swaps (`subsweep_HS_cross_swap`)**:
+   - Spatially separated cell pairs $(C_1, C_2)$ situated at $(j_x, j_y, j_z)$ and $(j_x + N_{lx}/2, j_y + N_{ly}/2, j_z + N_{lz}/2)$ are paired across opposite halves of the box ($\text{separation} \ge L/2 > 2\sigma_{\text{max}}$).
+   - Because their 26-neighborhoods are completely disjoint, both local neighborhoods are checked in parallel.
+   - Acceptance satisfies exact detailed balance via the Hastings factor:
+     $$\alpha = \min\left(1, \frac{n_{A,1}\, n_{B,2}}{(n_{B,1} + 1)(n_{A,2} + 1)}\right)$$
+3. **Consistency & Constraints**:
+   - Exclusively enabled for binary mixtures: `Npart_types = 2` and `model = 'HS'`. Attempting to use `swap_moves = .true.` with $N_{\text{part\_types}} \ne 2$ or continuous potentials triggers an immediate fatal error during initialization.
+   - Preserves exact species stoichiometry ($N_A, N_B = \text{const}$).
+   - Achieves sustained throughputs of $\sim 400,000\text{--}500,000$ swap attempts/second on modern GPUs with near-zero computational overhead.
 
 #### Mathematical Formulation of LJ
 For distance $r$:
@@ -450,26 +476,22 @@ Computing resources provided by CSIC.
 
 ## Version History
 
-- **V2.6** (August 2026) Non-Additive Hard-Sphere (HS) Potential & Virial Pressure
-  - Added an athermal Hard-Sphere (HS) potential (`pot_int = -1`) for (possibly non-additive) multi-component mixtures, dispatched consistently across the CPU verification routines (`ener_HS` in `energy.cuf`) and the GPU checkerboard kernels alongside the existing LJ/LJG/SSP potentials.
-  - Pair diameters $\sigma_{ij}$ are read from a dedicated `--- HS SIGMA MATRIX ---` block in `data.atoms`; no epsilon matrix or temperature input is required, and the contact distance sets the checkerboard cell size directly.
-  - Added an instantaneous virial pressure calculation for HS runs from the Lebowitz-Percus multicomponent contact theorem, measuring the contact value $g_{ab}(\sigma_{ab}^+)$ by histogramming near-contact pair separations and extrapolating to contact (`HS_Virial_Pressure` in `energy.cuf`). Printed as a `[P_HS]` line at the same cadence as the periodic progress table, once past equilibration.
-  - Fixed the step index marking the end of equilibration (`Ieq` in `Main.cuf`), which was declared but never assigned, so the "EQUILIBRATION PHASE FINISHED" message and periodic counter reset were not firing at the correct step.
-  - Added `examples/HS/` (non-additive binary HS mixture) and consolidated the SSP validation example (`data.atoms`, `datos_ssp_tetrahedral.nml`, and the companion LAMMPS cross-validation files) into its own `examples/SSP/` directory, mirroring `HS/`, `LJ/`, and `LJG/`.
+For a complete record of all versions and features, see [Changelog.md](Changelog.md).
 
-- **V2.5** (July 2026) Uncluttered Terminal Table Output & Feature Integration
-  - Refactored Monte Carlo loop bounds (`Main.cuf`, `Tools.cuf`): `Neq` is now executed as dedicated equilibration steps *in addition* to `istep_fin` production steps (total run steps = `istep_ini + Neq + istep_fin`). Trajectory frames and thermodynamic production averages automatically begin accumulating at step `istep_ini + Neq + 1`.
-  - Streamlined main Monte Carlo progress table: `hmax*L` and `omax` displacement limits are removed from the periodic step table and displayed exclusively in startup and final parameter summaries.
-  - Dynamically integrated cluster analysis metrics (`N_Clust`, `Max_Cl`, `%Clust`) and AVBMC acceptance ratios (`P_AV_in`, `P_AV_out`) into the single progress table line whenever cluster analysis (`ncluster > 0`) or AVBMC (`avbmc = .true.`) are enabled.
-  - Suppressed multi-line console spams (`[BORDER]`, `[AVBMC GPU Transfer]`, `[AVBMC IN/OUT]`) during the main loop to maintain a clean, single-line terminal output. Full time-series cluster metrics continue to be saved quietly to `clusevol_mc.dat`.
-  - Configured `mclast_clconf.lammpstrj` and `mclast_brdconf.lammpstrj` to write only active cluster ($N_{\text{clustered}}$) and border ($N_{\text{brd}}$) particles with the unified 10-column LAMMPS trajectory header (`ITEM: ATOMS id mol type x y z quatw quati quatj quatk`).
+- **V2.5** (August 2026) GPU-Accelerated Identity Swaps, Non-Additive Hard-Sphere Potential & Virial Pressure
+  - **GPU Checkerboard Identity Swaps**: Massively parallel identity swap moves ($A \leftrightarrow B$) for binary mixtures using intra-cell checkerboard warp evaluation (`subsweep_HS_swap`) and long-range disjoint cross-cell swaps (`subsweep_HS_cross_swap`) with exact Hastings detailed balance.
+  - **Sanity Checks & Consistency**: Strict input validation enforcing `Npart_types = 2` and `model = 'HS'` with fatal error termination on unsupported configurations.
+  - **Contact Overlap Trap Fix**: Resolved exact-contact self-displacement rejection in Hard Sphere CUDA subsweep kernel.
+  - **Hard-Sphere (HS) Potential & Virial Pressure**: Athermal HS potential (`pot_int = -1`) for additive/non-additive mixtures, multicomponent contact virial pressure extrapolation (`HS_Virial_Pressure`), and NetCDF stress embedding.
+  - **Namelist Parameters**: Added `swap_moves` and `Nswap` to `&MC_Params` and updated `examples/HS/datos.nml`.
 
-- **V2.4** (July 2026) Aggregation Volume Bias Monte Carlo (AVBMC) & CBMC Rosenbluth Scheme
+- **V2.4** (July/August 2026) Aggregation Volume Bias Monte Carlo (AVBMC) & CBMC Rosenbluth Scheme
   - Implemented AVBMC cluster association (bulk $\rightarrow V_{\text{in}}$) and dissociation ($V_{\text{in}} \rightarrow$ bulk) pair moves (`mod_avbmc.cuf`).
   - Integrated Configurable Rosenbluth (CBMC) $K$-trial scheme for probabilistic bulk volume sampling ($W_{\text{new}} = \sum_{m=1}^K \exp(-\beta u_m)$).
   - Added namelist control parameters `avbmc`, `border_criterion`, `energy_border_ratio`, `avbmc_k_trials` (default `10`), and `avbmc_max_trials` (default `50`).
   - Implemented $O(1)$ single-particle cell list updates (`update_single_particle_cell`) with orientation preservation and global grid fallback search.
-  - Corrected 0-indexed position array `r` slicing offsets (`(id-1)*ndim : (id-1)*ndim+2`) and replaced boundary wrapping with exact `Floor` functions, achieving 53%+ AVBMC move acceptance and clean 5,000-step simulation execution.
+  - Corrected 0-indexed position array `r` slicing offsets (`(id-1)*ndim : (id-1)*ndim+2`) and replaced boundary wrapping with exact `Floor` functions, achieving 53%+ AVBMC move acceptance.
+  - Streamlined main Monte Carlo progress table into a unified single-line format with dynamic cluster and AVBMC metrics.
 
 - **V2.3.1** (July 2026) Cluster Border Points Analysis & Geometric Asymmetry Criterion
   - Implemented geometric asymmetry criterion (normalized net neighbor displacement vector magnitude) to identify surface/border particles in clusters.

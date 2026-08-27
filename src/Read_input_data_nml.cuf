@@ -40,7 +40,9 @@ Subroutine Write_Input_File(istep)
    Write(21,*) "  npt = ", npt, ","
    Write(21,*) "  iscale = ", iscale, ","
    Write(21,*) "  pres = ", pres, ","
-   Write(21,*) "  seed = ", seed
+   Write(21,*) "  seed = ", seed, ","
+   Write(21,*) "  swap_moves = ", swap_moves, ","
+   Write(21,*) "  Nswap = ", Nswap
    Write(21,*) "/"
 
    ! --- Write Namelist: Potential_Params ---
@@ -189,13 +191,16 @@ Subroutine Read_Input_Data
    Namelist /Control_Params/ istep_ini, istep_fin, Neq, Nmove, Nsave, Nsave2, Nrestart, imovie, traj_format, Npart_types, Ecpu_check, data_file, &
                               rcl, minPts, asym_threshold, ncluster, cluster_types, Nmc_hmc, Nmd_hmc, tstep_hmc, avbmc, &
                               border_criterion, energy_threshold, energy_border_ratio, use_energy_ratio, avbmc_k_trials, avbmc_max_trials
-   Namelist /MC_Params/ hmax, omax, vmax, displ_update, temp0, temp1, npt, iscale, pres, seed
-   Namelist /Potential_Params/ model, cosmax_KF, ctor_max_KF, delta_KF, Bool_tor, sigma_jon_aux, sigma_tor_jon, rangepp, &
+    ! MC_Params include:
+    !   swap_moves: .true. / .false. (Enable GPU checkerboard identity swaps, binary HS only)
+    !   Nswap: Number of swap sub-passes per MC cycle (default 1)
+    Namelist /MC_Params/ hmax, omax, vmax, displ_update, temp0, temp1, npt, iscale, pres, seed, swap_moves, Nswap
+    Namelist /Potential_Params/ model, cosmax_KF, ctor_max_KF, delta_KF, Bool_tor, sigma_jon_aux, sigma_tor_jon, rangepp, &
                                 sigp_factor, Rcp_factor, Rc_factor, epsp_factor, patch_radial_factor, &
                                 table_mc, table_lammps, table_file_mc, table_file_lammps
 
    traj_format = 'netcdf'; data_file = 'data.atoms'
-   imovie = .false.; displ_update = .false.; npt = .false.; 
+   imovie = .false.; displ_update = .false.; npt = .false.; swap_moves = .false.; Nswap = 1
    sigp_factor = 0.1_wp; Rcp_factor = 0.3_wp; Rc_factor = 2.0_wp; epsp_factor = -1.0_wp; patch_radial_factor = 0.5_wp
    rcl = 1.8_wp; minPts = 3; asym_threshold = 0.5_wp; ncluster = 0; cluster_types(:) = -1; avbmc = .false.
    border_criterion = 'asymmetry'; energy_threshold = -2.0_wp; energy_border_ratio = 0.5_wp; use_energy_ratio = .false.
@@ -241,6 +246,23 @@ Subroutine Read_Input_Data
    write(*,'(A)') c_cyan // ' --- Monte Carlo Moves ---' // c_reset
    write(*,'(A,F10.4)') '  -> Max Trans Displacement:  ', hmax
    If (pot_int > 0) write(*,'(A,F10.4)') '  -> Max Rot Displacement:    ', omax
+   If (swap_moves) Then
+      If (Npart_types /= 2) Then
+         write(*,'(/A,"*** Fatal error: Identity swap moves are currently only supported for binary mixtures (Npart_types = 2). Found Npart_types = ", I0, "***",A)') &
+            c_red, Npart_types, c_reset
+         stop 1
+      End If
+      If (pot_int /= -1) Then
+         write(*,'(/A,"*** Fatal error: Identity swap moves are currently only implemented for Hard Spheres (model = ''HS''). ***",A)') &
+            c_red, c_reset
+         stop 1
+      End If
+      If (Nswap < 1) Nswap = 1
+      write(*,'(A)') c_green // '  -> Identity Swap Moves:     ENABLED (Binary Checkerboard GPU)' // c_reset
+      write(*,'(A,I6)')         '     - Swap trials per cycle: ', Nswap
+   Else
+      write(*,'(A)') c_yellow // '  -> Identity Swap Moves:     DISABLED' // c_reset
+   End If
    If (avbmc) Then
       write(*,'(A)') c_green // '  -> AVBMC Moves:             ENABLED' // c_reset
       write(*,'(A,A)')          '     - Border Criterion:      ', trim(border_criterion)

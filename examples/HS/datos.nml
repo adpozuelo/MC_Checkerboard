@@ -18,7 +18,12 @@
   npt = .false.,
   iscale = 0,
   pres = 0.1,
-  seed = 345
+  seed = 345,
+  ! --- Binary Mixture Identity Swap Moves (A <-> B) ---
+  ! swap_moves: Enable GPU checkerboard identity swap moves (.true. / .false., default: .false.)
+  ! Note: Exclusively supported for binary Hard-Sphere mixtures (Npart_types = 2 and model = 'HS')
+  swap_moves = .false.,
+  Nswap = 5        ! Number of swap sub-passes per MC cycle (default: 1)
 /
 &Potential_Params
   model = 'HS',

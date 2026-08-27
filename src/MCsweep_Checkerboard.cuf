@@ -209,6 +209,8 @@ Subroutine Convert_CB_RU
               Q(IndxQ+1 ) = Sphere_Cell(indx+4)
               Q(IndxQ+2 ) = Sphere_Cell(indx+5)
               Q(IndxQ+3 ) = Sphere_Cell(indx+6)
+              ! Synchronize particle species type
+              itype(List_Cell(indx3)) = List_Cell(indx3+1)
               Ncount = Ncount + 1
            EndDo
 
@@ -217,3 +219,59 @@ Subroutine Convert_CB_RU
    EndDo
 
 End Subroutine Convert_CB_RU
+
+
+! ==============================================================================
+! SUBROUTINE: MCswap_Checkerboard
+! ==============================================================================
+! DESCRIPTION:
+!   Performs identity swap moves for binary mixtures on the GPU taking full
+!   advantage of the checkerboard domain decomposition.
+!   - Intra-cell swaps: Tested across all 8 checkerboard subsets in parallel.
+!   - Long-range cross-cell swaps: Tested between distant paired disjoint cells.
+! ==============================================================================
+Subroutine MCswap_Checkerboard()
+
+     Use set_precision
+     Use potential
+     Use Cell
+     Use rundata
+     Use utils
+     Use configuration
+     Use properties
+     Use cuda_fortran, only: subsweep_swap_gpu, subsweep_cross_swap_gpu
+     Implicit None
+     
+     Integer    :: I, Indx
+     Integer, Dimension(0:Ndim-1) :: Offset
+     Real(wp)   :: rnd
+
+     If (.not. swap_moves .or. Npart_types /= 2 .or. pot_int /= -1) Return
+
+     ! 1. Intra-cell swaps across all 8 checkerboard subsets
+     Do I = 1, Nset_Cell
+        Call Random_number(rnd)
+        Indx = int(rnd*8.0)+1
+        if (Indx > 8) Indx = 8
+        if (Indx < 1) Indx = 1
+        Offset(0) = Indx_Set(Indx, 1)
+        Offset(1) = Indx_Set(Indx, 2)
+        Offset(2) = Indx_Set(Indx, 3)
+
+        Call subsweep_swap_gpu(Offset, nswap_att, nswap_acc)
+     End Do
+
+     ! 2. Long-range cross-cell swaps between paired distant cells
+     Do I = 1, 4
+        Call Random_number(rnd)
+        Indx = int(rnd*8.0)+1
+        if (Indx > 8) Indx = 8
+        if (Indx < 1) Indx = 1
+        Offset(0) = Indx_Set(Indx, 1)
+        Offset(1) = Indx_Set(Indx, 2)
+        Offset(2) = Indx_Set(Indx, 3)
+
+        Call subsweep_cross_swap_gpu(Offset, nswap_att, nswap_acc)
+     End Do
+
+End Subroutine MCswap_Checkerboard

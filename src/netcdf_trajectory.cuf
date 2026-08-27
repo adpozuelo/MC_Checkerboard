@@ -137,7 +137,7 @@ Contains
       ierr = nf90_put_att(ncid, NF90_GLOBAL, 'Conventions', 'AMBER')
       ierr = nf90_put_att(ncid, NF90_GLOBAL, 'ConventionVersion', '1.0')
       ierr = nf90_put_att(ncid, NF90_GLOBAL, 'program', 'MC_CB-GPU')
-      ierr = nf90_put_att(ncid, NF90_GLOBAL, 'programVersion', 'V2.4.0')
+      ierr = nf90_put_att(ncid, NF90_GLOBAL, 'programVersion', 'V2.5.0')
 
       ! End define mode
       ierr = nf90_enddef(ncid)
@@ -178,7 +178,7 @@ Contains
 ! ==============================================================================
 
    Subroutine netcdf_write_frame(istep, natoms, r, q, itype_arr, h, beta, &
-      energies)
+      energies, P_virial)
 
       Use configuration, Only: Ndim
 
@@ -187,9 +187,10 @@ Contains
       Real(wp), Intent(in) :: r(0:), q(0:), h(0:8), beta
       Integer, Intent(in) :: itype_arr(0:)
       Real(wp), Intent(in), Optional :: energies(0:)
+      Real(wp), Intent(in), Optional :: P_virial
 
       Integer :: ierr, i, Indx, Indxi
-      Real(wp) :: time_value, temp
+      Real(wp) :: time_value, temp, Vol, P_val
       Real(wp) :: cell_origin(3), cell_lengths(3), cell_angles(3)
       Integer, Allocatable :: atom_ids(:), atom_types(:)
       Real(wp), Allocatable :: coords(:,:), vels(:,:), ener(:), stress(:,:)
@@ -235,8 +236,19 @@ Contains
          ener(:) = 0.0_wp
       EndIf
 
-      ! Fill stress (zeros - not available in current code)
+      ! Fill stress (convert virial pressure to per-atom stress tensor components so trj_analysis can process it)
       stress(:,:) = 0.0_wp
+      If (Present(P_virial)) Then
+         Vol = h(0)*(h(4)*h(8)-h(5)*h(7)) - h(3)*(h(1)*h(8)-h(2)*h(7)) + h(6)*(h(1)*h(5)-h(2)*h(4))
+         If (natoms > 0) Then
+            P_val = - Vol * P_virial / dble(natoms)
+            Do i = 1, natoms
+               stress(1, i) = P_val
+               stress(2, i) = P_val
+               stress(3, i) = P_val
+            End Do
+         End If
+      End If
 
       ! Calculate time
       time_value = real(istep, wp)

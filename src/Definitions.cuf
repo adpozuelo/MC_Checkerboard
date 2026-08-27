@@ -105,7 +105,12 @@ MODULE rundata
    Real(wp) :: energy_border_ratio = 0.5_wp            ! Energy ratio relative to bulk/inner cluster atoms for border detection
    Logical  :: use_energy_ratio = .false.              ! Use relative energy ratio instead of absolute threshold
    Integer  :: avbmc_k_trials = 10                     ! Number of CBMC Rosenbluth trial positions (K) in bulk for AVBMC moves
-   Integer  :: avbmc_max_trials = 50                    ! Maximum AVBMC pair trials per step to cap execution time
+   Integer  :: avbmc_max_trials = 50                   ! Maximum AVBMC pair trials per step to cap execution time
+   ! Identity Swap Moves for Binary Hard-Sphere Mixtures (A <-> B)
+   Logical  :: swap_moves = .false.                    ! Flag for enabling GPU checkerboard identity swap moves (binary HS only)
+   Integer  :: Nswap = 1                               ! Number of swap sub-passes per MC cycle (each sub-pass: 8 intra + 4 cross sets)
+   Integer  :: nswap_att = 0, nswap_acc = 0            ! Identity swap window counters (reset every Nsave steps)
+   Integer(kind=8) :: nswap_att_tot = 0, nswap_acc_tot = 0 ! Total cumulative production identity swap counters
 
 END MODULE rundata
 
@@ -197,7 +202,8 @@ MODULE properties
    Real (wp) :: rho, vol                       ! Total energy, density, and volume
    Real (wp) :: rho_av                          ! Averaged energy and density
    Real (wp) :: lx_av, ly_av, lz_av                    ! Averaged box dimensions
-
+   Real (wp) :: P_virial_av = 0.0_wp            ! Averaged virial pressure
+   Integer   :: nav_count = 0                  ! Count of accumulated samples
 END MODULE properties
 
 

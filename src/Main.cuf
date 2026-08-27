@@ -45,15 +45,15 @@ Program MC_CB_GPU
    Use mpi
 
    Implicit None
-   Integer :: i, j, ll, Iend, Ieq, vec_shift(6,0:ndim-1), vec(0:ndim-1)
+   Integer :: i, j, ll, Iend, Ieq, vec_shift(6,0:ndim-1), vec(0:ndim-1), k_swap
    Integer :: ierr
    Integer :: ngpus,gpuid,Njumps, Nsteps_DeltaT, Natoms_aux, lammps_devNum
    Integer :: total_sites
-   Character(len=256) :: hdr_title, hdr_sep
-   Integer :: len_hdr, k
+   Character(len=256) :: hdr_title, hdr_sep, banner_txt
+   Integer :: len_hdr, k, pad_len
 
    Real(wp) :: rnd, disp(0:ndim-1), start, finish, omaxo, hmaxo, prob_vol, vmaxo(0:ndim-1)
-   Real(wp) :: rnd_vec(ndim), prob_trans, prob_rot, boxmin, W_RU_min
+   Real(wp) :: rnd_vec(ndim), prob_trans, prob_rot, prob_swap, boxmin, W_RU_min
    Real(wp) :: total_gpu_time
    Real(wp) :: P_HS
    Real(dkind) :: En_tot_old
@@ -121,7 +121,7 @@ Program MC_CB_GPU
 
    write(*,'(A)') c_blue // '========================================================================================' // c_reset
    write(*,'(A)') c_cyan // '                          HYBRID MC_CB-GPU/LAMMPS SIMULATION ENGINE                            ' // c_reset
-   write(*,'(A)') c_cyan // '                                   Version 2.4                                        ' // c_reset
+   write(*,'(A)') c_cyan // '                                   Version 2.5                                        ' // c_reset
    write(*,'(A)') c_blue // '========================================================================================' // c_reset
    write(*,'(A,I4,A,I2.2,A,I2.2,A,I2.2,A,I2.2,A,I2.2,A)') c_green // ' >>> Run started on: ', &
       dt_values(1), '-', dt_values(2), '-', dt_values(3), ' at ', &
@@ -173,16 +173,20 @@ Program MC_CB_GPU
    ! --------------------------------------------------------------------------
    If (Ecpu_check) Then
       call cpu_time(start)
-      write(*,'(A)') c_yellow // ' >>> Evaluating initial CPU energy for verification...' // c_reset
+      If (pot_int /= -1) Then
+         write(*,'(A)') c_yellow // ' >>> Evaluating initial CPU energy for verification...' // c_reset
+      Else
+         write(*,'(A)') c_yellow // ' >>> Checking initial CPU configuration for overlaps...' // c_reset
+      EndIf
       Call system_energy(overlap)
       call cpu_time(finish)
-      write(*,'(A,e13.6,A)') '     Time initial energy = ', finish-start, ' seconds.'
+      If (pot_int /= -1) write(*,'(A,e13.6,A)') '     Time initial energy = ', finish-start, ' seconds.'
 
       If (overlap) Then
          write(*,'(A)') c_red // ' [ERROR] Overlap detected in initial configuration!' // c_reset
          stop
       EndIf
-      Call print_ener
+      If (pot_int /= -1) Call print_ener
    endif
    ! --------------------------------------------------------------------------
    ! Initialize checkerboard cell decomposition & GPU Energy
@@ -192,14 +196,20 @@ Program MC_CB_GPU
    NCell_max=Ntot_Cell*10
 
    call cpu_time(start)
-   write(*,'(A)') c_yellow // ' >>> Evaluating initial GPU checkerboard energy...' // c_reset
+   If (pot_int /= -1) Then
+      write(*,'(A)') c_yellow // ' >>> Evaluating initial GPU checkerboard energy...' // c_reset
+   Else
+      write(*,'(A)') c_yellow // ' >>> Checking initial GPU configuration for overlaps...' // c_reset
+   EndIf
    En_tot = 0
    Call CB_system_energy_gpu(init)
    call cpu_time(finish)
 
-   write(*,'(A,f18.8)') c_green // '     Initial GPU energy = ' // c_reset, En_tot
-   write(*,'(A,e13.6,A)') '     Time initial GPU energy = ', finish-start, ' seconds.'
-   write(*,*)
+   If (pot_int /= -1) Then
+      write(*,'(A,f18.8)') c_green // '     Initial GPU energy = ' // c_reset, En_tot
+      write(*,'(A,e13.6,A)') '     Time initial GPU energy = ', finish-start, ' seconds.'
+      write(*,*)
+   EndIf
 
    If (overlap) Then
       write(*,'(A)') c_red // ' [ERROR] Overlap in initial configuration!' // c_reset
@@ -254,39 +264,52 @@ Program MC_CB_GPU
    ! --------------------------------------------------------------------------
    ! MAIN MONTE CARLO LOOP
    ! --------------------------------------------------------------------------
-   write(*,'(A)') c_cyan // '                                               MAIN MONTE CARLO LOOP STARTED                                                     ' // c_reset
-   
    ! Formatted headers for NpT vs NVT with optional cluster analysis and AVBMC columns
    hdr_title = ''
    If (NpT) Then
-      If (pot_int < 1) Then
-         hdr_title = '      Step          En_tot/N    En_tot/Ns    P_Trans N_Trans/step    move/part      P_Vol       vmax       N_Cell'
+      If (pot_int == -1) Then
+         hdr_title = '     Step   P\sigma^3/kT       Density    P_Trans  N_Trans/step   move/part     P_Vol       vmax       N_Cell  '
+      ElseIf (pot_int < 1) Then
+         hdr_title = '     Step      En_tot/N     En_tot/Ns       Density    P_Trans  N_Trans/step   move/part     P_Vol       vmax       N_Cell  '
       Else
-         hdr_title = '      Step          En_tot/N    En_tot/Ns    P_Trans      P_Rot N_Trans/step    move/part      P_Vol       vmax       N_Cell'
+         hdr_title = '     Step      En_tot/N     En_tot/Ns       Density    P_Trans    P_Rot   N_Trans/step   move/part     P_Vol       vmax       N_Cell  '
       EndIf
    Else
-      If (pot_int < 1) Then
-         hdr_title = '      Step          En_tot/N    En_tot/Ns    P_Trans N_Trans/step    move/part       N_Cell'
+      If (pot_int == -1) Then
+         hdr_title = '     Step   P\sigma^3/kT    P_Trans  N_Trans/step   move/part       N_Cell  '
+      ElseIf (pot_int < 1) Then
+         hdr_title = '     Step      En_tot/N     En_tot/Ns    P_Trans  N_Trans/step   move/part       N_Cell  '
       Else
-         hdr_title = '      Step          En_tot/N    En_tot/Ns    P_Trans      P_Rot N_Trans/step    move/part       N_Cell'
+         hdr_title = '     Step      En_tot/N     En_tot/Ns    P_Trans    P_Rot   N_Trans/step   move/part       N_Cell  '
       EndIf
    EndIf
 
    If (ncluster > 0) Then
-      hdr_title = trim(hdr_title) // '  N_Clust   Max_Cl  %Clust'
+      hdr_title = trim(hdr_title) // ' N_Clust   Max_Cl  %Clust '
    EndIf
 
    If (avbmc) Then
-      hdr_title = trim(hdr_title) // '   P_AV_in  P_AV_out'
+      hdr_title = trim(hdr_title) // ' P_AV_in   P_AV_out '
    EndIf
 
-   hdr_title = trim(hdr_title) // '     CPU(s)     GPU(s)'
+   If (swap_moves) Then
+      hdr_title = trim(hdr_title) // '   P_Swap '
+   EndIf
+
+   hdr_title = trim(hdr_title) // '  CPU(s)      GPU(s)  '
+
    len_hdr = len_trim(hdr_title)
    hdr_sep = ''
    Do k = 1, len_hdr
       hdr_sep(k:k) = '-'
    End Do
 
+   banner_txt = 'MAIN MONTE CARLO LOOP STARTED'
+   pad_len = max(0, (len_hdr - len_trim(banner_txt)) / 2)
+
+   write(*,*)
+   write(*,'(A)') c_blue // hdr_sep(1:len_hdr) // c_reset
+   write(*,'(A)') c_cyan // repeat(' ', pad_len) // trim(banner_txt) // c_reset
    write(*,'(A)') c_blue // hdr_sep(1:len_hdr) // c_reset
    write(*,'(A)') c_yellow // trim(hdr_title) // c_reset
    write(*,'(A)') c_blue // hdr_sep(1:len_hdr) // c_reset
@@ -321,6 +344,14 @@ Program MC_CB_GPU
          vec(:)  = vec_shift ( int(rnd*size(vec_shift,1))+1, :)
          Call Shift_Cells(vec,disp)
 
+         ! Perform Identity Swap moves on GPU if enabled (binary HS mixtures only)
+         If (swap_moves .and. Npart_types == 2 .and. pot_int == -1) Then
+            Do k_swap = 1, Nswap
+               Call MCswap_Checkerboard()
+            End Do
+            istat = cudaDeviceSynchronize()
+         End If
+
          ! Volume move for NpT ensemble
          If(NpT) then
             Call Volume_move
@@ -330,7 +361,7 @@ Program MC_CB_GPU
 
       ! Accumulate averages and adjust parameters
       If (mod(i,Nsave)==0) Then
-         Call Accumulate_averages(i)
+         If (pot_int /= -1) Call Accumulate_averages(i)
          if (pot_int < 1) then
             Ntrans=no_mc_real*Nmove
          else
@@ -351,6 +382,17 @@ Program MC_CB_GPU
             prob_vol=dble(nvol_accept)/dble(nvol)
          else
             prob_vol=0.0d0
+         endif
+         if (swap_moves) then
+            if (nswap_att > 0) then
+               prob_swap = dble(nswap_acc)/dble(nswap_att)
+            else
+               prob_swap = 0.0d0
+            end if
+            if (i > Ieq) then
+               nswap_att_tot = nswap_att_tot + int(nswap_att, 8)
+               nswap_acc_tot = nswap_acc_tot + int(nswap_acc, 8)
+            end if
          endif
          ! Autoadjust maximum displacement up to 0.4
          If (displ_update) then
@@ -430,40 +472,80 @@ Program MC_CB_GPU
                Call print_avbmc_stats()
             End If
          EndIf
+         ! Compute Virial Pressure for hard-sphere runs
+         If (pot_int == -1) Then
+            Call Convert_CB_RU
+            Call HS_Virial_Pressure(P_HS)
+            Call Accumulate_averages(i, P_HS)
+         EndIf
 
          ! --- Format terminal output based on ensemble and active features ---
          If (NpT) Then
-            If (pot_int < 1) Then
+             If (pot_int == -1) Then
+                If (ncluster > 0 .and. avbmc) Then
+                   write(*,'(i10, f14.6, f14.6, f11.4, i12, f13.6, 2f11.4, i13, 2i9, f8.2, 2f10.4, 2f11.3)') &
+                      i, P_HS, rho, prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, last_avbmc_p_in, last_avbmc_p_out, diff_cpu_time, diff_gpu_time_ms / 1000.0
+                ElseIf (ncluster > 0) Then
+                   write(*,'(i10, f14.6, f14.6, f11.4, i12, f13.6, 2f11.4, i13, 2i9, f8.2, 2f11.3)') &
+                      i, P_HS, rho, prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, diff_cpu_time, diff_gpu_time_ms / 1000.0
+                ElseIf (swap_moves) Then
+                   write(*,'(i10, f14.6, f14.6, f11.4, i12, f13.6, 2f11.4, i13, f9.4, 2f11.3)') &
+                      i, P_HS, rho, prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, prob_swap, diff_cpu_time, diff_gpu_time_ms / 1000.0
+                Else
+                   write(*,'(i10, f14.6, f14.6, f11.4, i12, f13.6, 2f11.4, i13, 2f11.3)') &
+                      i, P_HS, rho, prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+                EndIf
+             ElseIf (pot_int < 1) Then
                If (ncluster > 0 .and. avbmc) Then
-                  write(*,'(i10, f18.8, f13.8, f11.4, i12, f13.6, 2f11.4, i13, 2i9, f8.2, 2f10.4, 2f11.3)') &
-                     i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, last_avbmc_p_in, last_avbmc_p_out, diff_cpu_time, diff_gpu_time_ms / 1000.0
+                  write(*,'(i10, f18.8, f13.8, f14.6, f11.4, i12, f13.6, 2f11.4, i13, 2i9, f8.2, 2f10.4, 2f11.3)') &
+                     i, En_tot/real(natoms), En_tot/real(total_sites), rho, prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, last_avbmc_p_in, last_avbmc_p_out, diff_cpu_time, diff_gpu_time_ms / 1000.0
                ElseIf (ncluster > 0) Then
-                  write(*,'(i10, f18.8, f13.8, f11.4, i12, f13.6, 2f11.4, i13, 2i9, f8.2, 2f11.3)') &
-                     i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, diff_cpu_time, diff_gpu_time_ms / 1000.0
+                  write(*,'(i10, f18.8, f13.8, f14.6, f11.4, i12, f13.6, 2f11.4, i13, 2i9, f8.2, 2f11.3)') &
+                     i, En_tot/real(natoms), En_tot/real(total_sites), rho, prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               ElseIf (swap_moves) Then
+                  write(*,'(i10, f18.8, f13.8, f14.6, f11.4, i12, f13.6, 2f11.4, i13, f9.4, 2f11.3)') &
+                     i, En_tot/real(natoms), En_tot/real(total_sites), rho, prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, prob_swap, diff_cpu_time, diff_gpu_time_ms / 1000.0
                Else
-                  write(*,'(i10, f18.8, f13.8, f11.4, i12, f13.6, 2f11.4, i13, 2f11.3)') &
-                     i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+                  write(*,'(i10, f18.8, f13.8, f14.6, f11.4, i12, f13.6, 2f11.4, i13, 2f11.3)') &
+                     i, En_tot/real(natoms), En_tot/real(total_sites), rho, prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
                EndIf
             Else
                If (ncluster > 0 .and. avbmc) Then
-                  write(*,'(i10, f18.8, f13.8, 2f11.4, i12, f13.6, 2f11.4, i13, 2i9, f8.2, 2f10.4, 2f11.3)') &
-                     i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, prob_rot, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, last_avbmc_p_in, last_avbmc_p_out, diff_cpu_time, diff_gpu_time_ms / 1000.0
+                  write(*,'(i10, f18.8, f13.8, f14.6, 2f11.4, i12, f13.6, 2f11.4, i13, 2i9, f8.2, 2f10.4, 2f11.3)') &
+                     i, En_tot/real(natoms), En_tot/real(total_sites), rho, prob_trans, prob_rot, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, last_avbmc_p_in, last_avbmc_p_out, diff_cpu_time, diff_gpu_time_ms / 1000.0
                ElseIf (ncluster > 0) Then
-                  write(*,'(i10, f18.8, f13.8, 2f11.4, i12, f13.6, 2f11.4, i13, 2i9, f8.2, 2f11.3)') &
-                     i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, prob_rot, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, diff_cpu_time, diff_gpu_time_ms / 1000.0
+                  write(*,'(i10, f18.8, f13.8, f14.6, 2f11.4, i12, f13.6, 2f11.4, i13, 2i9, f8.2, 2f11.3)') &
+                     i, En_tot/real(natoms), En_tot/real(total_sites), rho, prob_trans, prob_rot, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, diff_cpu_time, diff_gpu_time_ms / 1000.0
                Else
-                  write(*,'(i10, f18.8, f13.8, 2f11.4, i12, f13.6, 2f11.4, i13, 2f11.3)') &
-                     i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, prob_rot, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+                  write(*,'(i10, f18.8, f13.8, f14.6, 2f11.4, i12, f13.6, 2f11.4, i13, 2f11.3)') &
+                     i, En_tot/real(natoms), En_tot/real(total_sites), rho, prob_trans, prob_rot, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
                EndIf
             EndIf
          Else
-            If (pot_int < 1) Then
+            If (pot_int == -1) Then
+               If (ncluster > 0 .and. avbmc) Then
+                  write(*,'(i10, f14.6, f11.4, i12, f13.6, i13, 2i9, f8.2, 2f10.4, 2f11.3)') &
+                     i, P_HS, prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, last_avbmc_p_in, last_avbmc_p_out, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               ElseIf (ncluster > 0) Then
+                  write(*,'(i10, f14.6, f11.4, i12, f13.6, i13, 2i9, f8.2, 2f11.3)') &
+                     i, P_HS, prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               ElseIf (swap_moves) Then
+                  write(*,'(i10, f14.6, f11.4, i12, f13.6, i13, f9.4, 2f11.3)') &
+                     i, P_HS, prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), Ntot_Cell, prob_swap, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               Else
+                  write(*,'(i10, f14.6, f11.4, i12, f13.6, i13, 2f11.3)') &
+                     i, P_HS, prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               EndIf
+            ElseIf (pot_int < 1) Then
                If (ncluster > 0 .and. avbmc) Then
                   write(*,'(i10, f18.8, f13.8, f11.4, i12, f13.6, i13, 2i9, f8.2, 2f10.4, 2f11.3)') &
                      i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, last_avbmc_p_in, last_avbmc_p_out, diff_cpu_time, diff_gpu_time_ms / 1000.0
                ElseIf (ncluster > 0) Then
                   write(*,'(i10, f18.8, f13.8, f11.4, i12, f13.6, i13, 2i9, f8.2, 2f11.3)') &
                      i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, diff_cpu_time, diff_gpu_time_ms / 1000.0
+               ElseIf (swap_moves) Then
+                  write(*,'(i10, f18.8, f13.8, f11.4, i12, f13.6, i13, f9.4, 2f11.3)') &
+                     i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), Ntot_Cell, prob_swap, diff_cpu_time, diff_gpu_time_ms / 1000.0
                Else
                   write(*,'(i10, f18.8, f13.8, f11.4, i12, f13.6, i13, 2f11.3)') &
                      i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), Ntot_Cell, diff_cpu_time, diff_gpu_time_ms / 1000.0
@@ -482,16 +564,11 @@ Program MC_CB_GPU
             EndIf
          EndIf
 
-         ! Virial pressure (hard-sphere runs only), reported once production has started
-         If (pot_int == -1 .and. i > Ieq) Then
-            Call Convert_CB_RU
-            Call HS_Virial_Pressure(P_HS)
-            write(*,'(A,i10,A,f14.6)') c_cyan // '            [P_HS] Step ' // c_reset, i, '   Virial pressure = ', P_HS
-         EndIf
-
          no_mc_real=0
          ntrans_ac=0
          nrot_ac=0
+         nswap_att=0
+         nswap_acc=0
          nvol=0
          nvol_accept=0
 
@@ -511,7 +588,12 @@ Program MC_CB_GPU
             Call Write_final_conf2(i)
          EndIf
          If (trim(traj_format) == 'netcdf' .or. trim(traj_format) == 'both') Then
-            Call netcdf_write_frame(i, Natoms, r, q, itype, h, beta, atom_energies_host)
+            If (pot_int == -1) Then
+               Call HS_Virial_Pressure(P_HS)
+               Call netcdf_write_frame(i, Natoms, r, q, itype, h, beta, atom_energies_host, P_HS)
+            Else
+               Call netcdf_write_frame(i, Natoms, r, q, itype, h, beta, atom_energies_host)
+            EndIf
          EndIf
       EndIf
 
@@ -523,19 +605,28 @@ Program MC_CB_GPU
          Call Write_Input_File(i)
          En_tot_old=En_tot
          Call CB_system_energy_gpu(1)
-         write(*,'(A,i10,A,f18.8)') c_green // '     [CHECKPOINT] Saved at step: ' // c_reset, i, ' | En_tot = ', En_tot
+         If (pot_int == -1) Then
+            write(*,'(A,i10)') c_green // '     [CHECKPOINT] Saved at step: ' // c_reset, i
+         Else
+            write(*,'(A,i10,A,f18.8)') c_green // '     [CHECKPOINT] Saved at step: ' // c_reset, i, ' | En_tot = ', En_tot
+         EndIf
       EndIf
 
       ! Reset counters and timers at the end of the equilibration phase to prevent accumulation in printed statistics
       If (i == Ieq) Then
+         banner_txt = '>>> EQUILIBRATION PHASE FINISHED - PRODUCTION PHASE STARTED <<<'
+         pad_len = max(0, (len_hdr - len_trim(banner_txt)) / 2)
+
          write(*,*)
-         write(*,'(A)') c_green // ' =================================================================================================================================' // c_reset
-         write(*,'(A,i10,A)') c_green // ' >>> EQUILIBRATION PHASE FINISHED AT STEP: ', i, ' - PRODUCTION PHASE STARTED <<<' // c_reset
-         write(*,'(A)') c_green // ' =================================================================================================================================' // c_reset
+         write(*,'(A)') c_green // hdr_sep(1:len_hdr) // c_reset
+         write(*,'(A)') c_green // repeat(' ', pad_len) // trim(banner_txt) // c_reset
+         write(*,'(A)') c_green // hdr_sep(1:len_hdr) // c_reset
          write(*,*)
          no_mc_real = 0
          ntrans_ac = 0
          nrot_ac = 0
+         nswap_att = 0
+         nswap_acc = 0
          nvol = 0
          nvol_accept = 0
          Call cpu_time(last_cpu_time)
@@ -547,9 +638,12 @@ Program MC_CB_GPU
    ! --------------------------------------------------------------------------
    ! End of main loop
    ! --------------------------------------------------------------------------
-   write(*,'(A)') c_blue // '=================================================================================================================================' // c_reset
-   write(*,'(A)') c_cyan // '                                               MAIN MONTE CARLO LOOP FINISHED                                                    ' // c_reset
-   write(*,'(A)') c_blue // '=================================================================================================================================' // c_reset
+   banner_txt = 'MAIN MONTE CARLO LOOP FINISHED'
+   pad_len = max(0, (len_hdr - len_trim(banner_txt)) / 2)
+
+   write(*,'(A)') c_blue // hdr_sep(1:len_hdr) // c_reset
+   write(*,'(A)') c_cyan // repeat(' ', pad_len) // trim(banner_txt) // c_reset
+   write(*,'(A)') c_blue // hdr_sep(1:len_hdr) // c_reset
 
    ! --- Compute Global Timers ---
    call cpu_time(finish)
@@ -557,7 +651,12 @@ Program MC_CB_GPU
    istat = cudaEventSynchronize(stopEvent)
    istat = cudaEventElapsedTime(gpu_time_ms, startEvent, stopEvent)
 
-   write(*,'(A,f18.8)') c_green // ' >>> Final energy after MC moves = ' // c_reset, En_tot
+   If (pot_int /= -1) write(*,'(A,f18.8)') c_green // ' >>> Final energy after MC moves = ' // c_reset, En_tot
+   If (swap_moves) Then
+      write(*,'(A,i12,A,i12,A,f8.2,A)') '     Identity Swaps (Production): Attempted = ', nswap_att_tot, &
+                                        ', Accepted = ', nswap_acc_tot, &
+                                        ' (', 100.0_wp * real(nswap_acc_tot, wp)/max(1.0_wp, real(nswap_att_tot, wp)), ' %)'
+   End If
    write(*,'(A,f13.3,A)') '     Total CPU Time spent in main loop = ', finish-start, ' seconds.'
    write(*,'(A,f13.3,A)') '     Total GPU Time spent in main loop = ', total_gpu_time, ' seconds.'
    write(*,*)
@@ -574,7 +673,7 @@ Program MC_CB_GPU
    ! --------------------------------------------------------------------------
    overlap=.false.
    Call CB_system_energy_gpu(2)
-   write(*,'(A,f18.8)') c_yellow // ' >>> Final energy evaluated with GPU = ' // c_reset, En_tot
+   If (pot_int /= -1) write(*,'(A,f18.8)') c_yellow // ' >>> Final energy evaluated with GPU = ' // c_reset, En_tot
 
    Call Convert_CB_RU
    Call Calculate_averages
