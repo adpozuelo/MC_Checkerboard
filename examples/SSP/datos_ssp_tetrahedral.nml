@@ -4,7 +4,7 @@
   Neq = 0,
   Nmove = 20,
   Nsave = 20,
-  Nsave2 = 100,
+  Ndump = 100,
   Nrestart = 200,
   imovie = .true.,
   traj_format = 'netcdf',

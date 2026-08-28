@@ -201,7 +201,7 @@ The namelist filename passed as the first command-line argument to `mc_gpu.exe` 
 - `istep_ini`, `istep_fin` - Initial and final step numbers
 - `Neq` - Equilibration steps
 - `Nmove` - MC moves per sweep per particle
-- `Nsave`, `Nsave2` - Output frequencies
+- `Nsave`, `Ndump` - Output frequencies
 - `Nrestart` - Restart file frequency
 - `data_file` - Path to the initial configuration file in LAMMPS format (default: `data.atoms`)
 - `ncluster` - Perform cluster analysis every `ncluster` steps (default: `0`, which disables clustering)

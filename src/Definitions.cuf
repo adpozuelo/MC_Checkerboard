@@ -77,7 +77,7 @@ MODULE rundata
     Integer :: ntrans, ntrans_ac, nrot, nrot_ac         ! Translation and rotation move counters
    Integer :: no_mc_real                               ! Number of non-empty cells
    Integer :: nvol_accept, iscale, nvol                ! Volume move acceptance and scaling mode
-   Integer :: length, Nmove, Neq, Nsave, Nsave2        ! MC cycle parameters
+   Integer :: length, Nmove, Neq, Nsave, Ndump        ! MC cycle parameters
    Integer :: Nrestart                                 ! Restart file frequency
    Integer(kind=8) :: seed                             ! Random number generator seed
    Integer :: init=0                                   ! Initialization flag

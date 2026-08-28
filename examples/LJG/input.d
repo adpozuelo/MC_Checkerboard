@@ -4,7 +4,7 @@
   Neq = 0,
   Nmove = 20,
   Nsave = 100,
-  Nsave2 = 100,
+  Ndump = 100,
   Nrestart = 100,
   imovie = .true.,
   traj_format = 'both',

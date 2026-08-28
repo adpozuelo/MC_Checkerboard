@@ -21,7 +21,7 @@ Subroutine Write_Input_File(istep)
    Write(21,*) "  Neq = 0,"
    Write(21,*) "  Nmove = ", Nmove, ","
    Write(21,*) "  Nsave = ", Nsave, ","
-   Write(21,*) "  Nsave2 = ", Nsave2, ","
+   Write(21,*) "  Ndump = ", Ndump, ","
    Write(21,*) "  Nrestart = ", Nrestart, ","
    Write(21,*) "  imovie = ", imovie, ","
    Write(21,*) "  traj_format = '", trim(traj_format), "',"
@@ -188,7 +188,7 @@ Subroutine Read_Input_Data
    !   energy_border_ratio: Ratio for energy-based border identification (default 0.5)
    !   avbmc_k_trials: Number of Rosenbluth trial positions (K) in bulk (default 10)
    !   avbmc_max_trials: Cap on maximum AVBMC pair attempts per step (default 50)
-   Namelist /Control_Params/ istep_ini, istep_fin, Neq, Nmove, Nsave, Nsave2, Nrestart, imovie, traj_format, Npart_types, Ecpu_check, data_file, &
+   Namelist /Control_Params/ istep_ini, istep_fin, Neq, Nmove, Nsave, Ndump, Nrestart, imovie, traj_format, Npart_types, Ecpu_check, data_file, &
                               rcl, minPts, asym_threshold, ncluster, cluster_types, Nmc_hmc, Nmd_hmc, tstep_hmc, avbmc, &
                               border_criterion, energy_threshold, energy_border_ratio, use_energy_ratio, avbmc_k_trials, avbmc_max_trials
     ! MC_Params include:

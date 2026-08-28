@@ -578,7 +578,7 @@ Program MC_CB_GPU
       EndIf
 
       ! Write trajectory snapshots
-      If( (i > istep_ini + Neq) .AND. (mod(i,Nsave2)==0) ) Then
+      If( (i > istep_ini + Neq) .AND. (mod(i,Ndump)==0) ) Then
          Call Convert_CB_RU
          Call compute_per_atom_energy_gpu(pot_int, bool_tor, ndim, Nat_cell_max, Ntot_Cell, Npart_types, &
             Nrb_sites_max, Ntor_max, sigma_tor_jon, sigp_factor, Rcp_factor, Rc_factor, Natoms, atom_energies_host)
