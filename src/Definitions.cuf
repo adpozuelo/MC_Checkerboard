@@ -274,3 +274,15 @@ MODULE Cell
    real(wp)                                  :: disp_max(0:ndim-1)              ! Maximum displacement per direction
 
 END MODULE Cell 
+
+! ==============================================================================
+! MODULE: mod_hs_virial_accum
+! DESCRIPTION: Accumulates pair distance histograms and volume over time steps.
+! ==============================================================================
+MODULE mod_hs_virial_accum
+   use set_precision
+   implicit none
+   Integer  :: nsamples_virial = 0
+   Real(wp) :: Vol_accum = 0.0_wp
+   Real(wp), Allocatable :: counts_accum(:,:)
+END MODULE mod_hs_virial_accum

@@ -367,6 +367,12 @@ Program MC_CB_GPU
             Call Volume_move
             nvol=nvol+1
          EndIf
+
+         ! Accumulate Virial pressure histogram for hard-sphere runs
+         If (pot_int == -1 .and. mod(I, max(1, Nsave/10)) == 0) Then
+            Call Convert_CB_RU
+            Call Accumulate_HS_Virial_Histogram()
+         EndIf
       end if
 
       ! Accumulate averages and adjust parameters

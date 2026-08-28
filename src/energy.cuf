@@ -310,57 +310,36 @@ Subroutine ener_HS(i1, i2, en, overlap)
 End Subroutine ener_HS
 
 ! ==============================================================================
-! CPU ROUTINE: HS_Virial_Pressure (pot_int == -1 only)
-! DESCRIPTION: Instantaneous virial pressure of a (possibly non-additive)
-! hard-sphere mixture, from the Lebowitz-Percus multicomponent contact
-! theorem:
-!
-!    P = rho*T + (2*pi/3)*T * Sum_ab rho_a*rho_b*sigma_ab^3*g_ab(sigma_ab+)
-!
-! The contact value g_ab(sigma_ab+) is not accessible analytically, so it is
-! measured from the current configuration: pair separations for each species
-! pair (a,b) are histogrammed into Nbins thin shells starting right at
-! contact (r in [sigma_ab, sigma_ab + Nbins*delta_ab)), giving g_ab(r) at
-! each shell midpoint, and a linear least-squares fit through those shells is
-! extrapolated back to r = sigma_ab. Caller must ensure R(:) holds the
-! current fractional coordinates (e.g. via Convert_CB_RU) before calling.
+! CPU ROUTINE: Accumulate_HS_Virial_Histogram (pot_int == -1 only)
+! DESCRIPTION: Accumulates pair distance counts into near-contact shells and
+! accumulates simulation box volume across MC cycles within the Nsave window.
 ! ==============================================================================
-Subroutine HS_Virial_Pressure(P_HS)
+Subroutine Accumulate_HS_Virial_Histogram()
    Use set_precision
    Use configuration
    Use potential, Only: Npart_types, sigma_LJ
-   Use rundata, Only: Temp
+   Use mod_hs_virial_accum
    Implicit None
-   Real(wp), Intent(Out) :: P_HS
 
    Integer, Parameter :: Nbins = 10
    Real(wp), Parameter :: shell_frac = 0.0025_wp
-   Real(wp), Parameter :: pi = 3.14159265358979_wp
 
-   Integer :: i, j, ti, tj, a, b, pidx, k, npairs_type, valid_bins
+   Integer :: i, j, ti, tj, a, b, pidx, k, npairs_types_tot
    Real(wp) :: DX, DY, DZ, DXP, DYP, DZP, R12
-   Real(wp) :: sigma_ab, delta_ab, rin, rout, rmid, shellvol, Vol, xval, yval
-   Real(wp) :: sumx, sumy, sumxy, sumxx, slope, intercept, denom
-   Real(wp) :: g_contact, sum_term
-   Integer, Allocatable :: Ntype(:)
-   Real(wp), Allocatable :: rho(:), counts(:,:)
+   Real(wp) :: sigma_ab, delta_ab, Vol
 
-   Allocate( Ntype(0:Npart_types-1) )
-   Allocate( rho(0:Npart_types-1) )
-   Allocate( counts(0:Npart_types*(Npart_types+1)/2-1, Nbins) )
-   Ntype = 0
-   counts = 0.0_wp
+   npairs_types_tot = Npart_types*(Npart_types+1)/2
+   If (.not. allocated(counts_accum)) Then
+      Allocate( counts_accum(0:npairs_types_tot-1, Nbins) )
+      counts_accum = 0.0_wp
+      Vol_accum = 0.0_wp
+      nsamples_virial = 0
+   End If
 
-   Do i = 0, Natoms-1
-      Ntype(itype(i)) = Ntype(itype(i)) + 1
-   End Do
-
-   ! Box (parallelepiped) volume from the H matrix, valid for triclinic cells too
+   ! Box volume
    Vol = h(0)*(h(4)*h(8)-h(5)*h(7)) - h(3)*(h(1)*h(8)-h(2)*h(7)) + h(6)*(h(1)*h(5)-h(2)*h(4))
-
-   Do a = 0, Npart_types-1
-      rho(a) = dble(Ntype(a)) / Vol
-   End Do
+   Vol_accum = Vol_accum + Vol
+   nsamples_virial = nsamples_virial + 1
 
    ! Pairwise near-contact shell histogram (10 fine bins of width 0.0025*sigma)
    Do i = 0, Natoms-2
@@ -383,12 +362,59 @@ Subroutine HS_Virial_Pressure(P_HS)
 
          If (R12 >= sigma_ab .and. R12 < sigma_ab + Nbins*delta_ab) Then
             k = int( (R12 - sigma_ab)/delta_ab ) + 1
-            If (k >= 1 .and. k <= Nbins) counts(pidx,k) = counts(pidx,k) + 1.0_wp
+            If (k >= 1 .and. k <= Nbins) counts_accum(pidx,k) = counts_accum(pidx,k) + 1.0_wp
          End If
       End Do
    End Do
+End Subroutine Accumulate_HS_Virial_Histogram
 
-   ! Multicomponent virial sum: rho*T + (2*pi/3)*T * Sum_ab rho_a*rho_b*sigma_ab^3*g_ab(sigma_ab+)
+! ==============================================================================
+! CPU ROUTINE: HS_Virial_Pressure (pot_int == -1 only)
+! DESCRIPTION: Computes time-averaged virial pressure from accumulated near-contact
+! pair histograms and box volume over the Nsave window.
+! ==============================================================================
+Subroutine HS_Virial_Pressure(P_HS)
+   Use set_precision
+   Use configuration
+   Use potential, Only: Npart_types, sigma_LJ
+   Use rundata, Only: Temp
+   Use mod_hs_virial_accum
+   Implicit None
+   Real(wp), Intent(Out) :: P_HS
+
+   Integer, Parameter :: Nbins = 10
+   Real(wp), Parameter :: shell_frac = 0.0025_wp
+   Real(wp), Parameter :: pi = 3.14159265358979_wp
+
+   Integer :: i, ti, tj, a, b, pidx, k, npairs_type, valid_bins
+   Real(wp) :: sigma_ab, delta_ab, rin, rout, rmid, shellvol, Vol, xval, yval
+   Real(wp) :: sumx, sumy, sumxy, sumxx, slope, intercept, denom
+   Real(wp) :: g_contact, sum_term
+   Integer, Allocatable :: Ntype(:)
+   Real(wp), Allocatable :: rho(:), counts(:,:)
+
+   If (nsamples_virial == 0) Then
+      Call Accumulate_HS_Virial_Histogram()
+   End If
+
+   Vol = Vol_accum / dble(nsamples_virial)
+
+   Allocate( Ntype(0:Npart_types-1) )
+   Allocate( rho(0:Npart_types-1) )
+   Allocate( counts(0:Npart_types*(Npart_types+1)/2-1, Nbins) )
+   Ntype = 0
+
+   counts = counts_accum / dble(nsamples_virial)
+
+   Do i = 0, Natoms-1
+      Ntype(itype(i)) = Ntype(itype(i)) + 1
+   End Do
+
+   Do a = 0, Npart_types-1
+      rho(a) = dble(Ntype(a)) / Vol
+   End Do
+
+   ! Multicomponent virial sum using time-averaged counts
    sum_term = 0.0_wp
    Do a = 0, Npart_types-1
       Do b = a, Npart_types-1
@@ -476,4 +502,9 @@ Subroutine HS_Virial_Pressure(P_HS)
    P_HS = (dble(Natoms)/Vol)*Temp + (2.0_wp*pi/3.0_wp)*Temp*sum_term
 
    Deallocate(Ntype, rho, counts)
+
+   ! Reset accumulators for next Nsave window
+   counts_accum = 0.0_wp
+   Vol_accum = 0.0_wp
+   nsamples_virial = 0
 End Subroutine HS_Virial_Pressure

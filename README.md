@@ -220,8 +220,9 @@ The namelist filename passed as the first command-line argument to `mc_gpu.exe` 
 ### Identity Swap Moves (Binary Mixtures)
 - `swap_moves` - Enable GPU-accelerated identity swap moves ($A \leftrightarrow B$) (`.true.` / `.false.`, default: `.false.`).
   > **Note / Consistency Requirement:** Identity swap moves are **exclusively implemented for binary hard-sphere mixtures** (`Npart_types = 2` and `model = 'HS'`). Setting `swap_moves = .true.` with $N_{\text{part\_types}} \ne 2$ or non-HS models will trigger an immediate fatal error and cleanly terminate the simulation during input initialization.
-- `Nswap` - Number of swap sub-passes executed per MC cycle (default: `1`). Each sub-pass performs 8 checkerboard subset intra-cell sweeps and 4 long-range cross-cell sweeps.
+- `Nswap` - Number of swap sub-passes executed per swap step (default: `1`). Each sub-pass performs 8 checkerboard subset intra-cell sweeps and 4 long-range cross-cell sweeps.
 - `Nswapf` - Frequency (in MC sweeps) of identity swap moves (default: `1`, i.e., swap moves attempted every sweep when `swap_moves = .true.`).
+- **Adaptive Swap Throttling**: When active, the main simulation controller monitors the rolling swap acceptance rate ($P_{\text{swap}}$). If $P_{\text{swap}}$ drops below $0.00005$ due to high-density compositional jamming, `Nswapf` is automatically throttled to `100` sweeps (saving GPU compute time) and automatically restored to `1` if $P_{\text{swap}}$ recovers.
 
 ### Thermodynamic Parameters
 - `temp0`, `temp1` - Initial and final temperatures (Kelvin)
@@ -237,17 +238,6 @@ The namelist filename passed as the first command-line argument to `mc_gpu.exe` 
 
 ### Potential Model
 - **HS (Hard Sphere)**: Isotropic, athermal potential for hard-sphere fluids and **mixtures (not necessarily additive)**. Only the pair diameters `sigma_ij` are read (a full `Npart_types x Npart_types` matrix); there is **no epsilon matrix and temperature is not required** as input. Two particles overlap (forbidden configuration) when their center-center distance is below `sigma_ij`, otherwise the energy is zero. The Metropolis test reduces to a pure overlap test (a translation is accepted iff it creates no overlap). Because the mixture may be non-additive, `sigma_ij` can differ from `(sigma_ii + sigma_jj)/2` and is taken verbatim from the matrix. The contact distance `sigma_ij` also sets the checkerboard cell size, so no `rangepp` is needed.
-- **LJ (Lennard-Jones)**: Isotropic potential for simple systems/mixtures (without patches).
-- **LJG (Lennard-Jones-Gauss)**: Anisotropic potential with Kern-Frenkel type angular (and optional torsional) patch-patch modulations.
-  - `sigma_jon_aux` - Angular interaction width
-  - `sigma_tor_jon` - Torsional interaction width
-  - `rangepp` - Interaction cutoff
-  - `xop` - Radial distance where the angular modulation switch activates
-- **SSP (Site-Site Patchy / Palaia Potential)**: Uses Weeks-Chandler-Andersen (WCA) core + attractive cosine-squared tail [2].
-  - `sigp_factor` - Patch radius scaling factor (default: `0.1`)
-  - `Rcp_factor` - Patch cutoff scaling factor (default: `0.3`)
-  - `Rc_factor` - Core tail cutoff scaling factor (default: `2.0`)
-  - `epsp_factor` - Core attractive tail depth $\epsilon_{\text{tail}}$ (overrides default core tail depth)
 
 #### Mathematical Formulation of HS
 For the center-center distance $r$ between particles of types $i$ and $j$ with pair diameter $\sigma_{ij}$:
@@ -256,15 +246,15 @@ The potential is athermal, so the temperature never enters the Metropolis accept
 
 > **NpT note:** In the NpT ensemble the acceptance rule is $\exp[-\beta P\,\Delta V + N\ln(V'/V)]$. Since HS is athermal the code fixes $\beta = 1$, so the input `pres` is interpreted as the **reduced pressure** $P^* = P/k_BT$ (equivalently $\beta P$).
 
-#### Virial Pressure (HS only)
+#### Virial Pressure & Time-Accumulated Contact Extrapolation (HS only)
 
 Because hard-sphere forces are impulsive, there is no smooth pairwise virial to sum as for LJ. Instead the code uses the exact Lebowitz-Percus contact theorem for a multicomponent hard-sphere mixture:
 $$P = \rho T + \frac{2\pi}{3} T \sum_{a,b} \rho_a \rho_b\, \sigma_{ab}^3\, g_{ab}(\sigma_{ab}^+)$$
 where $\rho_a = N_a/V$ is the partial number density of species $a$ and $g_{ab}(\sigma_{ab}^+)$ is the contact value of the pair correlation function for species pair $(a,b)$.
 
-Since $g_{ab}(\sigma_{ab}^+)$ has no analytic form, it is measured directly from the current configuration (`HS_Virial_Pressure` in `energy.cuf`): pair separations for each species pair are histogrammed into a few thin shells starting right at contact ($r \in [\sigma_{ab},\, \sigma_{ab} + N_{\text{bins}}\,\delta_{ab})$, with $\delta_{ab} = 0.01\,\sigma_{ab}$ and $N_{\text{bins}} = 5$), giving $g_{ab}(r)$ at each shell midpoint, and a linear least-squares fit through those shells is extrapolated back to $r = \sigma_{ab}$.
-
-This is a single-configuration (instantaneous, not time-averaged) estimate, evaluated at the same cadence as the periodic progress table (`Nsave`) but only once the equilibration phase has finished, and only for HS runs (`pot_int == -1`). Being an $O(N^2)$ pairwise measurement, it adds a comparable amount of CPU time to each `Nsave` interval during production.
+To achieve maximum precision even at high packing densities near the equation of state divergence, the Virial calculation combines two advanced schemes:
+1. **Fine Shell Resolution & Log-Linear Contact Fit**: Pair separations are histogrammed into 10 fine shells of width $\delta_{ab} = 0.0025\,\sigma_{ab}$ right at contact ($r \in [\sigma_{ab},\, 1.025\,\sigma_{ab})$). The contact value $g_{ab}(\sigma_{ab}^+)$ is obtained via a Log-Linear least-squares fit ($\ln g(r) = a + b(r - \sigma_{ab})$), matching the physical exponential decay of pair correlations near contact.
+2. **Block Time-Accumulation (NpT / NVT Compatible)**: Pair distance counts and box volume are accumulated periodically across all MC cycles within each `Nsave` window (`Accumulate_HS_Virial_Histogram`). The reported $P_{\text{virial}}$ is computed from the window-averaged contact distribution $\langle g_{ab}(\sigma_{ab}^+) \rangle$ and average volume $\langle V \rangle$, reducing statistical counting noise by $\sim 3.16\times$.
 
 #### GPU Checkerboard Identity Swaps (Binary HS Mixtures)
 

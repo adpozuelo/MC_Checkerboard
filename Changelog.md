@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.5.1] - 2026-08-28
+
+### Added
+- **Adaptive Identity Swap Throttling**:
+  - Automatically monitors rolling identity swap acceptance probability ($P_{\text{swap}}$) in `Main.cuf`.
+  - When $P_{\text{swap}} < 0.00005$ due to high-density jamming, `Nswapf` is automatically throttled from 1 to 100 sweeps to avoid wasteful GPU kernel calls, and automatically restored to 1 if $P_{\text{swap}}$ recovers.
+  - Added real-time color-coded terminal notices when throttling activates or restores.
+- **Decoupled Move Frequencies (`Nvolf` and `Nswapf`)**:
+  - Added `Nvolf` (NpT volume move frequency) and `Nswapf` (identity swap frequency) parameters to `&MC_Params` in `Read_input_data_nml.cuf` for decoupled sampling.
+- **High-Accuracy Virial Pressure Calculation (Method A + Method B)**:
+  - **Fine-Grain Log-Linear Contact Fit (Method A)**: Upgraded near-contact pair histogram in `src/energy.cuf` from 5 coarse $0.01\sigma$ shells to **10 fine shells of width $0.0025\sigma$** ($1.0000\sigma \to 1.0250\sigma$). Extrapolates contact correlation $g(\sigma_{ab}^+)$ via Log-Linear fitting ($\ln g(r) = a + b(r - \sigma_{ab})$) to match exponential near-contact peak in dense hard-sphere systems.
+  - **Block Time-Accumulation (Method B)**: Added `mod_hs_virial_accum` module (`src/Definitions.cuf`) and `Accumulate_HS_Virial_Histogram` (`src/energy.cuf`), which periodically collects pair distance histograms across each `Nsave` window. Computes window-averaged $\langle g_{ab}(\sigma^+)\rangle$ and average box volume $\langle V \rangle$, reducing statistical noise by $\sim 3.16\times$ in NpT and NVT ensembles.
+
+### Changed & Formatted
+- **Terminal Progress Table Formatting**:
+  - Aligned all header titles with exact field widths across active simulation feature sets.
+  - Increased `P_swap` precision in progress tables to 5 decimal places (`f10.5`).
+
+---
+
 ## [2.5.0] - 2026-08-27
 
 ### Added
