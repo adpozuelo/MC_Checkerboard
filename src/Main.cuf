@@ -268,35 +268,35 @@ Program MC_CB_GPU
    hdr_title = ''
    If (NpT) Then
       If (pot_int == -1) Then
-         hdr_title = '     Step   P σ³/kT       Density    P_Trans  N_Trans/step   move/part     P_Vol       vmax       N_Cell  '
+         hdr_title = '      Step   P σ³/kT          Density    P_TransN_Trans/step    move/part      P_Vol       vmax       N_Cell'
       ElseIf (pot_int < 1) Then
-         hdr_title = '     Step      En_tot/N     En_tot/Ns       Density    P_Trans  N_Trans/step   move/part     P_Vol       vmax       N_Cell  '
+         hdr_title = '      Step          En_tot/N    En_tot/Ns       Density    P_TransN_Trans/step    move/part      P_Vol       vmax       N_Cell'
       Else
-         hdr_title = '     Step      En_tot/N     En_tot/Ns       Density    P_Trans    P_Rot   N_Trans/step   move/part     P_Vol       vmax       N_Cell  '
+         hdr_title = '      Step          En_tot/N    En_tot/Ns       Density    P_Trans      P_RotN_Trans/step    move/part      P_Vol       vmax       N_Cell'
       EndIf
    Else
       If (pot_int == -1) Then
-         hdr_title = '     Step   Pσ³/kT    P_Trans  N_Trans/step   move/part       N_Cell  '
+         hdr_title = '      Step   P σ³/kT        P_TransN_Trans/step    move/part       N_Cell'
       ElseIf (pot_int < 1) Then
-         hdr_title = '     Step      En_tot/N     En_tot/Ns    P_Trans  N_Trans/step   move/part       N_Cell  '
+         hdr_title = '      Step          En_tot/N    En_tot/Ns    P_TransN_Trans/step    move/part       N_Cell'
       Else
-         hdr_title = '     Step      En_tot/N     En_tot/Ns    P_Trans    P_Rot   N_Trans/step   move/part       N_Cell  '
+         hdr_title = '      Step          En_tot/N    En_tot/Ns    P_Trans      P_RotN_Trans/step    move/part       N_Cell'
       EndIf
    EndIf
 
    If (ncluster > 0) Then
-      hdr_title = trim(hdr_title) // ' N_Clust   Max_Cl  %Clust '
+      hdr_title = trim(hdr_title) // '  N_Clust   Max_Cl  %Clust'
    EndIf
 
    If (avbmc) Then
-      hdr_title = trim(hdr_title) // ' P_AV_in   P_AV_out '
+      hdr_title = trim(hdr_title) // '   P_AV_in  P_AV_out'
    EndIf
 
    If (swap_moves) Then
-      hdr_title = trim(hdr_title) // '   P_Swap '
+      hdr_title = trim(hdr_title) // '    P_Swap'
    EndIf
 
-   hdr_title = trim(hdr_title) // '  CPU(s)      GPU(s)  '
+   hdr_title = trim(hdr_title) // '     CPU(s)     GPU(s)'
 
    len_hdr = len_trim(hdr_title)
    hdr_sep = ''
@@ -515,7 +515,7 @@ Program MC_CB_GPU
                    write(*,'(i10, f14.6, f14.6, f11.4, i12, f13.6, 2f11.4, i13, 2i9, f8.2, 2f11.3)') &
                       i, P_HS, rho, prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, diff_cpu_time, diff_gpu_time_ms / 1000.0
                 ElseIf (swap_moves) Then
-                   write(*,'(i10, f14.6, f14.6, f11.4, i12, f13.6, 2f11.4, i13, f9.4, 2f11.3)') &
+                   write(*,'(i10, f14.6, f14.6, f11.4, i12, f13.6, 2f11.4, i13, f10.5, 2f11.3)') &
                       i, P_HS, rho, prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, prob_swap, diff_cpu_time, diff_gpu_time_ms / 1000.0
                 Else
                    write(*,'(i10, f14.6, f14.6, f11.4, i12, f13.6, 2f11.4, i13, 2f11.3)') &
@@ -529,7 +529,7 @@ Program MC_CB_GPU
                   write(*,'(i10, f18.8, f13.8, f14.6, f11.4, i12, f13.6, 2f11.4, i13, 2i9, f8.2, 2f11.3)') &
                      i, En_tot/real(natoms), En_tot/real(total_sites), rho, prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, diff_cpu_time, diff_gpu_time_ms / 1000.0
                ElseIf (swap_moves) Then
-                  write(*,'(i10, f18.8, f13.8, f14.6, f11.4, i12, f13.6, 2f11.4, i13, f9.4, 2f11.3)') &
+                  write(*,'(i10, f18.8, f13.8, f14.6, f11.4, i12, f13.6, 2f11.4, i13, f10.5, 2f11.3)') &
                      i, En_tot/real(natoms), En_tot/real(total_sites), rho, prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), prob_vol, vmax(0), Ntot_Cell, prob_swap, diff_cpu_time, diff_gpu_time_ms / 1000.0
                Else
                   write(*,'(i10, f18.8, f13.8, f14.6, f11.4, i12, f13.6, 2f11.4, i13, 2f11.3)') &
@@ -556,7 +556,7 @@ Program MC_CB_GPU
                   write(*,'(i10, f14.6, f11.4, i12, f13.6, i13, 2i9, f8.2, 2f11.3)') &
                      i, P_HS, prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, diff_cpu_time, diff_gpu_time_ms / 1000.0
                ElseIf (swap_moves) Then
-                  write(*,'(i10, f14.6, f11.4, i12, f13.6, i13, f9.4, 2f11.3)') &
+                  write(*,'(i10, f14.6, f11.4, i12, f13.6, i13, f10.5, 2f11.3)') &
                      i, P_HS, prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), Ntot_Cell, prob_swap, diff_cpu_time, diff_gpu_time_ms / 1000.0
                Else
                   write(*,'(i10, f14.6, f11.4, i12, f13.6, i13, 2f11.3)') &
@@ -570,7 +570,7 @@ Program MC_CB_GPU
                   write(*,'(i10, f18.8, f13.8, f11.4, i12, f13.6, i13, 2i9, f8.2, 2f11.3)') &
                      i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), Ntot_Cell, last_nclusters, last_max_size, last_pct_clustered, diff_cpu_time, diff_gpu_time_ms / 1000.0
                ElseIf (swap_moves) Then
-                  write(*,'(i10, f18.8, f13.8, f11.4, i12, f13.6, i13, f9.4, 2f11.3)') &
+                  write(*,'(i10, f18.8, f13.8, f11.4, i12, f13.6, i13, f10.5, 2f11.3)') &
                      i, En_tot/real(natoms), En_tot/real(total_sites), prob_trans, ntrans/nsave, real(ntrans)/real(nsave*natoms), Ntot_Cell, prob_swap, diff_cpu_time, diff_gpu_time_ms / 1000.0
                Else
                   write(*,'(i10, f18.8, f13.8, f11.4, i12, f13.6, i13, 2f11.3)') &

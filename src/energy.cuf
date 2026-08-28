@@ -333,13 +333,13 @@ Subroutine HS_Virial_Pressure(P_HS)
    Implicit None
    Real(wp), Intent(Out) :: P_HS
 
-   Integer, Parameter :: Nbins = 5
-   Real(wp), Parameter :: shell_frac = 0.01_wp
+   Integer, Parameter :: Nbins = 10
+   Real(wp), Parameter :: shell_frac = 0.0025_wp
    Real(wp), Parameter :: pi = 3.14159265358979_wp
 
-   Integer :: i, j, ti, tj, a, b, pidx, k, npairs_type
+   Integer :: i, j, ti, tj, a, b, pidx, k, npairs_type, valid_bins
    Real(wp) :: DX, DY, DZ, DXP, DYP, DZP, R12
-   Real(wp) :: sigma_ab, delta_ab, rin, rout, rmid, shellvol, Vol
+   Real(wp) :: sigma_ab, delta_ab, rin, rout, rmid, shellvol, Vol, xval, yval
    Real(wp) :: sumx, sumy, sumxy, sumxx, slope, intercept, denom
    Real(wp) :: g_contact, sum_term
    Integer, Allocatable :: Ntype(:)
@@ -362,7 +362,7 @@ Subroutine HS_Virial_Pressure(P_HS)
       rho(a) = dble(Ntype(a)) / Vol
    End Do
 
-   ! Pairwise near-contact shell histogram, one bin set per unordered type pair (a<=b)
+   ! Pairwise near-contact shell histogram (10 fine bins of width 0.0025*sigma)
    Do i = 0, Natoms-2
       ti = itype(i)
       Do j = i+1, Natoms-1
@@ -381,7 +381,7 @@ Subroutine HS_Virial_Pressure(P_HS)
          DZP = H(6)*DX + H(7)*DY + H(8)*DZ
          R12 = SQRT(DXP*DXP + DYP*DYP + DZP*DZP)
 
-         If (R12 < sigma_ab + Nbins*delta_ab) Then
+         If (R12 >= sigma_ab .and. R12 < sigma_ab + Nbins*delta_ab) Then
             k = int( (R12 - sigma_ab)/delta_ab ) + 1
             If (k >= 1 .and. k <= Nbins) counts(pidx,k) = counts(pidx,k) + 1.0_wp
          End If
@@ -402,8 +402,9 @@ Subroutine HS_Virial_Pressure(P_HS)
             npairs_type = Ntype(a)*Ntype(b)
          End If
 
-         ! Linear least-squares fit of g_ab(r) over the Nbins shells, extrapolated to r = sigma_ab
+         ! Try Log-Linear fit (ln(g) vs r - sigma) for exponential contact peak; fallback to linear fit
          sumx = 0.0_wp; sumy = 0.0_wp; sumxy = 0.0_wp; sumxx = 0.0_wp
+         valid_bins = 0
          Do k = 1, Nbins
             rin  = sigma_ab + dble(k-1)*delta_ab
             rout = sigma_ab + dble(k)*delta_ab
@@ -414,20 +415,54 @@ Subroutine HS_Virial_Pressure(P_HS)
             Else
                g_contact = 0.0_wp
             End If
-            sumx  = sumx  + rmid
-            sumy  = sumy  + g_contact
-            sumxy = sumxy + rmid*g_contact
-            sumxx = sumxx + rmid*rmid
+
+            If (g_contact > 1.0e-8_wp) Then
+               xval = rmid - sigma_ab
+               yval = log(g_contact)
+               sumx  = sumx  + xval
+               sumy  = sumy  + yval
+               sumxy = sumxy + xval*yval
+               sumxx = sumxx + xval*xval
+               valid_bins = valid_bins + 1
+            End If
          End Do
-         denom = dble(Nbins)*sumxx - sumx*sumx
-         If (abs(denom) > 1.0e-12_wp) Then
-            slope = (dble(Nbins)*sumxy - sumx*sumy) / denom
-            intercept = (sumy - slope*sumx) / dble(Nbins)
+
+         If (valid_bins >= 3) Then
+            denom = dble(valid_bins)*sumxx - sumx*sumx
+            If (abs(denom) > 1.0e-12_wp) Then
+               intercept = (sumy*sumxx - sumx*sumxy) / denom
+               g_contact = exp(intercept)
+            Else
+               g_contact = exp(sumy / dble(valid_bins))
+            End If
          Else
-            slope = 0.0_wp
-            intercept = sumy/dble(Nbins)
+            ! Standard linear fallback fit (g vs r - sigma)
+            sumx = 0.0_wp; sumy = 0.0_wp; sumxy = 0.0_wp; sumxx = 0.0_wp
+            Do k = 1, Nbins
+               rin  = sigma_ab + dble(k-1)*delta_ab
+               rout = sigma_ab + dble(k)*delta_ab
+               rmid = 0.5_wp*(rin+rout)
+               shellvol = (4.0_wp*pi/3.0_wp)*(rout**3 - rin**3)
+               If (npairs_type > 0) Then
+                  g_contact = counts(pidx,k) / (dble(npairs_type)*shellvol/Vol)
+               Else
+                  g_contact = 0.0_wp
+               End If
+               xval = rmid - sigma_ab
+               sumx  = sumx  + xval
+               sumy  = sumy  + g_contact
+               sumxy = sumxy + xval*g_contact
+               sumxx = sumxx + xval*xval
+            End Do
+            denom = dble(Nbins)*sumxx - sumx*sumx
+            If (abs(denom) > 1.0e-12_wp) Then
+               intercept = (sumy*sumxx - sumx*sumxy) / denom
+               g_contact = intercept
+            Else
+               g_contact = sumy / dble(Nbins)
+            End If
          End If
-         g_contact = intercept + slope*sigma_ab
+
          If (g_contact < 0.0_wp) g_contact = 0.0_wp
 
          If (a == b) Then
