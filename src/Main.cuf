@@ -268,7 +268,7 @@ Program MC_CB_GPU
    hdr_title = ''
    If (NpT) Then
       If (pot_int == -1) Then
-         hdr_title = '     Step   P\sigma^3/kT       Density    P_Trans  N_Trans/step   move/part     P_Vol       vmax       N_Cell  '
+         hdr_title = '     Step   P σ³/kT       Density    P_Trans  N_Trans/step   move/part     P_Vol       vmax       N_Cell  '
       ElseIf (pot_int < 1) Then
          hdr_title = '     Step      En_tot/N     En_tot/Ns       Density    P_Trans  N_Trans/step   move/part     P_Vol       vmax       N_Cell  '
       Else
@@ -276,7 +276,7 @@ Program MC_CB_GPU
       EndIf
    Else
       If (pot_int == -1) Then
-         hdr_title = '     Step   P\sigma^3/kT    P_Trans  N_Trans/step   move/part       N_Cell  '
+         hdr_title = '     Step   Pσ³/kT    P_Trans  N_Trans/step   move/part       N_Cell  '
       ElseIf (pot_int < 1) Then
          hdr_title = '     Step      En_tot/N     En_tot/Ns    P_Trans  N_Trans/step   move/part       N_Cell  '
       Else
@@ -333,6 +333,16 @@ Program MC_CB_GPU
          istat = cudaEventRecord(startEvent, 0)
          last_gpu_time_ms = 0.0
       else
+         ! ====================================================================
+         ! MONTE CARLO SWEEP (PARTICLE MOVES)
+         ! ====================================================================
+         ! MCsweep() performs 1 full Monte Carlo sweep over all 8 checkerboard
+         ! cell sets (Nset_Cell = 8 in 3D), covering 100% of particles in the box.
+         ! For every particle, subsweepgpu executes Nmove trial move attempts:
+         !   - Isotropic models (pot_int < 1): Nmove translation attempts / particle.
+         !   - Patchy models (pot_int >= 1): Nmove/2 translations + Nmove/2 rotations
+         !     = Nmove total trial moves per particle per sweep.
+         ! ====================================================================
          Call MCsweep()
          ! >>> ADD THIS FORCIBLE SYNC <<<
          ! Ensure all GPU writes to Sphere_Cell are done before CPU touches it
@@ -345,7 +355,7 @@ Program MC_CB_GPU
          Call Shift_Cells(vec,disp)
 
          ! Perform Identity Swap moves on GPU if enabled (binary HS mixtures only)
-         If (swap_moves .and. Npart_types == 2 .and. pot_int == -1) Then
+         If (swap_moves .and. Npart_types == 2 .and. pot_int == -1 .and. mod(I, Nswapf) == 0) Then
             Do k_swap = 1, Nswap
                Call MCswap_Checkerboard()
             End Do
@@ -353,7 +363,7 @@ Program MC_CB_GPU
          End If
 
          ! Volume move for NpT ensemble
-         If(NpT) then
+         If(NpT .and. mod(I, Nvolf) == 0) then
             Call Volume_move
             nvol=nvol+1
          EndIf
@@ -389,9 +399,25 @@ Program MC_CB_GPU
             else
                prob_swap = 0.0d0
             end if
-            if (i > Ieq) then
-               nswap_att_tot = nswap_att_tot + int(nswap_att, 8)
-               nswap_acc_tot = nswap_acc_tot + int(nswap_acc, 8)
+            ! Auto-throttle swap frequency to once every 100 steps if acceptance drops below 0.00005
+            if (nswap_att >= 1000) then
+               if (prob_swap < 0.00005_wp .and. Nswapf < 100) then
+                  Nswapf = 100
+                  write(*,*)
+                  write(*,'(A)') c_yellow // ' ---------------------------------------------------------------------------------------------------' // c_reset
+                  write(*,'(A,f10.6,A)') c_yellow // '  >>> [INFO] Swap acceptance (P_swap = ', prob_swap, ') fell below threshold (0.00005).' // c_reset
+                  write(*,'(A)') c_yellow // '             Throttling identity swap frequency to once every 100 steps (Nswapf = 100).' // c_reset
+                  write(*,'(A)') c_yellow // ' ---------------------------------------------------------------------------------------------------' // c_reset
+                  write(*,*)
+               else if (prob_swap >= 0.00005_wp .and. Nswapf == 100) then
+                  Nswapf = 1
+                  write(*,*)
+                  write(*,'(A)') c_green // ' ---------------------------------------------------------------------------------------------------' // c_reset
+                  write(*,'(A,f10.6,A)') c_green // '  >>> [INFO] Swap acceptance (P_swap = ', prob_swap, ') recovered above threshold (0.00005).' // c_reset
+                  write(*,'(A)') c_green // '             Restoring identity swap frequency to once every step (Nswapf = 1).' // c_reset
+                  write(*,'(A)') c_green // ' ---------------------------------------------------------------------------------------------------' // c_reset
+                  write(*,*)
+               end if
             end if
          endif
          ! Autoadjust maximum displacement up to 0.4
@@ -564,6 +590,10 @@ Program MC_CB_GPU
             EndIf
          EndIf
 
+         if (swap_moves .and. i > Ieq) then
+            nswap_att_tot = nswap_att_tot + int(nswap_att, 8)
+            nswap_acc_tot = nswap_acc_tot + int(nswap_acc, 8)
+         end if
          no_mc_real=0
          ntrans_ac=0
          nrot_ac=0
@@ -634,6 +664,12 @@ Program MC_CB_GPU
       EndIf
 
    End Do
+
+   ! Flush remaining production swap counts if loop ended between Nsave steps
+   if (swap_moves .and. istep_fin > Ieq) then
+      nswap_att_tot = nswap_att_tot + int(nswap_att, 8)
+      nswap_acc_tot = nswap_acc_tot + int(nswap_acc, 8)
+   end if
 
    ! --------------------------------------------------------------------------
    ! End of main loop

@@ -199,12 +199,15 @@ Subroutine Initialize_variables
    nvol = 0
    nvol_accept = 0
 
-   rho_av=0.0
-   en_av=0.0
-   lx_av=0.0
-   ly_av=0.0
-   lz_av=0.0
-   P_virial_av=0.0
+   rho_av=0.0_wp
+   rho_sq_av=0.0_wp
+   en_av=0.0_dkind
+   en_sq_av=0.0_dkind
+   lx_av=0.0_wp
+   ly_av=0.0_wp
+   lz_av=0.0_wp
+   P_virial_av=0.0_wp
+   P_virial_sq_av=0.0_wp
    nav_count=0
    open(40,file='run-data.dat')
    write(40, '(4x,A10, 7A17)') "# Step", "Temperature", "Density", "Volume", "Lx", "Ly", "Lz", "E_per_atom"
@@ -229,13 +232,16 @@ Subroutine Accumulate_averages(in_step, P_virial)
    rho=natoms/vol
    If (in_step > istep_ini + Neq) Then
       nav_count = nav_count + 1
-      rho_av=rho_av+natoms/vol
+      rho_av=rho_av+rho
+      rho_sq_av=rho_sq_av+rho*rho
       en_av=en_av+en_tot
+      en_sq_av=en_sq_av+en_tot*en_tot
       lx_av=lx_av+box(0)
       ly_av=ly_av+box(1)
       lz_av=lz_av+box(2)
       If (present(P_virial)) Then
          P_virial_av = P_virial_av + P_virial
+         P_virial_sq_av = P_virial_sq_av + P_virial*P_virial
       EndIf
    End If
    write(40,'(i12,7f18.5)') in_step, temp,rho,vol,box,en_tot/natoms
@@ -248,22 +254,50 @@ Subroutine Calculate_averages
    Use rundata
    Use configuration, Only : natoms
    Implicit None
+   Real(wp) :: rho_mean, rho_err
+   Real(wp) :: P_mean, P_err
+   Real(dkind) :: en_mean, en_err
+   Real(wp) :: n_samples
    Character(len=8), Parameter :: c_cyan = char(27)//'[1;36m'
    Character(len=8), Parameter :: c_reset = char(27)//'[0m'
 
+   rho_err = 0.0_wp
+   P_err = 0.0_wp
+   en_err = 0.0_dkind
+   rho_mean = 0.0_wp
+   P_mean = 0.0_wp
+   en_mean = 0.0_dkind
+
    If (nav_count > 0) Then
-      rho_av=rho_av/real(nav_count, wp)
-      en_av=en_av/real(nav_count, wp)
-      lx_av=lx_av/real(nav_count, wp)
-      ly_av=ly_av/real(nav_count, wp)
-      lz_av=lz_av/real(nav_count, wp)
-      If (pot_int == -1) P_virial_av = P_virial_av / real(nav_count, wp)
+      n_samples = real(nav_count, wp)
+      rho_mean = rho_av / n_samples
+      en_mean = en_av / real(nav_count, dkind)
+      lx_av = lx_av / n_samples
+      ly_av = ly_av / n_samples
+      lz_av = lz_av / n_samples
+      If (pot_int == -1) P_mean = P_virial_av / n_samples
+
+      If (nav_count > 1) Then
+         rho_err = sqrt(max(0.0_wp, (rho_sq_av - rho_mean**2 * n_samples) / (n_samples * (n_samples - 1.0_wp))))
+         en_err = sqrt(max(0.0_dkind, (en_sq_av - en_mean**2 * real(nav_count, dkind)) / (real(nav_count, dkind) * real(nav_count - 1, dkind))))
+         If (pot_int == -1) Then
+            P_err = sqrt(max(0.0_wp, (P_virial_sq_av - P_mean**2 * n_samples) / (n_samples * (n_samples - 1.0_wp))))
+         EndIf
+      EndIf
    EndIf
 
+   rho_av = rho_mean
+   en_av = en_mean
+   If (pot_int == -1) P_virial_av = P_mean
+
    print*, c_cyan // ' --- THERMODYNAMIC AVERAGES ---' // c_reset
-   print*, '  Average density      = ',rho_av
-   if (pot_int /= -1) print*, '  Average energy       = ',en_av/natoms,en_av
-   if (pot_int == -1) print*, '  Average P\sigma^3/kT = ',P_virial_av
+   write(*,'(A,F14.6,A,F12.6)') '  Average density      = ', rho_av, ' ± ', rho_err
+   If (pot_int /= -1) Then
+      write(*,'(A,F14.6,A,F12.6,F16.6)') '  Average energy       = ', en_av/natoms, ' ± ', en_err/natoms, en_av
+   EndIf
+   If (pot_int == -1) Then
+      write(*,'(A,F14.6,A,F12.6)') '  Average Pσ³/kT = ', P_virial_av, ' ± ', P_err
+   EndIf
    print*, '  Average edge lx      = ',lx_av
    print*, '  Average edge ly      = ',ly_av
    print*, '  Average edge lz      = ',lz_av

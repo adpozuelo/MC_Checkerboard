@@ -36,13 +36,14 @@ Subroutine Write_Input_File(istep)
    Write(21,*) "  displ_update = ", displ_update, ","
    temp0 = 1.0_wp / beta
    Write(21,*) "  temp0 = ", temp0, ","
-   Write(21,*) "  temp1 = ", temp1, ","
    Write(21,*) "  npt = ", npt, ","
+   Write(21,*) "  Nvolf = ", Nvolf, ","
    Write(21,*) "  iscale = ", iscale, ","
    Write(21,*) "  pres = ", pres, ","
    Write(21,*) "  seed = ", seed, ","
    Write(21,*) "  swap_moves = ", swap_moves, ","
-   Write(21,*) "  Nswap = ", Nswap
+   Write(21,*) "  Nswap = ", Nswap, ","
+   Write(21,*) "  Nswapf = ", Nswapf
    Write(21,*) "/"
 
    ! --- Write Namelist: Potential_Params ---
@@ -192,15 +193,17 @@ Subroutine Read_Input_Data
                               rcl, minPts, asym_threshold, ncluster, cluster_types, Nmc_hmc, Nmd_hmc, tstep_hmc, avbmc, &
                               border_criterion, energy_threshold, energy_border_ratio, use_energy_ratio, avbmc_k_trials, avbmc_max_trials
     ! MC_Params include:
+    !   Nvolf: Frequency (in MC sweeps) of NpT volume moves (default 1)
     !   swap_moves: .true. / .false. (Enable GPU checkerboard identity swaps, binary HS only)
     !   Nswap: Number of swap sub-passes per MC cycle (default 1)
-    Namelist /MC_Params/ hmax, omax, vmax, displ_update, temp0, temp1, npt, iscale, pres, seed, swap_moves, Nswap
+    !   Nswapf: Frequency (in MC sweeps) of identity swap moves (default 1)
+    Namelist /MC_Params/ hmax, omax, vmax, displ_update, temp0, temp1, npt, Nvolf, iscale, pres, seed, swap_moves, Nswap, Nswapf
     Namelist /Potential_Params/ model, cosmax_KF, ctor_max_KF, delta_KF, Bool_tor, sigma_jon_aux, sigma_tor_jon, rangepp, &
                                 sigp_factor, Rcp_factor, Rc_factor, epsp_factor, patch_radial_factor, &
                                 table_mc, table_lammps, table_file_mc, table_file_lammps
 
    traj_format = 'netcdf'; data_file = 'data.atoms'
-   imovie = .false.; displ_update = .false.; npt = .false.; swap_moves = .false.; Nswap = 1
+   imovie = .false.; displ_update = .false.; npt = .false.; Nvolf = 1; swap_moves = .false.; Nswap = 1; Nswapf = 1
    sigp_factor = 0.1_wp; Rcp_factor = 0.3_wp; Rc_factor = 2.0_wp; epsp_factor = -1.0_wp; patch_radial_factor = 0.5_wp
    rcl = 1.8_wp; minPts = 3; asym_threshold = 0.5_wp; ncluster = 0; cluster_types(:) = -1; avbmc = .false.
    border_criterion = 'asymmetry'; energy_threshold = -2.0_wp; energy_border_ratio = 0.5_wp; use_energy_ratio = .false.
@@ -239,8 +242,13 @@ Subroutine Read_Input_Data
    write(*,'(A)') c_cyan // ' --- Thermodynamic State ---' // c_reset
    write(*,'(A,F10.4,A,F10.4)') '  -> Temperature (Ini -> Fin):', temp0, ' -> ', temp1
    
-   If(NpT) Then; write(*,'(A)') c_yellow // '  -> Ensemble:                NpT (Isobaric-Isothermal)' // c_reset
-   Else; write(*,'(A)') c_yellow // '  -> Ensemble:                NVT (Canonical)' // c_reset; EndIf
+   If(NpT) Then
+      If (Nvolf < 1) Nvolf = 1
+      write(*,'(A)') c_yellow // '  -> Ensemble:                NpT (Isobaric-Isothermal)' // c_reset
+      write(*,'(A,I6)')         '     - Volume move frequency: ', Nvolf
+   Else
+      write(*,'(A)') c_yellow // '  -> Ensemble:                NVT (Canonical)' // c_reset
+   EndIf
 
    write(*,'(A)') ''
    write(*,'(A)') c_cyan // ' --- Monte Carlo Moves ---' // c_reset
@@ -258,8 +266,10 @@ Subroutine Read_Input_Data
          stop 1
       End If
       If (Nswap < 1) Nswap = 1
+      If (Nswapf < 1) Nswapf = 1
       write(*,'(A)') c_green // '  -> Identity Swap Moves:     ENABLED (Binary Checkerboard GPU)' // c_reset
       write(*,'(A,I6)')         '     - Swap trials per cycle: ', Nswap
+      write(*,'(A,I6)')         '     - Swap move frequency:   ', Nswapf
    Else
       write(*,'(A)') c_yellow // '  -> Identity Swap Moves:     DISABLED' // c_reset
    End If

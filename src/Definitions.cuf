@@ -76,7 +76,7 @@ MODULE rundata
     Real(wp) :: tstep_hmc = 0.0025_wp                   ! HMC timestep parameter
     Integer :: ntrans, ntrans_ac, nrot, nrot_ac         ! Translation and rotation move counters
    Integer :: no_mc_real                               ! Number of non-empty cells
-   Integer :: nvol_accept, iscale, nvol                ! Volume move acceptance and scaling mode
+   Integer :: nvol_accept, iscale, nvol, Nvolf = 1     ! Volume move acceptance, scaling mode, and volume move frequency (Nvolf)
    Integer :: length, Nmove, Neq, Nsave, Ndump        ! MC cycle parameters
    Integer :: Nrestart                                 ! Restart file frequency
    Integer(kind=8) :: seed                             ! Random number generator seed
@@ -109,6 +109,7 @@ MODULE rundata
    ! Identity Swap Moves for Binary Hard-Sphere Mixtures (A <-> B)
    Logical  :: swap_moves = .false.                    ! Flag for enabling GPU checkerboard identity swap moves (binary HS only)
    Integer  :: Nswap = 1                               ! Number of swap sub-passes per MC cycle (each sub-pass: 8 intra + 4 cross sets)
+   Integer  :: Nswapf = 1                              ! Frequency (in MC sweeps) of identity swap moves
    Integer  :: nswap_att = 0, nswap_acc = 0            ! Identity swap window counters (reset every Nsave steps)
    Integer(kind=8) :: nswap_att_tot = 0, nswap_acc_tot = 0 ! Total cumulative production identity swap counters
 
@@ -198,11 +199,12 @@ END MODULE potential
 MODULE properties
    use set_precision
    Implicit None
-   Real (dkind) :: en_tot, en_av
+   Real (dkind) :: en_tot, en_av, en_sq_av
    Real (wp) :: rho, vol                       ! Total energy, density, and volume
-   Real (wp) :: rho_av                          ! Averaged energy and density
-   Real (wp) :: lx_av, ly_av, lz_av                    ! Averaged box dimensions
-   Real (wp) :: P_virial_av = 0.0_wp            ! Averaged virial pressure
+   Real (wp) :: rho_av, rho_sq_av              ! Averaged energy and density, and squared sums
+   Real (wp) :: lx_av, ly_av, lz_av            ! Averaged box dimensions
+   Real (wp) :: P_virial_av = 0.0_wp           ! Averaged virial pressure
+   Real (wp) :: P_virial_sq_av = 0.0_wp        ! Squared sum of virial pressure
    Integer   :: nav_count = 0                  ! Count of accumulated samples
 END MODULE properties
 

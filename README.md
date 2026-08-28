@@ -200,7 +200,7 @@ The namelist filename passed as the first command-line argument to `mc_gpu.exe` 
 ### Monte Carlo Control
 - `istep_ini`, `istep_fin` - Initial and final step numbers
 - `Neq` - Equilibration steps
-- `Nmove` - MC moves per sweep per particle
+- `Nmove` - Number of trial moves per particle executed in each MC sweep (step). A single call to `MCsweep()` processes 100% of particles across all 8 checkerboard cell sets; every particle is subjected to `Nmove` trial moves (translations for isotropic models, or `Nmove/2` translations + `Nmove/2` rotations for anisotropic patchy models).
 - `Nsave`, `Ndump` - Output frequencies
 - `Nrestart` - Restart file frequency
 - `data_file` - Path to the initial configuration file in LAMMPS format (default: `data.atoms`)
@@ -221,11 +221,13 @@ The namelist filename passed as the first command-line argument to `mc_gpu.exe` 
 - `swap_moves` - Enable GPU-accelerated identity swap moves ($A \leftrightarrow B$) (`.true.` / `.false.`, default: `.false.`).
   > **Note / Consistency Requirement:** Identity swap moves are **exclusively implemented for binary hard-sphere mixtures** (`Npart_types = 2` and `model = 'HS'`). Setting `swap_moves = .true.` with $N_{\text{part\_types}} \ne 2$ or non-HS models will trigger an immediate fatal error and cleanly terminate the simulation during input initialization.
 - `Nswap` - Number of swap sub-passes executed per MC cycle (default: `1`). Each sub-pass performs 8 checkerboard subset intra-cell sweeps and 4 long-range cross-cell sweeps.
+- `Nswapf` - Frequency (in MC sweeps) of identity swap moves (default: `1`, i.e., swap moves attempted every sweep when `swap_moves = .true.`).
 
 ### Thermodynamic Parameters
 - `temp0`, `temp1` - Initial and final temperatures (Kelvin)
 - `pres` - Pressure (NpT ensemble)
-- `npt` - Enable NpT ensemble (.true. / .false.)
+- `npt` - Enable NpT ensemble (`.true.` / `.false.`, default: `.false.`)
+- `Nvolf` - Frequency (in MC sweeps) of NpT volume change moves (default: `1`, i.e., volume move attempted every sweep when `npt = .true.`)
 
 ### MC Displacement Parameters
 - `hmax` - Maximum translation distance
