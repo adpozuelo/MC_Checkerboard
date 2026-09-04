@@ -11,7 +11,7 @@ This example demonstrates the simulation of a simple binary fluid mixture intera
 ## Execution
 Run with:
 ```bash
-mpirun -np 1 ../../bin/mc_gpu.exe datos.nml 0
+../../bin/mc_gpu.exe datos.nml 0
 ```
 
 ## Validation

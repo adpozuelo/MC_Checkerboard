@@ -42,11 +42,9 @@ Program MC_CB_GPU
    Use mod_clusters
    Use mod_avbmc
    Use lammps_hmc_wrapper, only: init_hmc_lammps, execute_hmc_step, close_hmc_lammps
-   Use mpi
 
    Implicit None
    Integer :: i, j, ll, Iend, Ieq, vec_shift(6,0:ndim-1), vec(0:ndim-1), k_swap
-   Integer :: ierr
    Integer :: ngpus,gpuid,Njumps, Nsteps_DeltaT, Natoms_aux, lammps_devNum
    Integer :: total_sites
    Character(len=256) :: hdr_title, hdr_sep, banner_txt
@@ -82,7 +80,6 @@ Program MC_CB_GPU
    Character(len=5)  :: dt_zone
    Integer           :: dt_values(8)
 
-   call MPI_Init(ierr)
    c_red    = char(27)//'[1;31m'
    c_green  = char(27)//'[1;32m'
    c_yellow = char(27)//'[1;33m'
@@ -738,6 +735,5 @@ Program MC_CB_GPU
    Call limpio
    Call clusters_dealloc()
    write(*,'(A)') c_green // ' >>> Simulation completely finished. GPU memory cleaned.' // c_reset
-   call MPI_Finalize(ierr)
 
 End Program MC_CB_GPU

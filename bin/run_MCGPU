@@ -1,10 +1,9 @@
 #!/bin/bash
-# 1. Configure OpenMPI prefix and PATH
-export OPAL_PREFIX="/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/comm_libs/13.0/hpcx/hpcx-2.24/ompi"
-export PATH="/opt/nvidia/hpc_sdk/Linux_x86_64/2025/compilers/bin:/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/comm_libs/13.0/hpcx/hpcx-2.24/ompi/bin:$PATH"
+# 1. Configure PATH for NVHPC compilers if needed
+export PATH="/opt/nvidia/hpc_sdk/Linux_x86_64/2025/compilers/bin:$PATH"
 
 # 2. Configure LD_LIBRARY_PATH for the libraries
-export LD_LIBRARY_PATH="$HOME/lammps/build:$HOME/lammps_latest/build:/usr/local/netcdf-nv/lib/:/opt/nvidia/hpc_sdk/Linux_x86_64/2025/compilers/lib:/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/comm_libs/13.0/hpcx/hpcx-2.24/ompi/lib:$LD_LIBRARY_PATH"
+export LD_LIBRARY_PATH="$HOME/lammps/build:$HOME/lammps_latest/build:/usr/local/netcdf-nv/lib/:/opt/nvidia/hpc_sdk/Linux_x86_64/2025/compilers/lib:$LD_LIBRARY_PATH"
 
-# 3. Launch using mpirun
-exec mpirun -np 1 $HOME/MC_Checkerboard/bin/mc_gpu.exe "$@"
+# 3. Launch mc_gpu.exe directly
+exec $HOME/MC_Checkerboard/bin/mc_gpu.exe "$@"

@@ -502,6 +502,15 @@ Computing resources provided by CSIC.
 
 For a complete record of all versions and features, see [Changelog.md](Changelog.md).
 
+- **V2.7** (September 2026) Standalone Direct Execution & Modernized Build
+  - Removed obsolete MPI runtime dependency (`MPI_Init`/`MPI_Finalize`) from `src/Main.cuf`, allowing `mc_gpu.exe` to be invoked directly from the command line without `mpirun -np 1`.
+  - Updated `Makefile` to use `FC = nvfortran` with automatic detection for standard NVHPC and NetCDF library paths.
+
+- **V2.6** (September 2026) Tabulated Potential Fluid Mixtures (`model = 'TABLE'`)
+  - Full GPU-accelerated Monte Carlo support for $n$-component mixtures interacting via LAMMPS potential tables (`RSQ` and linear `R` styles) with Catmull-Rom cubic spline interpolation.
+  - Flexible file discovery and keyword loader for multi-component interaction tables.
+  - Validated against LAMMPS Mie 50-49 binary fluid mixture benchmark with $< 0.001\%$ energy agreement.
+
 - **V2.5** (August 2026) GPU-Accelerated Identity Swaps, Non-Additive Hard-Sphere Potential & Virial Pressure
   - **GPU Checkerboard Identity Swaps**: Massively parallel identity swap moves ($A \leftrightarrow B$) for binary mixtures using intra-cell checkerboard warp evaluation (`subsweep_HS_swap`) and long-range disjoint cross-cell swaps (`subsweep_HS_cross_swap`) with exact Hastings detailed balance.
   - **Sanity Checks & Consistency**: Strict input validation enforcing `Npart_types = 2` and `model = 'HS'` with fatal error termination on unsupported configurations.

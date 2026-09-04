@@ -21,20 +21,26 @@ LAMMPS_DIR    ?= $(HOME)/lammps_latest
 LAMMPSINC      = $(LAMMPS_DIR)/fortran
 LAMMPSLIB      = $(LAMMPS_DIR)/build
 
-# Environment / Module fallbacks for NVHPC & NetCDF on cluster
-NVBIN         ?= $(if $(EBROOTNVHPC),$(EBROOTNVHPC)/Linux_x86_64/$(EBVERSIONNVHPC)/compilers/bin:$(EBROOTNVHPC)/Linux_x86_64/$(EBVERSIONNVHPC)/comm_libs/12.8/openmpi4/openmpi-4.1.5/bin)
-NVINCLUDE     ?= $(if $(EBROOTNVHPC),$(EBROOTNVHPC)/Linux_x86_64/$(EBVERSIONNVHPC)/compilers/include)
-NVLIBS        ?= $(if $(EBROOTNVHPC),$(EBROOTNVHPC)/Linux_x86_64/$(EBVERSIONNVHPC)/compilers/lib)
-NETCDFINC     ?= $(if $(EBROOTNETCDFMINFORTRAN),$(EBROOTNETCDFMINFORTRAN)/include)
-NETCDFLIB     ?= $(if $(EBROOTNETCDFMINFORTRAN),$(EBROOTNETCDFMINFORTRAN)/lib)
-NETCDF_C_LIB  ?= $(if $(EBROOTNETCDF),$(EBROOTNETCDF)/lib)
+# Environment / Module fallbacks for NVHPC & NetCDF (cluster & local workstation)
+NVHPC_ROOT     ?= $(wildcard /opt/nvidia/hpc_sdk/Linux_x86_64/2025 /opt/nvidia/hpc_sdk/Linux_x86_64/25.9 /opt/nvidia/hpc_sdk/Linux_x86_64/current)
+NVHPC_DEFAULT   = $(firstword $(NVHPC_ROOT))
+
+NVBIN         ?= $(if $(EBROOTNVHPC),$(EBROOTNVHPC)/Linux_x86_64/$(EBVERSIONNVHPC)/compilers/bin,$(if $(NVHPC_DEFAULT),$(NVHPC_DEFAULT)/compilers/bin))
+NVINCLUDE     ?= $(if $(EBROOTNVHPC),$(EBROOTNVHPC)/Linux_x86_64/$(EBVERSIONNVHPC)/compilers/include,$(if $(NVHPC_DEFAULT),$(NVHPC_DEFAULT)/compilers/include))
+NVLIBS        ?= $(if $(EBROOTNVHPC),$(EBROOTNVHPC)/Linux_x86_64/$(EBVERSIONNVHPC)/compilers/lib,$(if $(NVHPC_DEFAULT),$(NVHPC_DEFAULT)/compilers/lib))
+NETCDFINC     ?= $(if $(EBROOTNETCDFMINFORTRAN),$(EBROOTNETCDFMINFORTRAN)/include,$(wildcard /usr/local/netcdf-nv/include))
+NETCDFLIB     ?= $(if $(EBROOTNETCDFMINFORTRAN),$(EBROOTNETCDFMINFORTRAN)/lib,$(wildcard /usr/local/netcdf-nv/lib))
+NETCDF_C_LIB  ?= $(if $(EBROOTNETCDF),$(EBROOTNETCDF)/lib,$(wildcard /usr/local/netcdf-nv/lib))
 
 ifneq ($(NVBIN),)
-PATH          := $(NVBIN):$(PATH)
+export PATH   := $(NVBIN):$(PATH)
 endif
 
-# Compiler & Options
-FC             = mpif90
+# Compiler & Options (default to nvfortran; override default f77)
+ifeq ($(origin FC),default)
+FC             = nvfortran
+endif
+FC            ?= nvfortran
 FCINC          = $(if $(NETCDFINC),-I$(NETCDFINC)) \
                  $(if $(NVINCLUDE),-I$(NVINCLUDE)) \
                  $(if $(FFTWINC),-I$(FFTWINC)) \

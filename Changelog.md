@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.7.0] - 2026-09-04
+
+### Changed & Removed
+- **Removed Mandatory MPI Runtime Requirement**:
+  - Removed obsolete `Use mpi`, `MPI_Init`, and `MPI_Finalize` calls from `src/Main.cuf`.
+  - The executable `mc_gpu.exe` can now be invoked directly as a standalone binary (e.g. `./bin/mc_gpu.exe datos.nml 0`) without needing `mpirun -np 1` or OpenMPI runtime daemon initialization.
+  - Retained full backward compatibility for setups that continue to invoke `mpirun -np 1`.
+- **Makefile & Build Modernization**:
+  - Configured default Fortran compiler in `src/Makefile` to `FC ?= nvfortran` (overriding GNU Make's internal `f77` default).
+  - Added robust auto-detection for local workstation NVHPC SDK installations (`/opt/nvidia/hpc_sdk/Linux_x86_64/2025`, `25.9`, `current`) and NetCDF paths (`/usr/local/netcdf-nv`).
+  - Exported `PATH` from Makefile so `nvfortran` is resolved automatically without requiring manual environment module loads or shell exports on standard systems.
+- **Launcher Scripts & Documentation**:
+  - Updated `bin/run_MCGPU` and `examples/table_mixture/README.md` to execute `mc_gpu.exe` directly without OpenMPI wrappers.
+
+---
+
 ## [2.6.0] - 2026-09-04
 
 ### Added
