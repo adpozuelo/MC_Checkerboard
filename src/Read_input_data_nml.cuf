@@ -177,6 +177,7 @@ Subroutine Read_Input_Data
    Implicit None
    Integer :: i, j, k, l, m, Indx, Indx1, Indx2, ios, Indx_tor, Indx_tor2
    Integer :: i_fila, i_columna
+   Logical :: found_mat
    Real(wp) :: norm, px, py, pz, sigma_jon_ij, xopp, Rmin_ij
    real(wp), Allocatable :: Matrix(:,:)
    Character(len=256) :: line
@@ -225,9 +226,15 @@ Subroutine Read_Input_Data
       pot_int = 1
    else if (trim(model)=='SSP') then
       pot_int = 2
+   else if (trim(model)=='TABLE' .or. trim(model)=='table') then
+      pot_int = 0
+      table_mc = .true.
    else
       write(*,'(/A,"*** Fatal error: interaction ", A, " not implemented ***",A)')c_red, trim(model), c_reset
       stop  
+   end if
+   if (table_mc .and. pot_int /= 2) then
+      pot_int = 0
    end if
   
 
@@ -296,7 +303,12 @@ Subroutine Read_Input_Data
       write(*,'(A)') c_yellow// '  -> Temperature:             IGNORED (athermal potential)' // c_reset
       write(*,'(A)') c_yellow// '  -> Patch Data:              IGNORED (Skipping Quaternions)' // c_reset
    Else If (pot_int < 1) Then
-      write(*,'(A)') c_green // '  -> Potential Mode:          PURE ISOTROPIC LENNARD-JONES' // c_reset
+      if (table_mc) then
+         write(*,'(A)') c_green // '  -> Potential Mode:          TABULATED POTENTIAL MIXTURE' // c_reset
+         write(*,'(A,A)')       '     - Table Source:          ', trim(table_file_mc)
+      else
+         write(*,'(A)') c_green // '  -> Potential Mode:          PURE ISOTROPIC LENNARD-JONES' // c_reset
+      end if
       write(*,'(A)') c_yellow// '  -> Patch Data:              IGNORED (Skipping Quaternions)' // c_reset
    Else
       write(*,'(A,A)')  '  -> Potential Model:         ', trim(model)
@@ -364,46 +376,73 @@ Subroutine Read_Input_Data
       Allocate( tor_angle(1) ); Allocate( Vpot_Matrix(1) ); Allocate( sigma_jon(1) )
       patch=0.d0; ref_tor_vec=0.d0; Ntor_angle=0; tor_angle=0.d0; Vpot_Matrix=0.d0; sigma_jon=0.d0
 
-      ! Fast forward input_filename to the LJ matrix section
-      Do
-         Read(20, '(A)', IOSTAT=ios) line
-         If (ios /= 0) Exit
-         If (index(line, '--- LJ SIGMA MATRIX ---') > 0) Exit
-      End Do
-
       Allocate ( sigma_LJ(0:Npart_types*Npart_types-1) )
       Allocate ( epsilon_LJ(0:Npart_types*Npart_types-1) ) 
       Allocate ( rangep(0:Npart_types*Npart_types-1) )
       Allocate ( VL0(0:Npart_types*Npart_types-1) )
       Allocate ( xop(0:Npart_types*Npart_types-1) )
+      sigma_LJ = 1.0_wp
+      epsilon_LJ = 1.0_wp
+      rangep = 2.5_wp
+      VL0 = 0.0_wp
+      xop = 0.0_wp
 
-      Do I=0,Npart_types-1
-           Indx = I*Npart_types
-           Do J = 0, Npart_types-1
-              Read(20,'(F6.3)',advance='no') sigma_jon_ij
-              sigma_LJ(indx+j) = sigma_jon_ij 
-              rangep(indx+j) = rangepp * sigma_jon_ij
-              VL0(indx+j)=(sigma_jon_ij/rangep(indx+j))**12.d0-(sigma_jon_ij/rangep(indx+j))**6.0
-              xopp = (1.d0+sqrt(1.d0+4.d00*VL0(indx+j)))/2.d0
-              xop(indx+j) = sigma_jon_ij/(xopp**(1.d0/6.d0))
-           EndDo
-           Read(20,*) 
-      EndDo
-      ! 2. Fast forward to EPSILON MATRIX
+      ! Check if SIGMA MATRIX is in input file
+      Rewind(20)
+      found_mat = .false.
+      Do
+         Read(20, '(A)', IOSTAT=ios) line
+         If (ios /= 0) Exit
+         If (index(line, '--- LJ SIGMA MATRIX ---') > 0 .or. &
+             index(line, '--- SIGMA MATRIX ---') > 0) Then
+            found_mat = .true.
+            Exit
+         End If
+      End Do
+
+      If (found_mat) Then
+         Do I=0,Npart_types-1
+              Indx = I*Npart_types
+              Do J = 0, Npart_types-1
+                 Read(20,'(F6.3)',advance='no') sigma_jon_ij
+                 sigma_LJ(indx+j) = sigma_jon_ij 
+                 rangep(indx+j) = rangepp * sigma_jon_ij
+                 VL0(indx+j)=(sigma_jon_ij/rangep(indx+j))**12.d0-(sigma_jon_ij/rangep(indx+j))**6.0
+                 xopp = (1.d0+sqrt(1.d0+4.d00*VL0(indx+j)))/2.d0
+                 xop(indx+j) = sigma_jon_ij/(xopp**(1.d0/6.d0))
+              EndDo
+              Read(20,*) 
+         EndDo
+      Else If (.not. table_mc) Then
+         write(*, '(/A,"*** Fatal error: LJ SIGMA MATRIX not found in ", A, "***",A)') c_red, trim(input_filename), c_reset
+         stop 1
+      End If
+
+      ! Check if EPSILON MATRIX is in input file
+      Rewind(20)
+      found_mat = .false.
       Do 
          Read(20, '(A)', IOSTAT=ios) line
          If (ios /= 0) Exit
-         If (index(line, '--- LJ EPSILON MATRIX ---') > 0) Exit 
+         If (index(line, '--- LJ EPSILON MATRIX ---') > 0 .or. &
+             index(line, '--- EPSILON MATRIX ---') > 0) Then
+            found_mat = .true.
+            Exit
+         End If
       End Do
 
-      ! Read Epsilon Matrix
-      Do I=0,Npart_types-1
-           Indx = I*Npart_types
-           Do J = 0, Npart_types-1
-              Read(20,'(F6.3)',advance='no') epsilon_LJ(indx+j)
-           EndDo
-           Read(20,*) 
-      EndDo
+      If (found_mat) Then
+         Do I=0,Npart_types-1
+              Indx = I*Npart_types
+              Do J = 0, Npart_types-1
+                 Read(20,'(F6.3)',advance='no') epsilon_LJ(indx+j)
+              EndDo
+              Read(20,*) 
+         EndDo
+      Else If (.not. table_mc) Then
+         write(*, '(/A,"*** Fatal error: LJ EPSILON MATRIX not found in ", A, "***",A)') c_red, trim(input_filename), c_reset
+         stop 1
+      End If
    Else
       Read(20,*); Read(20,*) (Nrb_sites(J),J=0,Npart_types-1)
 
@@ -818,32 +857,29 @@ Subroutine load_table_potentials()
     use rundata, only : pot_int
     implicit none
     integer :: unit_id, ierr, i, idx, t_lmp1, t_lmp2, t_mc1, t_mc2, N
-    character(len=256) :: line, keyword, search_str, filename, keyword_prefix
-    character(len=8) :: t1_str, t2_str
+    character(len=256) :: line, keyword, filename, cand_file
+    character(len=32) :: t1_str, t2_str
     real(wp) :: r, V, F, rmin, rmax
-    logical :: found, is_single_file
-    
+    logical :: found, file_exists, is_rsq, ok
+    integer :: cand_idx
+    character(len=256) :: candidates(12)
+    integer :: num_candidates
+
     if (.not. table_mc) return
-    
+
     print *, " >>> Loading MC table potentials..."
-    
+
     ! Initialize table arrays
     has_table(:, :) = .false.
+    table_is_rsq(:, :) = .false.
     table_N(:, :) = 0
     table_rmin(:, :) = 0.0_wp
     table_rmax(:, :) = 0.0_wp
     table_dr_inv(:, :) = 0.0_wp
-    
     table_V = 0.0_wp
-    
+
     unit_id = 98
-    
-    ! Determine if it is a single file or a prefix
-    ! If it contains ".dat", ".table", or ".txt", we assume it is a single file.
-    is_single_file = (index(table_file_mc, '.dat') > 0 .or. &
-                      index(table_file_mc, '.table') > 0 .or. &
-                      index(table_file_mc, '.txt') > 0)
-                      
+
     do t_lmp1 = 1, merge(2*Npart_types, Npart_types, pot_int == 2)
         do t_lmp2 = t_lmp1, merge(2*Npart_types, Npart_types, pot_int == 2)
             ! Map to MC site types
@@ -862,112 +898,195 @@ Subroutine load_table_potentials()
                 t_mc1 = t_lmp1 - 1
                 t_mc2 = t_lmp2 - 1
             end if
-            
+
             write(t1_str, '(I0)') t_lmp1
             write(t2_str, '(I0)') t_lmp2
-            search_str = trim(t1_str) // '_' // trim(t2_str)
-            
-            if (is_single_file) then
-                filename = table_file_mc
-                keyword = search_str
-            else
-                ! Prefix-based multiple files, e.g. salr11.dat
-                filename = trim(table_file_mc) // trim(t1_str) // trim(t2_str) // '.dat'
-                ! Keyword is prefix in uppercase followed by ij, e.g., SALR11
-                keyword_prefix = trim(table_file_mc)
-                call uppercase(keyword_prefix)
-                keyword = trim(keyword_prefix) // trim(t1_str) // trim(t2_str)
+
+            ! Build candidate filenames in order of preference
+            num_candidates = 0
+            if (len_trim(table_file_mc) > 0) then
+                num_candidates = num_candidates + 1
+                candidates(num_candidates) = trim(table_file_mc) // trim(t1_str) // trim(t2_str) // '.dat'
+                num_candidates = num_candidates + 1
+                candidates(num_candidates) = trim(table_file_mc) // trim(t1_str) // trim(t2_str)
+                num_candidates = num_candidates + 1
+                candidates(num_candidates) = trim(table_file_mc) // '_' // trim(t1_str) // '_' // trim(t2_str) // '.dat'
+                num_candidates = num_candidates + 1
+                candidates(num_candidates) = trim(table_file_mc)
             end if
-            
-            ! Open file
-            open(unit=unit_id, file=filename, status='old', action='read', iostat=ierr)
-            if (ierr /= 0) then
-                if (is_single_file) then
-                    print *, "Error: Could not open table potential file: ", trim(filename)
-                    stop
-                else
-                    ! For prefix, some cross interactions (like center-patch 1-2) are zero and files might not exist.
-                    ! We just warn and skip them.
-                    cycle
+            ! Standard prefixes (pot, mie, table)
+            num_candidates = num_candidates + 1
+            candidates(num_candidates) = 'pot' // trim(t1_str) // trim(t2_str) // '.dat'
+            num_candidates = num_candidates + 1
+            candidates(num_candidates) = 'mie' // trim(t1_str) // trim(t2_str) // '.dat'
+            num_candidates = num_candidates + 1
+            candidates(num_candidates) = 'table' // trim(t1_str) // trim(t2_str) // '.dat'
+            num_candidates = num_candidates + 1
+            candidates(num_candidates) = 'table_' // trim(t1_str) // '_' // trim(t2_str) // '.dat'
+            num_candidates = num_candidates + 1
+            candidates(num_candidates) = 'table.dat'
+            num_candidates = num_candidates + 1
+            candidates(num_candidates) = 'pot.dat'
+
+            ! Find the first candidate that exists
+            filename = ""
+            do cand_idx = 1, num_candidates
+                cand_file = candidates(cand_idx)
+                inquire(file=trim(cand_file), exist=file_exists)
+                if (file_exists) then
+                    filename = trim(cand_file)
+                    exit
                 end if
+            end do
+
+            if (len_trim(filename) == 0) then
+                ! File not found; skip or warn
+                if (pot_int < 1) then
+                    print *, "   Notice: No table file found for pair (", t_lmp1, ",", t_lmp2, ")"
+                end if
+                cycle
             end if
-            
+
+            ! Open file
+            open(unit=unit_id, file=trim(filename), status='old', action='read', iostat=ierr)
+            if (ierr /= 0) then
+                print *, "Error: Could not open table potential file: ", trim(filename)
+                stop 1
+            end if
+
+            ! Search for section keyword and N line in this file
             found = .false.
-            do while (.not. found)
+            do
                 read(unit_id, '(A)', iostat=ierr) line
                 if (ierr /= 0) exit
-                
-                ! Check if line matches the keyword
-                if (len_trim(line) > 0 .and. line(1:1) /= '#' .and. line(1:1) /= ' ' .and. index(line, 'N ') /= 1) then
-                    if (index(line, trim(keyword)) > 0) then
-                        found = .true.
+                line = adjustl(line)
+                if (len_trim(line) == 0) cycle
+                if (line(1:1) == '#') cycle
+
+                ! A non-comment, non-empty line could be a keyword
+                ! Check if it's NOT the N line itself
+                if (line(1:2) /= 'N ' .and. line(1:2) /= 'n ') then
+                    keyword = trim(line)
+                    ! Now read the next non-empty, non-comment line to check if it's the N line
+                    do
+                        read(unit_id, '(A)', iostat=ierr) line
+                        if (ierr /= 0) exit
+                        line = adjustl(line)
+                        if (len_trim(line) == 0) cycle
+                        if (line(1:1) == '#') cycle
+                        exit
+                    end do
+                    if (ierr /= 0) exit
+
+                    if (line(1:2) == 'N ' .or. line(1:2) == 'n ') then
+                        block
+                            character(len=256) :: kw_upper
+                            kw_upper = keyword
+                            call uppercase(kw_upper)
+
+                            ! Keyword matches if dedicated file or contains pair indices
+                            if ((index(filename, trim(t1_str)) > 0 .and. index(filename, trim(t2_str)) > 0) .or. &
+                                (Npart_types == 1)) then
+                                found = .true.
+                            else if (index(kw_upper, trim(t1_str) // '_' // trim(t2_str)) > 0 .or. &
+                                     index(kw_upper, trim(t1_str) // trim(t2_str)) > 0 .or. &
+                                     index(kw_upper, trim(t2_str) // '_' // trim(t1_str)) > 0 .or. &
+                                     index(kw_upper, trim(t2_str) // trim(t1_str)) > 0) then
+                                found = .true.
+                            end if
+                        end block
+
+                        if (found) then
+                            ! Line contains the N parameters
+                            call parse_n_line(line, N, is_rsq, rmin, rmax, ok)
+                            if (.not. ok) then
+                                print *, "Error: Could not parse N line: ", trim(line), " in ", trim(filename)
+                                stop 1
+                            end if
+                            exit
+                        else
+                            ! Skip this section's data lines
+                            block
+                                integer :: skip_n, skip_i
+                                logical :: dummy_rsq, dummy_ok
+                                real(wp) :: dummy_rmin, dummy_rmax
+                                call parse_n_line(line, skip_n, dummy_rsq, dummy_rmin, dummy_rmax, dummy_ok)
+                                if (dummy_ok .and. skip_n > 0) then
+                                    do skip_i = 1, skip_n
+                                        read(unit_id, *, iostat=ierr)
+                                        if (ierr /= 0) exit
+                                    end do
+                                end if
+                            end block
+                        end if
                     end if
                 end if
             end do
-            
+
             if (found) then
-                ! Read N line: e.g. N 1000 R 0.1 2.5
-                read(unit_id, '(A)') line
-                block
-                    integer :: pos, n_val, k
-                    real(wp) :: rmin_val, rmax_val
-                    character(len=256) :: temp_str, rest_str
-                    
-                    pos = index(line, 'N')
-                    temp_str = line(pos+1:)
-                    read(temp_str, *) n_val
-                    
-                    pos = verify(temp_str, ' 0123456789')
-                    rest_str = temp_str(pos:)
-                    do k = 1, len_trim(rest_str)
-                        if (index('0123456789.eE+- ', rest_str(k:k)) == 0) then
-                            rest_str(k:k) = ' '
-                        end if
-                    end do
-                    read(rest_str, *) rmin_val, rmax_val
-                    
-                    N = n_val
-                    rmin = rmin_val
-                    rmax = rmax_val
-                end block
-                
                 if (N > table_N_max) then
                     print *, "Error: Table size ", N, " exceeds maximum allocated size ", table_N_max
-                    stop
+                    stop 1
                 end if
-                
+
                 table_N(t_mc1, t_mc2) = N
                 table_N(t_mc2, t_mc1) = N
                 table_rmin(t_mc1, t_mc2) = rmin
                 table_rmin(t_mc2, t_mc1) = rmin
                 table_rmax(t_mc1, t_mc2) = rmax
                 table_rmax(t_mc2, t_mc1) = rmax
-                table_dr_inv(t_mc1, t_mc2) = real(N - 1, wp) / (rmax - rmin)
-                table_dr_inv(t_mc2, t_mc1) = real(N - 1, wp) / (rmax - rmin)
                 has_table(t_mc1, t_mc2) = .true.
                 has_table(t_mc2, t_mc1) = .true.
-                
+                table_is_rsq(t_mc1, t_mc2) = is_rsq
+                table_is_rsq(t_mc2, t_mc1) = is_rsq
+
+                if (is_rsq) then
+                    table_dr_inv(t_mc1, t_mc2) = real(N - 1, wp) / (rmax*rmax - rmin*rmin)
+                    table_dr_inv(t_mc2, t_mc1) = real(N - 1, wp) / (rmax*rmax - rmin*rmin)
+                else
+                    table_dr_inv(t_mc1, t_mc2) = real(N - 1, wp) / (rmax - rmin)
+                    table_dr_inv(t_mc2, t_mc1) = real(N - 1, wp) / (rmax - rmin)
+                end if
+
                 do i = 0, N - 1
-                    read(unit_id, *) idx, r, V, F
+                    read(unit_id, *, iostat=ierr) idx, r, V, F
+                    if (ierr /= 0) then
+                        print *, "Error reading table data at point ", i, " from ", trim(filename)
+                        stop 1
+                    end if
                     table_V(i, t_mc1, t_mc2) = V
                     table_V(i, t_mc2, t_mc1) = V
                 end do
-                
-                print *, "   Loaded table from ", trim(filename), " keyword ", trim(keyword), &
-                         " for MC site types ", t_mc1, "-", t_mc2, " (N=", N, ", rmin=", rmin, ", rmax=", rmax, ")"
-            else
-                if (is_single_file) then
-                    print *, "   Warning: Table keyword ", trim(keyword), " not found in ", trim(filename)
+
+                ! Update interaction range for this pair
+                if (allocated(rangep) .and. pot_int < 1) then
+                    rangep(t_mc1 * Npart_types + t_mc2) = rmax
+                    rangep(t_mc2 * Npart_types + t_mc1) = rmax
                 end if
+
+                if (is_rsq) then
+                    print *, "   Loaded table from ", trim(filename), " keyword ", trim(keyword), &
+                             " for pair (", t_lmp1, ",", t_lmp2, ") [MC types ", t_mc1, "-", t_mc2, &
+                             "] (N=", N, ", style=RSQ, rmin=", rmin, ", rmax=", rmax, ")"
+                else
+                    print *, "   Loaded table from ", trim(filename), " keyword ", trim(keyword), &
+                             " for pair (", t_lmp1, ",", t_lmp2, ") [MC types ", t_mc1, "-", t_mc2, &
+                             "] (N=", N, ", style=R, rmin=", rmin, ", rmax=", rmax, ")"
+                end if
+            else
+                print *, "   Warning: Could not find table for pair (", t_lmp1, ",", t_lmp2, ") in ", trim(filename)
             end if
             close(unit_id)
         end do
     end do
-    
+
     ! Copy to device
     block
-        use potential, only : has_table_dev, table_N_dev, table_rmin_dev, table_rmax_dev, table_dr_inv_dev, table_V_dev, table_mc_dev
+        use potential, only : has_table_dev, table_is_rsq_dev, table_N_dev, &
+                              table_rmin_dev, table_rmax_dev, table_dr_inv_dev, &
+                              table_V_dev, table_mc_dev
         has_table_dev = has_table
+        table_is_rsq_dev = table_is_rsq
         table_N_dev = table_N
         table_rmin_dev = table_rmin
         table_rmax_dev = table_rmax
@@ -977,13 +1096,64 @@ Subroutine load_table_potentials()
     end block
     print *, " >>> Host and Device table potentials successfully loaded."
 contains
+    subroutine parse_n_line(n_line, n_pts, is_rsq_out, rmin_val, rmax_val, ok_out)
+        character(len=*), intent(in) :: n_line
+        integer, intent(out) :: n_pts
+        logical, intent(out) :: is_rsq_out
+        real(wp), intent(out) :: rmin_val, rmax_val
+        logical, intent(out) :: ok_out
+        character(len=256) :: tok1, tok2, tok3, tok4, tok5, upper_tok3
+        integer :: rstat
+
+        ok_out = .false.
+        is_rsq_out = .false.
+        n_pts = 0
+        rmin_val = 0.0_wp
+        rmax_val = 0.0_wp
+
+        read(n_line, *, iostat=rstat) tok1, tok2, tok3, tok4, tok5
+        if (rstat == 0) then
+            upper_tok3 = tok3
+            call uppercase(upper_tok3)
+            read(tok2, *, iostat=rstat) n_pts
+            if (rstat == 0) then
+                if (trim(upper_tok3) == 'RSQ') then
+                    is_rsq_out = .true.
+                    read(tok4, *, iostat=rstat) rmin_val
+                    if (rstat == 0) read(tok5, *, iostat=rstat) rmax_val
+                    if (rstat == 0) ok_out = .true.
+                else if (trim(upper_tok3) == 'R') then
+                    is_rsq_out = .false.
+                    read(tok4, *, iostat=rstat) rmin_val
+                    if (rstat == 0) read(tok5, *, iostat=rstat) rmax_val
+                    if (rstat == 0) ok_out = .true.
+                end if
+            end if
+        end if
+
+        if (.not. ok_out) then
+            read(n_line, *, iostat=rstat) tok1, tok2, tok3, tok4
+            if (rstat == 0) then
+                read(tok2, *, iostat=rstat) n_pts
+                if (rstat == 0) then
+                    read(tok3, *, iostat=rstat) rmin_val
+                    if (rstat == 0) read(tok4, *, iostat=rstat) rmax_val
+                    if (rstat == 0) then
+                        is_rsq_out = .false.
+                        ok_out = .true.
+                    end if
+                end if
+            end if
+        end if
+    end subroutine parse_n_line
+
     subroutine uppercase(str)
         character(len=*), intent(inout) :: str
-        integer :: i, char_code
-        do i = 1, len_trim(str)
-            char_code = ichar(str(i:i))
+        integer :: k, char_code
+        do k = 1, len_trim(str)
+            char_code = ichar(str(k:k))
             if (char_code >= 97 .and. char_code <= 122) then
-                str(i:i) = char(char_code - 32)
+                str(k:k) = char(char_code - 32)
             end if
         end do
     end subroutine uppercase

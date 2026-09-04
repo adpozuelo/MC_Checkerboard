@@ -165,17 +165,21 @@ Subroutine ener(i1, i2, en, overlap)
       vl0_aux      = vl0(Indx)
       rangep_aux   = rangep(Indx)
 
-      IF (R12 < 0.5_wp) THEN
-          overlap = .True.
-          en = 9.e+33_wp  
-          Return
-      ELSEIF (R12 < rangep_aux) THEN
-        ! --------------------------------------------------------
-          ! ROUTE CORE POTENTIAL
-          ! --------------------------------------------------------
-          if (table_mc .and. has_table(itypei, itypej)) then
+      IF (table_mc .and. has_table(itypei, itypej)) THEN
+          IF (R12 < table_rmin(itypei, itypej)) THEN
+              overlap = .True.
+              en = 9.e+33_wp  
+              Return
+          ELSEIF (R12 < rangep_aux) THEN
               call eval_table_pot_host(R12, itypei, itypej, en)
-          else
+              if (en > 1.0e30_wp) overlap = .True.
+          END IF
+      ELSE
+          IF (R12 < 0.5_wp) THEN
+              overlap = .True.
+              en = 9.e+33_wp  
+              Return
+          ELSEIF (R12 < rangep_aux) THEN
               If (pot_int == 2) then
                   ! Site-Site uses Palaia WCA + Cosine Tail. 
                   ! We pass vl0_aux as the 'epsp' patch depth parameter.
@@ -183,21 +187,21 @@ Subroutine ener(i1, i2, en, overlap)
               Else if (pot_int == 1) then
                   Call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, vl0_aux, en)
               endif
-          end if
-          If (NRB_SITES(itypei) > 0 .and. NRB_SITES(itypej) > 0) then
-              If (pot_int == 1) then
-                  Call calculate_patchy_energy_angular(itypei, itypej, r12, rsq, dxp, dyp, dzp, &
-                                               Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
-                                               sigma_LJ_aux, eps_LJ_aux, xop_aux, vl0_aux, en)
-              Else if (pot_int == 2) then
-                  Call calculate_patchy_energy_sitesite(itypei, itypej, dxp, dyp, dzp, &
-                                               Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
-                                               sigma_LJ_aux, en_patches)
-                  en = en + en_patches
-              End If
-          End If 
-      END IF  
-End Subroutine ener
+          END IF
+      END IF
+      If (NRB_SITES(itypei) > 0 .and. NRB_SITES(itypej) > 0) then
+          If (pot_int == 1) then
+              Call calculate_patchy_energy_angular(itypei, itypej, r12, rsq, dxp, dyp, dzp, &
+                                           Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
+                                           sigma_LJ_aux, eps_LJ_aux, xop_aux, vl0_aux, en)
+          Else if (pot_int == 2) then
+              Call calculate_patchy_energy_sitesite(itypei, itypej, dxp, dyp, dzp, &
+                                           Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
+                                           sigma_LJ_aux, en_patches)
+              en = en + en_patches
+          End If
+      End If 
+END Subroutine ener
 
 ! ==============================================================================
 ! CPU ROUTINE: ener_LJ
@@ -246,15 +250,21 @@ Subroutine ener_LJ(i1, i2, en, overlap)
    rangep_aux   = rangep(Indx)
    vl0_aux      = vl0(Indx)       
 
-   IF (R12 < 0.5_wp) THEN
-        en = 9.e+33_wp
-        overlap = .true.
-   ELSEIF (R12 < rangep_aux) THEN
-        if (table_mc .and. has_table(itypei, itypej)) then
+   IF (table_mc .and. has_table(itypei, itypej)) THEN
+        IF (R12 < table_rmin(itypei, itypej)) THEN
+             en = 9.e+33_wp
+             overlap = .true.
+        ELSEIF (R12 < rangep_aux) THEN
              call eval_table_pot_host(R12, itypei, itypej, en)
-        else
+             if (en > 1.0e30_wp) overlap = .true.
+        END IF
+   ELSE
+        IF (R12 < 0.5_wp) THEN
+             en = 9.e+33_wp
+             overlap = .true.
+        ELSEIF (R12 < rangep_aux) THEN
              call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, vl0_aux, en)
-        end if
+        END IF
    END IF
 End Subroutine ener_LJ
 

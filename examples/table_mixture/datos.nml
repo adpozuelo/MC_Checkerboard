@@ -1,0 +1,42 @@
+! ==============================================================================
+! MONTE CARLO SIMULATION CONTROL PARAMETERS
+! ==============================================================================
+&Control_Params
+  istep_ini      = 0,          ! Initial step number (0 for new simulation, >0 for restart)
+  istep_fin      = 20,         ! Total number of MC sweeps (steps) to execute
+  Neq            = 0,          ! Number of equilibration sweeps before accumulating averages
+  Nmove          = 10,         ! Trial moves per particle attempted in each MC sweep
+  Nsave          = 5,          ! Frequency (in sweeps) for writing progress stdout & block averages
+  Ndump          = 20,         ! Frequency (in sweeps) for writing trajectory frames
+  Nrestart       = 20,         ! Frequency (in sweeps) for saving restart checkpoints
+  imovie         = .false.,    ! Enable trajectory output (.true. / .false.)
+  traj_format    = 'plain',    ! Trajectory output format: 'plain' (text), 'netcdf' (binary), or 'both'
+  Npart_types    = 2,          ! Number of particle species in system (2 for binary mixture)
+  Ecpu_check     = .true.      ! Enable CPU energy check
+/
+
+! ==============================================================================
+! MONTE CARLO SAMPLING & THERMODYNAMIC PARAMETERS
+! ==============================================================================
+&MC_Params
+  hmax         = 0.02,         ! Maximum particle translation step size
+  omax         = 0.5,          ! Maximum particle rotation step size (in radians)
+  vmax         = 0.1, 0.1, 0.1,! Maximum box edge length displacement (Lx, Ly, Lz) for NpT moves
+  displ_update = .true.,       ! Enable automatic adjustment of hmax/omax/vmax (~40% acceptance)
+  temp0        = 1.0,          ! Initial reduced temperature T0* = kB*T/epsilon
+  temp1        = 1.0,          ! Final reduced temperature T1*
+  npt          = .false.,      ! Isobaric-isothermal ensemble (.true. for NpT, .false. for NVT)
+  Nvolf        = 1,            ! Frequency (in sweeps) of NpT volume change attempts
+  iscale       = 0,            ! Isotropic box scaling flag (0 = independent Lx,Ly,Lz, 1 = isotropic)
+  pres         = 0.1,          ! Reduced pressure P*
+  seed         = 12345         ! Random number generator seed
+/
+
+! ==============================================================================
+! POTENTIAL MODEL SELECTION & PAIR PARAMETER MATRICES
+! ==============================================================================
+&Potential_Params
+  model         = 'TABLE',     ! Potential model: 'TABLE' (LAMMPS tabulated potentials)
+  table_mc      = .true.,      ! Enable MC table potential evaluations
+  table_file_mc = 'pot',       ! Prefix for potential table files (pot11.dat, pot12.dat, pot22.dat)
+/

@@ -163,6 +163,7 @@ MODULE potential
     character(len=256) :: table_file_lammps = ""
     
     logical :: has_table(0:15, 0:15) = .false.
+    logical :: table_is_rsq(0:15, 0:15) = .false.
     integer :: table_N(0:15, 0:15) = 0
     real(wp) :: table_rmin(0:15, 0:15) = 0.0_wp
     real(wp) :: table_rmax(0:15, 0:15) = 0.0_wp
@@ -172,6 +173,7 @@ MODULE potential
     
     ! Device table potential variables
     logical, constant :: has_table_dev(0:15, 0:15)
+    logical, constant :: table_is_rsq_dev(0:15, 0:15)
     integer, constant :: table_N_dev(0:15, 0:15)
     real(wp), constant :: table_rmin_dev(0:15, 0:15)
     real(wp), constant :: table_rmax_dev(0:15, 0:15)

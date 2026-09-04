@@ -2,7 +2,9 @@ module potential_functions
    use set_precision
    use potential, only : table_mc, table_mc_dev, Npart_types, &
                          has_table_dev, table_rmin_dev, table_rmax_dev, table_N_dev, table_dr_inv_dev, table_V_dev, &
-                         has_table, table_rmin, table_rmax, table_N, table_dr_inv, table_V
+                         table_is_rsq_dev, &
+                         has_table, table_rmin, table_rmax, table_N, table_dr_inv, table_V, &
+                         table_is_rsq
    implicit none
 
    contains
@@ -331,7 +333,7 @@ module potential_functions
     ! ROUTINES: eval_table_pot (Host & Device implementations)
     ! ==============================================================================
     attributes(device) subroutine eval_table_pot_dev(r, t1, t2, V_val)
-        use potential, only : table_rmin_dev, table_rmax_dev, table_N_dev, table_dr_inv_dev, table_V_dev
+        use potential, only : table_rmin_dev, table_rmax_dev, table_N_dev, table_dr_inv_dev, table_V_dev, table_is_rsq_dev
         implicit none
         real(wp), intent(in) :: r
         integer, intent(in) :: t1, t2
@@ -350,8 +352,14 @@ module potential_functions
         else if (r >= rmax) then
             V_val = 0.0_wp
         else
-            idx_real = (r - rmin) * dr_inv
+            if (table_is_rsq_dev(t1, t2)) then
+                idx_real = (r*r - rmin*rmin) * dr_inv
+            else
+                idx_real = (r - rmin) * dr_inv
+            end if
             idx = int(idx_real)
+            if (idx < 0) idx = 0
+            if (idx > N - 2) idx = N - 2
             frac = idx_real - real(idx, wp)
             
             y0 = table_V_dev(max(idx - 1, 0), t1, t2)
@@ -367,7 +375,7 @@ module potential_functions
     end subroutine eval_table_pot_dev
 
     attributes(host) subroutine eval_table_pot_host(r, t1, t2, V_val)
-        use potential, only : table_rmin, table_rmax, table_N, table_dr_inv, table_V
+        use potential, only : table_rmin, table_rmax, table_N, table_dr_inv, table_V, table_is_rsq
         implicit none
         real(wp), intent(in) :: r
         integer, intent(in) :: t1, t2
@@ -386,8 +394,14 @@ module potential_functions
         else if (r >= rmax) then
             V_val = 0.0_wp
         else
-            idx_real = (r - rmin) * dr_inv
+            if (table_is_rsq(t1, t2)) then
+                idx_real = (r*r - rmin*rmin) * dr_inv
+            else
+                idx_real = (r - rmin) * dr_inv
+            end if
             idx = int(idx_real)
+            if (idx < 0) idx = 0
+            if (idx > N - 2) idx = N - 2
             frac = idx_real - real(idx, wp)
             
             y0 = table_V(max(idx - 1, 0), t1, t2)

@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.6.0] - 2026-09-04
+
+### Added
+- **Tabulated Potential Mixtures (`model = 'TABLE'`)**:
+  - Implemented GPU-accelerated Monte Carlo simulation for simple $n$-component fluid mixtures interacting via LAMMPS potential tables (`pot_int = 0`, `table_mc = .true.`).
+  - Added support for both `RSQ` ($r^2$-uniform spacing from LAMMPS `pair_write ... rsq ...`) and linear `R` grid styles in `eval_table_pot_dev` and `eval_table_pot_host` (`src/potential_functions.cuf`).
+  - Added 4-point cubic Catmull-Rom spline interpolation with boundary clamping on device constant memory and host.
+  - Implemented flexible table loading in `load_table_potentials` (`src/Read_input_data_nml.cuf`):
+    - Automatically discovers separate pairwise files (`pot11.dat`, `pot12.dat`, `pot22.dat`, or `mie11.dat`, `mie12.dat`, `mie22.dat`) or unified multi-table files.
+    - Matches section keywords case-insensitively (`mie11`, `POT11`, `1_1`, `11`).
+    - Robustly parses tokenized `N` line with style detection (`RSQ` vs `R`) and spacing calculation.
+    - Dynamically configures the interaction cutoff matrix `rangep(i, j) = table_rmax(i, j)` directly from table headers, ensuring consistent checkerboard cell decompositions.
+  - Integrated table evaluation into GPU checkerboard MC kernels:
+    - `subsweep_LJ` for internal and neighbor cell moves with $r_{\min}$ overlap checks (`src/Subsweep_Energy_CUDA.cuf`).
+    - Full-system and per-atom energy verification kernels `enerGPU_LJ` and `cell_per_atom_enerGPU_LJ`.
+    - Host verification routines `ener` and `ener_LJ` (`src/energy.cuf`).
+  - Created example benchmark case in `examples/table_mixture/` matching LAMMPS Mie 50-49 binary mixture data and verified that initial GPU energy matches LAMMPS to $< 0.001\%$.
+
+### Fixed
+- **OpenACC Dynamic Symbol Collision (`libgomp: TODO`)**:
+  - Provided a `bind(C, name="acc_register_library")` stub in `src/Tools.cuf` to prevent NVHPC runtime from invoking GCC's unfinished `acc_register_library` implementation in `libgomp.so.1` (loaded by dynamic LAMMPS library dependencies).
+
+---
+
 ## [2.5.1] - 2026-08-28
 
 ### Added

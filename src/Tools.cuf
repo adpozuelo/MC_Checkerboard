@@ -479,6 +479,12 @@ End Subroutine Write_movie
     if (ierror /= 0) then; print *, " Error in choosing the GPU"; stop 1; end if
     ierror = cudaGetDeviceProperties(properties, gpuid_dev)
   end subroutine choosegpu
+
+  subroutine acc_register_library(prof_reg, prof_unreg, prof_lookup) bind(C, name="acc_register_library")
+    use iso_c_binding
+    type(c_funptr), value :: prof_reg, prof_unreg, prof_lookup
+    ! No-op dummy stub to prevent conflict with GCC libgomp's unfinished stub (libgomp: TODO)
+  end subroutine acc_register_library
 end module tools
 
 

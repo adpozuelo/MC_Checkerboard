@@ -10,7 +10,7 @@ module cuda_fortran
   use libm
   use set_precision
   use potential_functions
-  use potential, only : patch_radial_factor, table_mc, &
+  use potential, only : patch_radial_factor, table_mc, table_mc_dev, table_is_rsq_dev, &
                         has_table_dev, table_rmin_dev, table_rmax_dev, table_N_dev, table_dr_inv_dev, table_V_dev
   implicit none
 
@@ -903,7 +903,7 @@ attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, N
     integer :: Nl0, Nl1, Nl2, ICell, imol2, jmol2, itypei, itypej, Indx
     integer :: indx_atm_aux, indx_atm_aux2, indx_neigh_aux2, indx_neigh_auxp, jcell_x, jcell_y, jcell_z, Indx_Cell
     
-    real(wp) :: xi, yi, zi, energ, DX, DY, DZ, RSQ, H11, H12, H13, H21, H22, H23, H31, H32, H33, DXP, DYP, DZP
+    real(wp) :: xi, yi, zi, energ, DX, DY, DZ, RSQ, dist, H11, H12, H13, H21, H22, H23, H31, H32, H33, DXP, DYP, DZP
     real(wp) :: dx_neigh, dy_neigh, dz_neigh, Vrad, s_LJ_aux, eps_LJ_aux, VL0_aux, range_aux
 
     Indx_Cell = (threadIdx%x + (blockIdx%x-1)*blockDim%x) - 1
@@ -937,12 +937,22 @@ attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, N
                 DXP = DX - anint(DX); DYP = DY - anint(DY); DZP = DZ - anint(DZ)
                 DX = H11*DXP + H12*DYP + H13*DZP; DY = H21*DXP + H22*DYP + H23*DZP; DZ = H31*DXP + H32*DYP + H33*DZP
                 RSQ = DX*DX + DY*DY + DZ*DZ
+                dist = sqrt(RSQ)
                 
-                if (RSQ <= 0.25_wp) then
-                  energy(Indx_Cell) = 9.0d99; return
-                else if (RSQ < range_aux*range_aux) then
-                  call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
-                  energ = energ + Vrad
+                if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
+                  if (dist < table_rmin_dev(itypei, itypej)) then
+                    energy(Indx_Cell) = 9.0d99; return
+                  else if (RSQ < range_aux*range_aux) then
+                    call eval_table_pot_dev(dist, itypei, itypej, Vrad)
+                    energ = energ + Vrad
+                  end if
+                else
+                  if (RSQ <= 0.25_wp) then
+                    energy(Indx_Cell) = 9.0d99; return
+                  else if (RSQ < range_aux*range_aux) then
+                    call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
+                    energ = energ + Vrad
+                  end if
                 end if
               end if
             end do
@@ -965,12 +975,22 @@ attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, N
                   DXP = DX - anint(DX); DYP = DY - anint(DY); DZP = DZ - anint(DZ)
                   DX = H11*DXP + H12*DYP + H13*DZP; DY = H21*DXP + H22*DYP + H23*DZP; DZ = H31*DXP + H32*DYP + H33*DZP
                   RSQ = DX*DX + DY*DY + DZ*DZ
+                  dist = sqrt(RSQ)
                   
-                  if (RSQ <= 0.25_wp) then
-                    energy(Indx_Cell) = 9.0d99; return
-                  else if (RSQ < range_aux*range_aux) then
-                    call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
-                    energ = energ + Vrad
+                  if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
+                    if (dist < table_rmin_dev(itypei, itypej)) then
+                      energy(Indx_Cell) = 9.0d99; return
+                    else if (RSQ < range_aux*range_aux) then
+                      call eval_table_pot_dev(dist, itypei, itypej, Vrad)
+                      energ = energ + Vrad
+                    end if
+                  else
+                    if (RSQ <= 0.25_wp) then
+                      energy(Indx_Cell) = 9.0d99; return
+                    else if (RSQ < range_aux*range_aux) then
+                      call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
+                      energ = energ + Vrad
+                    end if
                   end if
                 end do
               end if
@@ -2215,15 +2235,26 @@ attributes(device) subroutine evaluate_cell_interactions( &
                   call get_dist(XJ,YJ,ZJ, Dx_old,Dy_old,Dz_old, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX,DY,DZ, RSQ, dist)
                   call get_dist(XJ,YJ,ZJ, Dmove_x,Dmove_y,Dmove_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DXn,DYn,DZn, RSQn, distn)
                   
-                  if (RSQ < 0.249999_wp) then; overlap_error(Indx_Cell) = 1; return; end if
-                  if (RSQn < 0.250000_wp) then; overlap = 1; ener_new = ener_new + 9.0e+33_wp; end if
-                  
-                  ! Streamlined Evaluation using only the Cutoff Matrix
-                  if (RSQ < rangeP_aux*rangeP_aux) then
-                    call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad); ener_old = ener_old + Vrad
-                  end if
-                  if (RSQn < rangeP_aux*rangeP_aux) then
-                    call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, VradN); ener_new = ener_new + VradN
+                  if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
+                    if (dist < table_rmin_dev(itypei, itypej)) then; overlap_error(Indx_Cell) = 1; return; end if
+                    if (distn < table_rmin_dev(itypei, itypej)) then; overlap = 1; ener_new = ener_new + 9.0e+33_wp; end if
+                    if (RSQ < rangeP_aux*rangeP_aux) then
+                      call eval_table_pot_dev(dist, itypei, itypej, Vrad); ener_old = ener_old + Vrad
+                    end if
+                    if (RSQn < rangeP_aux*rangeP_aux) then
+                      call eval_table_pot_dev(distn, itypei, itypej, VradN); ener_new = ener_new + VradN
+                    end if
+                  else
+                    if (RSQ < 0.249999_wp) then; overlap_error(Indx_Cell) = 1; return; end if
+                    if (RSQn < 0.250000_wp) then; overlap = 1; ener_new = ener_new + 9.0e+33_wp; end if
+                    
+                    ! Streamlined Evaluation using only the Cutoff Matrix
+                    if (RSQ < rangeP_aux*rangeP_aux) then
+                      call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad); ener_old = ener_old + Vrad
+                    end if
+                    if (RSQn < rangeP_aux*rangeP_aux) then
+                      call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, VradN); ener_new = ener_new + VradN
+                    end if
                   end if
                 end if
               end do
@@ -2250,16 +2281,30 @@ attributes(device) subroutine evaluate_cell_interactions( &
                     call get_dist(XJ,YJ,ZJ, Dx_old,Dy_old,Dz_old, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX,DY,DZ, RSQ, dist)
                     call get_dist(XJ,YJ,ZJ, Dmove_x,Dmove_y,Dmove_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DXn,DYn,DZn, RSQn, distn)
                     
-                    if (RSQ < 0.249999_wp) then; overlap_error(Indx_Cell) = 1; return; end if
-                    if (RSQn < 0.250000_wp) then
-                      overlap = 1; ener_new = ener_new + 99999999999._wp
-                    else
-                      ! Streamlined Neighbor Interaction Evaluation
-                      if (RSQ < rangeP_aux*rangeP_aux) then
-                        call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad); ener_old = ener_old + Vrad
+                    if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
+                      if (dist < table_rmin_dev(itypei, itypej)) then; overlap_error(Indx_Cell) = 1; return; end if
+                      if (distn < table_rmin_dev(itypei, itypej)) then
+                        overlap = 1; ener_new = ener_new + 99999999999._wp
+                      else
+                        if (RSQ < rangeP_aux*rangeP_aux) then
+                          call eval_table_pot_dev(dist, itypei, itypej, Vrad); ener_old = ener_old + Vrad
+                        end if
+                        if (RSQn < rangeP_aux*rangeP_aux) then
+                          call eval_table_pot_dev(distn, itypei, itypej, VradN); ener_new = ener_new + VradN
+                        end if
                       end if
-                      if (RSQn < rangeP_aux*rangeP_aux) then
-                        call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, VradN); ener_new = ener_new + VradN
+                    else
+                      if (RSQ < 0.249999_wp) then; overlap_error(Indx_Cell) = 1; return; end if
+                      if (RSQn < 0.250000_wp) then
+                        overlap = 1; ener_new = ener_new + 99999999999._wp
+                      else
+                        ! Streamlined Neighbor Interaction Evaluation
+                        if (RSQ < rangeP_aux*rangeP_aux) then
+                          call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Vrad); ener_old = ener_old + Vrad
+                        end if
+                        if (RSQn < rangeP_aux*rangeP_aux) then
+                          call vlj(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, VradN); ener_new = ener_new + VradN
+                        end if
                       end if
                     end if
                   end do
@@ -4022,7 +4067,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
     integer :: Nl0, Nl1, Nl2, ICell, imol2, jmol2, itypei, itypej, Indx, orig_i
     integer :: indx_atm_aux, indx_atm_aux2, indx_neigh_aux2, indx_neigh_auxp, jcell_x, jcell_y, jcell_z, Indx_Cell
     
-    real(wp) :: xi, yi, zi, en_i, DX, DY, DZ, RSQ, H11, H12, H13, H21, H22, H23, H31, H32, H33, DXP, DYP, DZP
+    real(wp) :: xi, yi, zi, en_i, DX, DY, DZ, RSQ, dist, H11, H12, H13, H21, H22, H23, H31, H32, H33, DXP, DYP, DZP
     real(wp) :: dx_neigh, dy_neigh, dz_neigh, Vrad, s_LJ_aux, eps_LJ_aux, VL0_aux, range_aux
 
     Indx_Cell = (threadIdx%x + (blockIdx%x-1)*blockDim%x) - 1
@@ -4049,12 +4094,22 @@ attributes(device) subroutine evaluate_cell_interactions( &
                 DXP = DX - anint(DX); DYP = DY - anint(DY); DZP = DZ - anint(DZ)
                 DX = H11*DXP + H12*DYP + H13*DZP; DY = H21*DXP + H22*DYP + H23*DZP; DZ = H31*DXP + H32*DYP + H33*DZP
                 RSQ = DX*DX + DY*DY + DZ*DZ
+                dist = sqrt(RSQ)
                 
-                if (RSQ <= 0.25_wp) then
-                  en_i = 9.0e33_wp; go to 10
-                else if (RSQ < range_aux*range_aux) then
-                  call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
-                  en_i = en_i + 0.5_wp * Vrad   
+                if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
+                  if (dist < table_rmin_dev(itypei, itypej)) then
+                    en_i = 9.0e33_wp; go to 10
+                  else if (RSQ < range_aux*range_aux) then
+                    call eval_table_pot_dev(dist, itypei, itypej, Vrad)
+                    en_i = en_i + 0.5_wp * Vrad   
+                  end if
+                else
+                  if (RSQ <= 0.25_wp) then
+                    en_i = 9.0e33_wp; go to 10
+                  else if (RSQ < range_aux*range_aux) then
+                    call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
+                    en_i = en_i + 0.5_wp * Vrad   
+                  end if
                 end if
               end if
             end do
@@ -4075,12 +4130,22 @@ attributes(device) subroutine evaluate_cell_interactions( &
                   DXP = DX - anint(DX); DYP = DY - anint(DY); DZP = DZ - anint(DZ)
                   DX = H11*DXP + H12*DYP + H13*DZP; DY = H21*DXP + H22*DYP + H23*DZP; DZ = H31*DXP + H32*DYP + H33*DZP
                   RSQ = DX*DX + DY*DY + DZ*DZ
+                  dist = sqrt(RSQ)
                   
-                  if (RSQ <= 0.25_wp) then
-                    en_i = 9.0e33_wp; go to 10
-                  else if (RSQ < range_aux*range_aux) then
-                    call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
-                    en_i = en_i + 0.5_wp * Vrad   
+                  if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
+                    if (dist < table_rmin_dev(itypei, itypej)) then
+                      en_i = 9.0e33_wp; go to 10
+                    else if (RSQ < range_aux*range_aux) then
+                      call eval_table_pot_dev(dist, itypei, itypej, Vrad)
+                      en_i = en_i + 0.5_wp * Vrad   
+                    end if
+                  else
+                    if (RSQ <= 0.25_wp) then
+                      en_i = 9.0e33_wp; go to 10
+                    else if (RSQ < range_aux*range_aux) then
+                      call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
+                      en_i = en_i + 0.5_wp * Vrad   
+                    end if
                   end if
                 end do
               end if
