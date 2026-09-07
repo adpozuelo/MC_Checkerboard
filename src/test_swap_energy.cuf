@@ -1,0 +1,383 @@
+! ==============================================================================
+! TEST PROGRAM: test_swap_energy
+! DESCRIPTION:
+!   Verifies that identity swap energy changes Delta_E are computed exactly
+!   for all four interaction potential models:
+!     - Hard Spheres (pot_int = -1)
+!     - Lennard-Jones (pot_int = 0)
+!     - Angular Patchy LJG (pot_int = 1)
+!     - Site-Site Patchy SSP (pot_int = 2)
+!   Checks that Delta_E == E_total(after swap) - E_total(before swap) to
+!   floating point tolerance, and that overlap detection is correctly handled.
+! ==============================================================================
+program test_swap_energy
+  use set_precision
+  use configuration
+  use potential
+  use rundata
+  implicit none
+
+  integer :: n_failed = 0
+  integer :: n_passed = 0
+
+  print *, "=========================================================="
+  print *, " STARTING IDENTITY SWAP ENERGY VERIFICATION TEST SUITE"
+  print *, "=========================================================="
+
+  call test_hard_spheres(n_passed, n_failed)
+  call test_lennard_jones(n_passed, n_failed)
+  call test_angular_patchy(n_passed, n_failed)
+  call test_sitesite_patchy(n_passed, n_failed)
+
+  print *, "=========================================================="
+  write(*,'(A,I4,A,I4)') " TEST SUMMARY: PASSED = ", n_passed, " | FAILED = ", n_failed
+  print *, "=========================================================="
+
+  if (n_failed > 0) then
+     print *, "FAILED: Some swap energy checks did not match total energy difference."
+     stop 1
+  else
+     print *, "SUCCESS: All swap energy calculations verified perfectly!"
+  end if
+
+contains
+
+  ! Helper to compute sum over all pairs
+  subroutine compute_total_energy_cpu(E_tot, has_ov)
+    real(wp), intent(out) :: E_tot
+    logical, intent(out)  :: has_ov
+    real(wp) :: e_pair
+    logical  :: ov_pair
+    integer  :: i, j
+
+    E_tot = 0.0_wp
+    has_ov = .false.
+
+    do i = 0, natoms - 2
+       do j = i + 1, natoms - 1
+          if (pot_int == -1) then
+             call ener_HS(i, j, e_pair, ov_pair)
+          else if (pot_int < 1) then
+             call ener_LJ(i, j, e_pair, ov_pair)
+          else
+             call ener(i, j, e_pair, ov_pair)
+          end if
+          if (ov_pair) has_ov = .true.
+          E_tot = E_tot + e_pair
+       end do
+    end do
+  end subroutine compute_total_energy_cpu
+
+  ! ----------------------------------------------------------------------------
+  ! 1. Hard Spheres Test
+  ! ----------------------------------------------------------------------------
+  subroutine test_hard_spheres(n_p, n_f)
+    integer, intent(inout) :: n_p, n_f
+    real(wp) :: E_before, E_after, delta_E
+    logical  :: ov_before, ov_after, ov_swap
+    real(wp) :: Lbox
+
+    print *, "[TEST 1] Hard Spheres (pot_int = -1)..."
+    pot_int = -1
+    Npart_types = 2
+    ntypes = 2
+    natoms = 4
+
+    if (.not. allocated(r)) allocate(r(0:natoms*3-1))
+    if (.not. allocated(q)) allocate(q(0:natoms*4-1))
+    if (.not. allocated(itype)) allocate(itype(0:natoms-1))
+    if (.not. allocated(sigma_LJ)) allocate(sigma_LJ(0:3))
+
+    Lbox = 10.0_wp
+    h = 0.0_wp; h(0) = Lbox; h(4) = Lbox; h(8) = Lbox
+    hinv = 0.0_wp; hinv(0) = 1.0_wp/Lbox; hinv(4) = 1.0_wp/Lbox; hinv(8) = 1.0_wp/Lbox
+
+    ! Particle 0: Type 0, Particle 1: Type 1
+    ! sigma_00 = 1.0, sigma_01 = 1.1, sigma_11 = 1.2
+    sigma_LJ(0) = 1.0_wp; sigma_LJ(1) = 1.1_wp
+    sigma_LJ(2) = 1.1_wp; sigma_LJ(3) = 1.2_wp
+
+    ! Set positions (scaled): well separated
+    r = 0.0_wp
+    r(0) = 0.1_wp; r(1) = 0.1_wp; r(2) = 0.1_wp  ! atom 0 (type 0)
+    r(3) = 0.3_wp; r(4) = 0.1_wp; r(5) = 0.1_wp  ! atom 1 (type 1)
+    r(6) = 0.5_wp; r(7) = 0.5_wp; r(8) = 0.5_wp  ! atom 2 (type 0)
+    r(9) = 0.8_wp; r(10)= 0.8_wp; r(11)= 0.8_wp  ! atom 3 (type 1)
+
+    itype(0) = 0; itype(1) = 1; itype(2) = 0; itype(3) = 1
+    q = 0.0_wp
+    q(0) = 1.0_wp; q(4) = 1.0_wp; q(8) = 1.0_wp; q(12) = 1.0_wp
+
+    call compute_total_energy_cpu(E_before, ov_before)
+    call calc_swap_energy_cpu(0, 1, delta_E, ov_swap)
+
+    ! Perform swap
+    itype(0) = 1; itype(1) = 0
+    call compute_total_energy_cpu(E_after, ov_after)
+    ! Restore
+    itype(0) = 0; itype(1) = 1
+
+    if (.not. ov_swap .and. .not. ov_after .and. abs(delta_E) < 1.0e-6_wp) then
+       print *, "  -> Non-overlapping swap: PASSED (Delta_E = 0, no overlap)"
+       n_p = n_p + 1
+    else
+       print *, "  -> Non-overlapping swap: FAILED"
+       n_f = n_f + 1
+    end if
+
+    ! Now place atom 0 and atom 2 at distance 1.05 (fits when both type 0, overlaps if atom 0 becomes type 1)
+    ! dist = 0.105 * 10 = 1.05
+    ! For type 0 - type 0, sigma=1.0 < 1.05 (no overlap)
+    ! For type 1 - type 0, sigma=1.1 > 1.05 (OVERLAP!)
+    r(0) = 0.100_wp; r(1) = 0.1_wp; r(2) = 0.1_wp
+    r(6) = 0.205_wp; r(7) = 0.1_wp; r(8) = 0.1_wp
+    itype(0) = 0; itype(1) = 1; itype(2) = 0; itype(3) = 1
+
+    call calc_swap_energy_cpu(0, 1, delta_E, ov_swap)
+    if (ov_swap) then
+       print *, "  -> Overlap detection upon swap: PASSED (correctly rejected overlap)"
+       n_p = n_p + 1
+    else
+       print *, "  -> Overlap detection upon swap: FAILED (expected overlap)"
+       n_f = n_f + 1
+    end if
+  end subroutine test_hard_spheres
+
+  ! ----------------------------------------------------------------------------
+  ! 2. Lennard-Jones Test
+  ! ----------------------------------------------------------------------------
+  subroutine test_lennard_jones(n_p, n_f)
+    integer, intent(inout) :: n_p, n_f
+    real(wp) :: E_before, E_after, delta_E, diff
+    logical  :: ov_before, ov_after, ov_swap
+    real(wp) :: Lbox
+
+    print *, "[TEST 2] Lennard-Jones (pot_int = 0)..."
+    pot_int = 0
+    Npart_types = 2
+    ntypes = 2
+    natoms = 4
+
+    if (.not. allocated(sigma_LJ)) allocate(sigma_LJ(0:3))
+    if (.not. allocated(epsilon_LJ)) allocate(epsilon_LJ(0:3))
+    if (.not. allocated(rangeP)) allocate(rangeP(0:3))
+    if (.not. allocated(VL0)) allocate(VL0(0:3))
+    if (.not. allocated(xop)) allocate(xop(0:3))
+
+    ! Type 0: sigma=1.0, eps=1.0
+    ! Type 1: sigma=1.2, eps=2.0
+    sigma_LJ(0) = 1.0_wp; epsilon_LJ(0) = 1.0_wp
+    sigma_LJ(1) = 1.1_wp; epsilon_LJ(1) = 1.41421356_wp
+    sigma_LJ(2) = 1.1_wp; epsilon_LJ(2) = 1.41421356_wp
+    sigma_LJ(3) = 1.2_wp; epsilon_LJ(3) = 2.0_wp
+
+    rangeP = 2.5_wp * sigma_LJ
+    VL0 = 0.0_wp
+    xop = 0.0_wp
+
+    Lbox = 8.0_wp
+    h = 0.0_wp; h(0) = Lbox; h(4) = Lbox; h(8) = Lbox
+    hinv = 0.0_wp; hinv(0) = 1.0_wp/Lbox; hinv(4) = 1.0_wp/Lbox; hinv(8) = 1.0_wp/Lbox
+
+    r(0) = 0.15_wp; r(1) = 0.15_wp; r(2) = 0.15_wp
+    r(3) = 0.35_wp; r(4) = 0.15_wp; r(5) = 0.15_wp
+    r(6) = 0.15_wp; r(7) = 0.38_wp; r(8) = 0.15_wp
+    r(9) = 0.35_wp; r(10)= 0.38_wp; r(11)= 0.15_wp
+
+    itype(0) = 0; itype(1) = 1; itype(2) = 0; itype(3) = 1
+
+    call compute_total_energy_cpu(E_before, ov_before)
+    call calc_swap_energy_cpu(0, 1, delta_E, ov_swap)
+
+    itype(0) = 1; itype(1) = 0
+    call compute_total_energy_cpu(E_after, ov_after)
+    itype(0) = 0; itype(1) = 1
+
+    diff = abs((E_after - E_before) - delta_E)
+    write(*,'(A,F12.6,A,F12.6,A,ES11.4)') "  E_before = ", E_before, " | E_after = ", E_after, " | Diff = ", diff
+    if (diff < 1.0e-5_wp) then
+       print *, "  -> LJ swap Delta_E check: PASSED"
+       n_p = n_p + 1
+    else
+       print *, "  -> LJ swap Delta_E check: FAILED"
+       n_f = n_f + 1
+    end if
+  end subroutine test_lennard_jones
+
+  ! ----------------------------------------------------------------------------
+  ! 3. Angular Patchy Test (LJG model, pot_int = 1)
+  ! ----------------------------------------------------------------------------
+  subroutine test_angular_patchy(n_p, n_f)
+    integer, intent(inout) :: n_p, n_f
+    real(wp) :: E_before, E_after, delta_E, diff
+    logical  :: ov_before, ov_after, ov_swap
+    real(wp) :: Lbox
+    integer  :: i, j
+
+    print *, "[TEST 3] Angular Patchy LJG (pot_int = 1)..."
+    pot_int = 1
+    Bool_tor = 0
+    Npart_types = 2
+    ntypes = 2
+    natoms = 4
+    Nrb_sites_max = 2
+    Ntor_max = 1
+
+    if (.not. allocated(Nrb_sites)) allocate(Nrb_sites(0:Npart_types-1))
+    if (.not. allocated(Ntor_angle)) allocate(Ntor_angle(0:Npart_types*Nrb_sites_max-1))
+    if (.not. allocated(patch)) allocate(patch(0:Npart_types*Nrb_sites_max*3-1))
+    if (.not. allocated(ref_tor_vec)) allocate(ref_tor_vec(0:Npart_types*Nrb_sites_max*3-1))
+    if (.not. allocated(sigma_jon)) allocate(sigma_jon(0:Npart_types*Nrb_sites_max-1))
+    if (.not. allocated(Vpot_Matrix)) allocate(Vpot_Matrix(0:(Npart_types*Nrb_sites_max)**2-1))
+    if (.not. allocated(tor_angle)) allocate(tor_angle(0:Npart_types*Nrb_sites_max*Ntor_max-1))
+
+    Nrb_sites(0) = 2
+    Nrb_sites(1) = 2
+    Ntor_angle = 0
+    sigma_tor_jon = 0.0_wp
+    tor_angle = 0.0_wp
+    ref_tor_vec = 0.0_wp
+
+    ! Patch directions:
+    ! Type 0: [1, 0, 0] and [-1, 0, 0]
+    patch(0) = 1.0_wp; patch(1) = 0.0_wp; patch(2) = 0.0_wp
+    patch(3) =-1.0_wp; patch(4) = 0.0_wp; patch(5) = 0.0_wp
+    ! Type 1: [0, 1, 0] and [0, -1, 0]
+    patch(6) = 0.0_wp; patch(7) = 1.0_wp; patch(8) = 0.0_wp
+    patch(9) = 0.0_wp; patch(10)=-1.0_wp; patch(11)= 0.0_wp
+
+    sigma_jon = 0.5_wp
+    Vpot_Matrix = 0.0_wp
+    ! Specific patch interactions:
+    ! Type 0 patch 0 interacts with Type 1 patch 0 with strength -2.5
+    Vpot_Matrix(0*4 + 2) = -2.5_wp
+    Vpot_Matrix(2*4 + 0) = -2.5_wp
+
+    sigma_LJ(0) = 1.0_wp; epsilon_LJ(0) = 1.0_wp
+    sigma_LJ(1) = 1.0_wp; epsilon_LJ(1) = 1.0_wp
+    sigma_LJ(2) = 1.0_wp; epsilon_LJ(2) = 1.0_wp
+    sigma_LJ(3) = 1.0_wp; epsilon_LJ(3) = 1.0_wp
+    rangeP = 2.5_wp; VL0 = 0.0_wp; xop = 1.2_wp
+
+    Lbox = 10.0_wp
+    h = 0.0_wp; h(0) = Lbox; h(4) = Lbox; h(8) = Lbox
+    hinv = 0.0_wp; hinv(0) = 1.0_wp/Lbox; hinv(4) = 1.0_wp/Lbox; hinv(8) = 1.0_wp/Lbox
+
+    r(0) = 0.20_wp; r(1) = 0.20_wp; r(2) = 0.20_wp
+    r(3) = 0.32_wp; r(4) = 0.20_wp; r(5) = 0.20_wp  ! distance = 1.2
+    r(6) = 0.20_wp; r(7) = 0.32_wp; r(8) = 0.20_wp  ! distance = 1.2
+    r(9) = 0.50_wp; r(10)= 0.50_wp; r(11)= 0.50_wp
+
+    ! Atom 0: identity quaternion [1, 0, 0, 0] (patch 0 points +x)
+    q(0) = 1.0_wp; q(1) = 0.0_wp; q(2) = 0.0_wp; q(3) = 0.0_wp
+    ! Atom 1: identity quaternion (patch 1 of type 0 points -x, towards atom 0)
+    q(4) = 1.0_wp; q(5) = 0.0_wp; q(6) = 0.0_wp; q(7) = 0.0_wp
+    ! Atom 2: identity
+    q(8) = 1.0_wp; q(9) = 0.0_wp; q(10)= 0.0_wp; q(11)= 0.0_wp
+    ! Atom 3: identity
+    q(12)= 1.0_wp; q(13)= 0.0_wp; q(14)= 0.0_wp; q(15)= 0.0_wp
+
+    ! Patch-patch matrix: positive interaction strength
+    Vpot_Matrix = 0.0_wp
+    ! Type 0 patch 0 interacts with Type 1 patch 0 with positive strength 1.0
+    Vpot_Matrix(0*4 + 2) = 1.0_wp
+    Vpot_Matrix(2*4 + 0) = 1.0_wp
+
+    itype(0) = 0; itype(1) = 1; itype(2) = 0; itype(3) = 1
+
+    call compute_total_energy_cpu(E_before, ov_before)
+    call calc_swap_energy_cpu(0, 1, delta_E, ov_swap)
+
+    itype(0) = 1; itype(1) = 0
+    call compute_total_energy_cpu(E_after, ov_after)
+    itype(0) = 0; itype(1) = 1
+
+    diff = abs((E_after - E_before) - delta_E)
+    write(*,'(A,F12.6,A,F12.6,A,ES11.4)') "  E_before = ", E_before, " | E_after = ", E_after, " | Diff = ", diff
+    if (diff < 1.0e-5_wp) then
+       print *, "  -> Angular patchy swap Delta_E check: PASSED"
+       n_p = n_p + 1
+    else
+       print *, "  -> Angular patchy swap Delta_E check: FAILED"
+       n_f = n_f + 1
+    end if
+  end subroutine test_angular_patchy
+
+  ! ----------------------------------------------------------------------------
+  ! 4. Site-Site Patchy Test (SSP model, pot_int = 2)
+  ! ----------------------------------------------------------------------------
+  subroutine test_sitesite_patchy(n_p, n_f)
+    integer, intent(inout) :: n_p, n_f
+    real(wp) :: E_before, E_after, delta_E, diff
+    logical  :: ov_before, ov_after, ov_swap
+    real(wp) :: Lbox
+    integer  :: i, j
+
+    print *, "[TEST 4] Site-Site Patchy SSP (pot_int = 2)..."
+    pot_int = 2
+    Npart_types = 2
+    ntypes = 2
+    natoms = 4
+    Nrb_sites_max = 2
+
+    sigp_factor = 0.1_wp
+    Rcp_factor = 0.3_wp
+    Rc_factor = 2.0_wp
+    patch_radial_factor = 0.5_wp
+
+    Nrb_sites(0) = 2
+    Nrb_sites(1) = 2
+
+    ! Type 0 patch 0: [1, 0, 0], patch 1: [-1, 0, 0]
+    patch(0) = 1.0_wp; patch(1) = 0.0_wp; patch(2) = 0.0_wp
+    patch(3) =-1.0_wp; patch(4) = 0.0_wp; patch(5) = 0.0_wp
+    ! Type 1 patch 0: [0, 1, 0], patch 1: [0, -1, 0]
+    patch(6) = 0.0_wp; patch(7) = 1.0_wp; patch(8) = 0.0_wp
+    patch(9) = 0.0_wp; patch(10)=-1.0_wp; patch(11)= 0.0_wp
+
+    Vpot_Matrix = 0.0_wp
+    ! Site-site attraction between type 0 patch 0 and type 1 patch 0
+    Vpot_Matrix(0*4 + 2) = 1.0_wp
+    Vpot_Matrix(2*4 + 0) = 1.0_wp
+
+    sigma_LJ(0) = 1.0_wp; epsilon_LJ(0) = 1.0_wp
+    sigma_LJ(1) = 1.0_wp; epsilon_LJ(1) = 1.0_wp
+    sigma_LJ(2) = 1.0_wp; epsilon_LJ(2) = 1.0_wp
+    sigma_LJ(3) = 1.0_wp; epsilon_LJ(3) = 1.0_wp
+    rangeP = 2.5_wp; VL0 = 0.0_wp
+
+    Lbox = 10.0_wp
+    h = 0.0_wp; h(0) = Lbox; h(4) = Lbox; h(8) = Lbox
+    hinv = 0.0_wp; hinv(0) = 1.0_wp/Lbox; hinv(4) = 1.0_wp/Lbox; hinv(8) = 1.0_wp/Lbox
+
+    r(0) = 0.20_wp; r(1) = 0.20_wp; r(2) = 0.20_wp
+    r(3) = 0.31_wp; r(4) = 0.20_wp; r(5) = 0.20_wp  ! distance = 1.1
+    r(6) = 0.20_wp; r(7) = 0.31_wp; r(8) = 0.20_wp  ! distance = 1.1
+    r(9) = 0.60_wp; r(10)= 0.60_wp; r(11)= 0.60_wp
+
+    q(0) = 1.0_wp; q(1) = 0.0_wp; q(2) = 0.0_wp; q(3) = 0.0_wp
+    q(4) = cos(acos(-1.0_wp)/4.0_wp); q(5) = 0.0_wp; q(6) = 0.0_wp; q(7) = sin(acos(-1.0_wp)/4.0_wp)
+    q(8) = cos(acos(-1.0_wp)/6.0_wp); q(9) = sin(acos(-1.0_wp)/6.0_wp); q(10)= 0.0_wp; q(11)= 0.0_wp
+    q(12)= 1.0_wp; q(13)= 0.0_wp; q(14)= 0.0_wp; q(15)= 0.0_wp
+
+    itype(0) = 0; itype(1) = 1; itype(2) = 0; itype(3) = 1
+
+    call compute_total_energy_cpu(E_before, ov_before)
+    call calc_swap_energy_cpu(0, 1, delta_E, ov_swap)
+
+    itype(0) = 1; itype(1) = 0
+    call compute_total_energy_cpu(E_after, ov_after)
+    itype(0) = 0; itype(1) = 1
+
+    diff = abs((E_after - E_before) - delta_E)
+    write(*,'(A,F12.6,A,F12.6,A,ES11.4)') "  E_before = ", E_before, " | E_after = ", E_after, " | Diff = ", diff
+    if (diff < 1.0e-5_wp) then
+       print *, "  -> Site-Site patchy swap Delta_E check: PASSED"
+       n_p = n_p + 1
+    else
+       print *, "  -> Site-Site patchy swap Delta_E check: FAILED"
+       n_f = n_f + 1
+    end if
+  end subroutine test_sitesite_patchy
+
+end program test_swap_energy

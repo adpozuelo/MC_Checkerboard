@@ -2486,6 +2486,164 @@ attributes(device) subroutine evaluate_cell_interactions( &
       end if
     end if
   end subroutine subsweep_HS
+  ! ==============================================================================
+  ! DEVICE FUNCTION: eval_pair_energy_single_LJ
+  ! DESCRIPTION: Evaluates pair interaction between two particles for Lennard-Jones
+  ! or tabular potentials.
+  ! ==============================================================================
+  attributes(device) subroutine eval_pair_energy_single_LJ( &
+      dist, RSQ, itypei, itypej, Ntypes, &
+      range, sigma_LJ, epsilon_LJ, VL0, &
+      en, is_overlap)
+    real(wp), intent(in), value :: dist, RSQ
+    integer, intent(in), value :: itypei, itypej, Ntypes
+    real(wp), device, intent(in) :: range(0:*), sigma_LJ(0:*), epsilon_LJ(0:*), VL0(0:*)
+    real(wp), intent(out) :: en
+    integer, intent(out) :: is_overlap
+
+    real(wp) :: s_LJ_aux, eps_LJ_aux, range_aux, VL0_aux, Vrad
+    integer :: Indx
+
+    en = 0.0_wp
+    is_overlap = 0
+    Indx = Ntypes * itypei + itypej
+    s_LJ_aux = sigma_LJ(Indx)
+    eps_LJ_aux = epsilon_LJ(Indx)
+    range_aux = range(Indx)
+    VL0_aux = VL0(Indx)
+
+    if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
+      if (dist < table_rmin_dev(itypei, itypej)) then
+        is_overlap = 1
+        return
+      else if (RSQ < range_aux*range_aux) then
+        call eval_table_pot_dev(dist, itypei, itypej, Vrad)
+        en = Vrad
+      end if
+    else
+      if (RSQ < 0.250000_wp) then
+        is_overlap = 1
+        return
+      else if (RSQ < range_aux*range_aux) then
+        call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
+        en = Vrad
+      end if
+    end if
+  end subroutine eval_pair_energy_single_LJ
+
+  ! ==============================================================================
+  ! DEVICE FUNCTION: eval_pair_energy_single_angular
+  ! DESCRIPTION: Evaluates pair interaction between two particles for the angular
+  ! patchy potential (LJG model, pot_int == 1).
+  ! ==============================================================================
+  attributes(device) subroutine eval_pair_energy_single_angular( &
+      DX, DY, DZ, dist, RSQ, R1, R2, itypei, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+      Ntypes, Npatches_max, Ndim, Ntor_max, &
+      Npatches, patch, ref_tor, sigma_jon, sigma_LJ, epsilon_LJ, &
+      range, VL0, XOP, tor_angle, Vpot_Matrix, Ntor_angle, &
+      en, is_overlap)
+    real(wp), intent(in), value :: DX, DY, DZ, dist, RSQ
+    real(wp), intent(in) :: R1(0:8), R2(0:8)
+    integer, intent(in), value :: itypei, itypej, bool_tor
+    real(wp), intent(in), value :: a, pi, dospi, sigma_tor
+    integer, intent(in), value :: Ntypes, Npatches_max, Ndim, Ntor_max
+    integer, device, intent(in) :: Npatches(0:*), Ntor_angle(0:*)
+    real(wp), device, intent(in) :: patch(0:*), ref_tor(0:*), sigma_jon(0:*)
+    real(wp), device, intent(in) :: sigma_LJ(0:*), epsilon_LJ(0:*), range(0:*), VL0(0:*), XOP(0:*)
+    real(wp), device, intent(in) :: tor_angle(0:*), Vpot_Matrix(0:*)
+    real(wp), intent(out) :: en
+    integer, intent(out) :: is_overlap
+
+    real(wp) :: s_LJ_aux, eps_LJ_aux, range_aux, VL0_aux, XOP_aux, Vrad, Vangtor_max, FX, FXI
+    integer :: Indx
+
+    en = 0.0_wp
+    is_overlap = 0
+    Indx = Ntypes * itypei + itypej
+    s_LJ_aux = sigma_LJ(Indx)
+    eps_LJ_aux = epsilon_LJ(Indx)
+    range_aux = range(Indx)
+    VL0_aux = VL0(Indx)
+    XOP_aux = XOP(Indx)
+
+    if (RSQ <= 0.25_wp) then
+      is_overlap = 1
+      return
+    else if (RSQ < 0.9604_wp * s_LJ_aux * s_LJ_aux) then
+      call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
+      en = Vrad
+    else if (dist < range_aux) then
+      if (Npatches(itypei) <= 1 .or. Npatches(itypej) <= 1) then
+        call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
+        en = Vrad
+      else
+        call vpatch_angular(DX, DY, DZ, dist, &
+             R1, R2, bool_tor, Ntypes, Npatches_max, Ndim, Ntor_max, a, pi, dospi, sigma_tor, &
+             Npatches, patch, sigma_jon, Vpot_Matrix, Ntor_angle, tor_angle, &
+             itypei, itypej, Vangtor_max)
+        if (Vangtor_max /= -1.0_wp) then
+          FX  = (1.0_wp + tanh(a*(-XOP_aux + dist)))/2.0_wp
+          FXI = (1.0_wp - tanh(a*(-XOP_aux + dist)))/2.0_wp
+          call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
+          en = Vrad * (FXI + Vangtor_max * FX)
+        end if
+      end if
+    end if
+  end subroutine eval_pair_energy_single_angular
+
+  ! ==============================================================================
+  ! DEVICE FUNCTION: eval_pair_energy_single_sitesite
+  ! DESCRIPTION: Evaluates pair interaction between two particles for the site-site
+  ! patchy potential (Palaia / SSP model, pot_int == 2).
+  ! ==============================================================================
+  attributes(device) subroutine eval_pair_energy_single_sitesite( &
+      DX, DY, DZ, dist, RSQ, R1, R2, itypei, itypej, pi, &
+      sigp_factor, Rcp_factor, Rc_factor, &
+      Ntypes, Npatches_max, Ndim, &
+      Npatches, patch, range, &
+      sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, &
+      en, is_overlap)
+    real(wp), intent(in), value :: DX, DY, DZ, dist, RSQ, pi
+    real(wp), intent(in) :: R1(0:8), R2(0:8)
+    integer, intent(in), value :: itypei, itypej
+    real(wp), intent(in), value :: sigp_factor, Rcp_factor, Rc_factor
+    integer, intent(in), value :: Ntypes, Npatches_max, Ndim
+    integer, device, intent(in) :: Npatches(0:*)
+    real(wp), device, intent(in) :: patch(0:*), range(0:*)
+    real(wp), device, intent(in) :: sigma_LJ(0:*), epsilon_LJ(0:*), VL0(0:*), Vpot_Matrix(0:*)
+    real(wp), intent(out) :: en
+    integer, intent(out) :: is_overlap
+
+    real(wp) :: s_LJ_aux, eps_LJ_aux, range_aux, VL0_aux, Vrad, e_patches
+    integer :: Indx
+
+    en = 0.0_wp
+    is_overlap = 0
+    Indx = Ntypes * itypei + itypej
+    s_LJ_aux = sigma_LJ(Indx)
+    eps_LJ_aux = epsilon_LJ(Indx)
+    range_aux = range(Indx)
+    VL0_aux = VL0(Indx)
+
+    if (RSQ <= 0.25_wp) then
+      is_overlap = 1
+      return
+    else if (RSQ < range_aux * range_aux) then
+      if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
+        call eval_table_pot_dev(dist, itypei, itypej, Vrad)
+      else
+        call vlj_palaia(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Rc_factor, Vrad)
+      end if
+      en = Vrad
+    end if
+
+    if (Npatches(itypei) > 0 .and. Npatches(itypej) > 0 .and. dist < range_aux) then
+      call vpatch_sitesite_dev(DX, DY, DZ, R1, R2, sigp_factor, Rcp_factor, patch_radial_factor_dev, &
+           itypei, itypej, Ntypes, Npatches_max, Ndim, &
+           Npatches, patch, sigma_LJ, Vpot_Matrix, e_patches)
+      en = en + e_patches
+    end if
+  end subroutine eval_pair_energy_single_sitesite
 
   ! ==============================================================================
   ! DEVICE KERNEL: subsweep_HS_swap
@@ -2702,9 +2860,10 @@ attributes(device) subroutine evaluate_cell_interactions( &
     integer :: jcell_x1, jcell_y1, jcell_z1, jcell_x2, jcell_y2, jcell_z2
     integer, shared :: Indx_Cell_1, Indx_Cell_2, Nat_Cell_1, Nat_Cell_2
     integer, shared :: idx_A_local, idx_B_local, can_swap
+    integer, shared :: t_A_old, t_A_new, t_B_old, t_B_new
     real(wp) :: DX_A, DY_A, DZ_A, DX_B, DY_B, DZ_B
     real(wp) :: dist_A, dist_B, RSQ_A, RSQ_B, H11, H12, H13, H21, H22, H23, H31, H32, H33
-    real(wp) :: dx_neigh, dy_neigh, dz_neigh, XJ, YJ, ZJ
+    real(wp) :: dx_neigh, dy_neigh, dz_neigh, XJ, YJ, ZJ, coin
     real(wp) :: sigsq_A, sigsq_B
     real(wp), shared :: pos_A_x, pos_A_y, pos_A_z
     real(wp), shared :: pos_B_x, pos_B_y, pos_B_z
@@ -2722,6 +2881,12 @@ attributes(device) subroutine evaluate_cell_interactions( &
     if (jcell_x1 < Nl0 .and. jcell_y1 < Nl1 .and. jcell_z1 < Nl2) then
       Indx_Cell_1 = mod(jcell_x1+Nl0, Nl0) + mod(jcell_y1+Nl1, Nl1)*Nl0 + mod(jcell_z1+Nl2, Nl2)*Nl0*Nl1
       Indx_Cell_2 = mod(jcell_x2+Nl0, Nl0) + mod(jcell_y2+Nl1, Nl1)*Nl0 + mod(jcell_z2+Nl2, Nl2)*Nl0*Nl1
+      if (Indx_Cell_1 == Indx_Cell_2) return
+      if (mod(jcell_x2 - Offset_CB(0), 2) == 0 .and. &
+          mod(jcell_y2 - Offset_CB(1), 2) == 0 .and. &
+          mod(jcell_z2 - Offset_CB(2), 2) == 0) then
+        if (Indx_Cell_1 > Indx_Cell_2) return
+      end if
       Indx_Rnd = mod(indx_rnd_x+Nl02, Nl02) + mod(indx_rnd_y+Nl12, Nl12)*Nl02 + mod(indx_rnd_z+Nl22, Nl22)*Nl02*Nl12
       Nat_Cell_1 = Nat_Cell(Indx_Cell_1)
       Nat_Cell_2 = Nat_Cell(Indx_Cell_2)
@@ -2748,41 +2913,86 @@ attributes(device) subroutine evaluate_cell_interactions( &
             if (t == 1) count_B2 = count_B2 + 1
           end do
 
-          if (count_A1 > 0 .and. count_B2 > 0) then
-            target_A = int(count_A1 * curand_uniform(RND_state(Indx_Rnd)))
-            if (target_A >= count_A1) target_A = count_A1 - 1
-            target_B = int(count_B2 * curand_uniform(RND_state(Indx_Rnd)))
-            if (target_B >= count_B2) target_B = count_B2 - 1
+          coin = curand_uniform(RND_state(Indx_Rnd))
+          if (coin < 0.5_wp) then
+            if (count_A1 > 0 .and. count_B2 > 0) then
+              target_A = int(count_A1 * curand_uniform(RND_state(Indx_Rnd)))
+              if (target_A >= count_A1) target_A = count_A1 - 1
+              target_B = int(count_B2 * curand_uniform(RND_state(Indx_Rnd)))
+              if (target_B >= count_B2) target_B = count_B2 - 1
 
-            cur_A = 0; idx_A_local = -1
-            do l = 0, Nat_Cell_1 - 1
-              if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == 0) then
-                if (cur_A == target_A) idx_A_local = l
-                cur_A = cur_A + 1
+              cur_A = 0; idx_A_local = -1
+              do l = 0, Nat_Cell_1 - 1
+                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == 0) then
+                  if (cur_A == target_A) idx_A_local = l
+                  cur_A = cur_A + 1
+                end if
+              end do
+
+              cur_B = 0; idx_B_local = -1
+              do l = 0, Nat_Cell_2 - 1
+                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == 1) then
+                  if (cur_B == target_B) idx_B_local = l
+                  cur_B = cur_B + 1
+                end if
+              end do
+
+              if (idx_A_local >= 0 .and. idx_B_local >= 0) then
+                can_swap = 1
+                t_A_old = 0; t_A_new = 1
+                t_B_old = 1; t_B_new = 0
+                pos_A_x = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7)
+                pos_A_y = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 1)
+                pos_A_z = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 2)
+
+                pos_B_x = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7)
+                pos_B_y = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 1)
+                pos_B_z = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 2)
+
+                hastings_ratio = real(count_A1 * count_B2, wp) / real((count_B1 + 1) * (count_A2 + 1), wp)
+                if (hastings_ratio > 1.0_wp) hastings_ratio = 1.0_wp
+                Nswap_att(Indx_Cell_1) = Nswap_att(Indx_Cell_1) + 1
               end if
-            end do
+            end if
+          else
+            if (count_B1 > 0 .and. count_A2 > 0) then
+              target_A = int(count_B1 * curand_uniform(RND_state(Indx_Rnd)))
+              if (target_A >= count_B1) target_A = count_B1 - 1
+              target_B = int(count_A2 * curand_uniform(RND_state(Indx_Rnd)))
+              if (target_B >= count_A2) target_B = count_A2 - 1
 
-            cur_B = 0; idx_B_local = -1
-            do l = 0, Nat_Cell_2 - 1
-              if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == 1) then
-                if (cur_B == target_B) idx_B_local = l
-                cur_B = cur_B + 1
+              cur_A = 0; idx_A_local = -1
+              do l = 0, Nat_Cell_1 - 1
+                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == 1) then
+                  if (cur_A == target_A) idx_A_local = l
+                  cur_A = cur_A + 1
+                end if
+              end do
+
+              cur_B = 0; idx_B_local = -1
+              do l = 0, Nat_Cell_2 - 1
+                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == 0) then
+                  if (cur_B == target_B) idx_B_local = l
+                  cur_B = cur_B + 1
+                end if
+              end do
+
+              if (idx_A_local >= 0 .and. idx_B_local >= 0) then
+                can_swap = 1
+                t_A_old = 1; t_A_new = 0
+                t_B_old = 0; t_B_new = 1
+                pos_A_x = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7)
+                pos_A_y = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 1)
+                pos_A_z = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 2)
+
+                pos_B_x = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7)
+                pos_B_y = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 1)
+                pos_B_z = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 2)
+
+                hastings_ratio = real(count_B1 * count_A2, wp) / real((count_A1 + 1) * (count_B2 + 1), wp)
+                if (hastings_ratio > 1.0_wp) hastings_ratio = 1.0_wp
+                Nswap_att(Indx_Cell_1) = Nswap_att(Indx_Cell_1) + 1
               end if
-            end do
-
-            if (idx_A_local >= 0 .and. idx_B_local >= 0) then
-              can_swap = 1
-              pos_A_x = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7)
-              pos_A_y = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 1)
-              pos_A_z = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 2)
-
-              pos_B_x = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7)
-              pos_B_y = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 1)
-              pos_B_z = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 2)
-
-              hastings_ratio = real(count_A1 * count_B2, wp) / real((count_B1 + 1) * (count_A2 + 1), wp)
-              if (hastings_ratio > 1.0_wp) hastings_ratio = 1.0_wp
-              Nswap_att(Indx_Cell_1) = Nswap_att(Indx_Cell_1) + 1
             end if
           end if
         end if
@@ -2794,25 +3004,25 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
           if (indx_thread == 0) then
             overlap = 0
-            ! Check Cell 1 internal particles (excluding idx_A_local) against pos_A as Type 1
+            ! Check Cell 1 internal particles (excluding idx_A_local) against pos_A as new Type
             do j = 0, Nat_Cell_1 - 1
               if (j /= idx_A_local) then
                 jmol  = indx_atm_aux_1  + j*7; jmol2 = indx_atm_aux2_1 + j*2
                 XJ = Sphere_Cell(jmol); YJ = Sphere_Cell(jmol+1); ZJ = Sphere_Cell(jmol+2)
                 itypej = List_Cell(jmol2+1)
-                Indxk_A = Ntypes * 1 + itypej
+                Indxk_A = Ntypes * t_A_new + itypej
                 sigsq_A = sigma_LJ(Indxk_A) * sigma_LJ(Indxk_A)
                 call get_dist(XJ,YJ,ZJ, pos_A_x,pos_A_y,pos_A_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_A,DY_A,DZ_A, RSQ_A, dist_A)
                 if (RSQ_A < sigsq_A) overlap = 1
               end if
             end do
-            ! Check Cell 2 internal particles (excluding idx_B_local) against pos_B as Type 0
+            ! Check Cell 2 internal particles (excluding idx_B_local) against pos_B as new Type
             do j = 0, Nat_Cell_2 - 1
               if (j /= idx_B_local) then
                 jmol  = indx_atm_aux_2  + j*7; jmol2 = indx_atm_aux2_2 + j*2
                 XJ = Sphere_Cell(jmol); YJ = Sphere_Cell(jmol+1); ZJ = Sphere_Cell(jmol+2)
                 itypej = List_Cell(jmol2+1)
-                Indxk_B = Ntypes * 0 + itypej
+                Indxk_B = Ntypes * t_B_new + itypej
                 sigsq_B = sigma_LJ(Indxk_B) * sigma_LJ(Indxk_B)
                 call get_dist(XJ,YJ,ZJ, pos_B_x,pos_B_y,pos_B_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_B,DY_B,DZ_B, RSQ_B, dist_B)
                 if (RSQ_B < sigsq_B) overlap = 1
@@ -2833,7 +3043,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
                   jmol = indx_neigh_aux2 + l*7; jmol2 = indx_neigh_auxp + l*2
                   XJ = Sphere_Cell(jmol) + dx_neigh; YJ = Sphere_Cell(jmol+1) + dy_neigh; ZJ = Sphere_Cell(jmol+2) + dz_neigh
                   itypej = List_Cell(jmol2 + 1)
-                  Indxk_A = Ntypes * 1 + itypej
+                  Indxk_A = Ntypes * t_A_new + itypej
                   sigsq_A = sigma_LJ(Indxk_A) * sigma_LJ(Indxk_A)
                   call get_dist(XJ,YJ,ZJ, pos_A_x,pos_A_y,pos_A_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_A,DY_A,DZ_A, RSQ_A, dist_A)
                   if (RSQ_A < sigsq_A) overlap = 1
@@ -2850,7 +3060,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
                   jmol = indx_neigh_aux2 + l*7; jmol2 = indx_neigh_auxp + l*2
                   XJ = Sphere_Cell(jmol) + dx_neigh; YJ = Sphere_Cell(jmol+1) + dy_neigh; ZJ = Sphere_Cell(jmol+2) + dz_neigh
                   itypej = List_Cell(jmol2 + 1)
-                  Indxk_B = Ntypes * 0 + itypej
+                  Indxk_B = Ntypes * t_B_new + itypej
                   sigsq_B = sigma_LJ(Indxk_B) * sigma_LJ(Indxk_B)
                   call get_dist(XJ,YJ,ZJ, pos_B_x,pos_B_y,pos_B_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_B,DY_B,DZ_B, RSQ_B, dist_B)
                   if (RSQ_B < sigsq_B) overlap = 1
@@ -2869,8 +3079,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
             end do
             if (overlap == 0) then
               if (curand_uniform(RND_state(Indx_Rnd)) <= hastings_ratio) then
-                List_Cell(indx_atm_aux2_1 + idx_A_local*2 + 1) = 1
-                List_Cell(indx_atm_aux2_2 + idx_B_local*2 + 1) = 0
+                List_Cell(indx_atm_aux2_1 + idx_A_local*2 + 1) = t_A_new
+                List_Cell(indx_atm_aux2_2 + idx_B_local*2 + 1) = t_B_new
                 Nswap_ac(Indx_Cell_1) = Nswap_ac(Indx_Cell_1) + 1
               end if
             end if
@@ -2879,6 +3089,1682 @@ attributes(device) subroutine evaluate_cell_interactions( &
       end if
     end if
   end subroutine subsweep_HS_cross_swap
+
+  ! ==============================================================================
+  ! DEVICE KERNEL: subsweep_LJ_swap
+  ! DESCRIPTION: Performs parallel intra-cell identity swap moves for Lennard-Jones
+  ! / tabular binary mixtures on the GPU.
+  ! ==============================================================================
+  attributes(global) subroutine subsweep_LJ_swap(RND_state, nstates, Ndim, Nat_Cell_Max, &
+                                              Ntot_Cell, Nsubset_Cell, Ntypes, sigma_LJ, epsilon_LJ, &
+                                              rangeP, VL0, h, beta, Sphere_Cell, List_Cell, Map_Cell, &
+                                              Nl_Cell, Nat_Cell, DR_Cell, Offset_CB, W_RU, Delta_energy, Nswap_att, Nswap_ac)
+    type(curandStateXORWOW), intent(inout) :: RND_state(0:nstates-1)
+    integer, value :: nstates
+    integer, device, intent(inout) :: List_Cell(0:Ntot_Cell*Nat_Cell_Max*2-1)
+    integer, device, intent(in) :: Map_Cell(0:Ntot_Cell*26-1)
+    integer, device, intent(in) :: Nl_Cell(0:Ndim-1), Nat_Cell(0:Ntot_Cell-1), Offset_CB(0:Ndim-1)
+    integer, device, intent(inout) :: Nswap_att(0:Ntot_Cell-1), Nswap_ac(0:Ntot_Cell-1)
+    integer, value :: Ndim, Nat_Cell_Max, Ntot_Cell, Nsubset_Cell, Ntypes
+    real(wp), device, intent(in) :: sigma_LJ(0:Ntypes*Ntypes-1), epsilon_LJ(0:Ntypes*Ntypes-1)
+    real(wp), device, intent(in) :: rangeP(0:Ntypes*Ntypes-1), VL0(0:Ntypes*Ntypes-1)
+    real(wp), device, intent(in) :: h(0:Ndim*Ndim-1), DR_Cell(0:Ntot_Cell*26*3-1)
+    real(dkind), device, intent(in) :: W_RU(0:Ndim-1)
+    real(wp), value :: beta
+    real(wp), device, intent(in) :: Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1)
+    real(dkind), device, intent(inout) :: Delta_energy(0:Ntot_Cell-1)
+
+    integer :: Nl0, Nl1, Nl2, Nl02, Nl12, Nl22, Indx_Rnd, indx_atm_aux, indx_atm_aux2
+    integer :: j, l, ICELL, jmol, jmol2, is_ov
+    integer :: Indx_Cell2, Indx_Cell3, Nat_Cell_neigh, indx_neigh_aux2, indx_neigh_auxp, itypej
+    integer :: indx_thread, indx_rnd_x, indx_rnd_y, indx_rnd_z, jcell_x, jcell_y, jcell_z, i
+    integer, shared :: Indx_Cell, Nat_Cell_ijk
+    integer, shared :: idx_A_local, idx_B_local, can_swap
+    real(wp) :: DX_A, DY_A, DZ_A, DX_B, DY_B, DZ_B, DX, DY, DZ
+    real(wp) :: dist_A, dist_B, RSQ_A, RSQ_B, dist, RSQ, H11, H12, H13, H21, H22, H23, H31, H32, H33
+    real(wp) :: dx_neigh, dy_neigh, dz_neigh, XJ, YJ, ZJ, en1, en2, e_old, e_new
+    real(dkind) :: DE
+    real(wp), shared :: pos_A_x, pos_A_y, pos_A_z
+    real(wp), shared :: pos_B_x, pos_B_y, pos_B_z
+    real(wp), shared :: entot_old(0:NTHREAD-1), entot_new(0:NTHREAD-1)
+    integer, shared :: overlap_aux(0:NTHREAD-1)
+    integer :: count_A, count_B, target_A, target_B, cur_A, cur_B, t, ov
+
+    indx_rnd = blockIdx%x - 1; Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2); Nl02 = Nl0/2; Nl12 = Nl1/2; Nl22 = Nl2/2
+    indx_rnd_z = indx_rnd/(Nl02*Nl12); indx_rnd_y = (indx_rnd - Nl02*Nl12*indx_rnd_z)/Nl02
+    if (indx_rnd_y == 0 .and. indx_rnd_z == 0) then; indx_rnd_x = indx_rnd; else; indx_rnd_x = mod(indx_rnd, indx_rnd_y*Nl02 + indx_rnd_z*Nl02*Nl12); end if
+    jcell_x = 2*indx_rnd_x + Offset_CB(0); jcell_y = 2*indx_rnd_y + Offset_CB(1); jcell_z = 2*indx_rnd_z + Offset_CB(2)
+    indx_thread = threadIdx%x - 1
+
+    if (jcell_x < Nl0 .and. jcell_y < Nl1 .and. jcell_z < Nl2) then
+      Indx_Cell = mod(jcell_x+Nl0, Nl0) + mod(jcell_y+Nl1, Nl1)*Nl0 + mod(jcell_z+Nl2, Nl2)*Nl0*Nl1
+      Indx_Rnd = mod(indx_rnd_x+Nl02, Nl02) + mod(indx_rnd_y+Nl12, Nl12)*Nl02 + mod(indx_rnd_z+Nl22, Nl22)*Nl02*Nl12
+      Nat_Cell_ijk = Nat_Cell(Indx_Cell)
+      if (indx_thread == 0) can_swap = 0
+      call syncthreads()
+
+      if (Nat_Cell_ijk >= 2) then
+        H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
+        indx_atm_aux  = Indx_Cell * Nat_Cell_Max * 7; indx_atm_aux2 = Indx_Cell * Nat_Cell_Max * 2
+
+        if (indx_thread == 0) then
+          count_A = 0; count_B = 0
+          do l = 0, Nat_Cell_ijk - 1
+            t = List_Cell(indx_atm_aux2 + l*2 + 1)
+            if (t == 0) count_A = count_A + 1
+            if (t == 1) count_B = count_B + 1
+          end do
+
+          if (count_A > 0 .and. count_B > 0) then
+            target_A = int(count_A * curand_uniform(RND_state(Indx_Rnd)))
+            if (target_A >= count_A) target_A = count_A - 1
+            target_B = int(count_B * curand_uniform(RND_state(Indx_Rnd)))
+            if (target_B >= count_B) target_B = count_B - 1
+
+            cur_A = 0; idx_A_local = -1
+            do l = 0, Nat_Cell_ijk - 1
+              if (List_Cell(indx_atm_aux2 + l*2 + 1) == 0) then
+                if (cur_A == target_A) idx_A_local = l
+                cur_A = cur_A + 1
+              end if
+            end do
+
+            cur_B = 0; idx_B_local = -1
+            do l = 0, Nat_Cell_ijk - 1
+              if (List_Cell(indx_atm_aux2 + l*2 + 1) == 1) then
+                if (cur_B == target_B) idx_B_local = l
+                cur_B = cur_B + 1
+              end if
+            end do
+
+            if (idx_A_local >= 0 .and. idx_B_local >= 0) then
+              can_swap = 1
+              pos_A_x = Sphere_Cell(indx_atm_aux + idx_A_local*7)
+              pos_A_y = Sphere_Cell(indx_atm_aux + idx_A_local*7 + 1)
+              pos_A_z = Sphere_Cell(indx_atm_aux + idx_A_local*7 + 2)
+
+              pos_B_x = Sphere_Cell(indx_atm_aux + idx_B_local*7)
+              pos_B_y = Sphere_Cell(indx_atm_aux + idx_B_local*7 + 1)
+              pos_B_z = Sphere_Cell(indx_atm_aux + idx_B_local*7 + 2)
+
+              Nswap_att(Indx_Cell) = Nswap_att(Indx_Cell) + 1
+            end if
+          end if
+        end if
+        call syncthreads()
+
+        if (can_swap == 1) then
+          overlap_aux(indx_thread) = 0
+          entot_old(indx_thread) = 0.0_wp
+          entot_new(indx_thread) = 0.0_wp
+          call syncthreads()
+
+          if (indx_thread == 0) then
+            e_old = 0.0_wp; e_new = 0.0_wp; ov = 0
+            ! 1. Mutual interaction between A and B
+            call get_dist(pos_B_x, pos_B_y, pos_B_z, pos_A_x, pos_A_y, pos_A_z, &
+                          H11,H12,H13,H21,H22,H23,H31,H32,H33, DX, DY, DZ, RSQ, dist)
+            call eval_pair_energy_single_LJ(dist, RSQ, 0, 1, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en1, is_ov)
+            if (is_ov == 1) ov = 1
+            e_old = e_old + en1
+            call eval_pair_energy_single_LJ(dist, RSQ, 1, 0, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en2, is_ov)
+            if (is_ov == 1) ov = 1
+            e_new = e_new + en2
+
+            ! 2. Interactions with other particles in self cell
+            do j = 0, Nat_Cell_ijk - 1
+              if (j /= idx_A_local .and. j /= idx_B_local) then
+                jmol  = indx_atm_aux  + j*7; jmol2 = indx_atm_aux2 + j*2
+                XJ = Sphere_Cell(jmol); YJ = Sphere_Cell(jmol+1); ZJ = Sphere_Cell(jmol+2)
+                itypej = List_Cell(jmol2+1)
+
+                call get_dist(XJ,YJ,ZJ, pos_A_x,pos_A_y,pos_A_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_A,DY_A,DZ_A, RSQ_A, dist_A)
+                call eval_pair_energy_single_LJ(dist_A, RSQ_A, 0, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en1, is_ov)
+                if (is_ov == 1) ov = 1
+                e_old = e_old + en1
+                call eval_pair_energy_single_LJ(dist_A, RSQ_A, 1, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en2, is_ov)
+                if (is_ov == 1) ov = 1
+                e_new = e_new + en2
+
+                call get_dist(XJ,YJ,ZJ, pos_B_x,pos_B_y,pos_B_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_B,DY_B,DZ_B, RSQ_B, dist_B)
+                call eval_pair_energy_single_LJ(dist_B, RSQ_B, 1, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en1, is_ov)
+                if (is_ov == 1) ov = 1
+                e_old = e_old + en1
+                call eval_pair_energy_single_LJ(dist_B, RSQ_B, 0, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en2, is_ov)
+                if (is_ov == 1) ov = 1
+                e_new = e_new + en2
+              end if
+            end do
+            entot_old(0) = e_old; entot_new(0) = e_new; overlap_aux(0) = ov
+          else
+            ICELL = indx_thread - 1
+            if (ICELL < 26) then
+              e_old = 0.0_wp; e_new = 0.0_wp; ov = 0
+              Indx_Cell2 = Indx_Cell*26 + ICELL; Indx_Cell2 = Map_Cell(Indx_Cell2); Nat_Cell_neigh = Nat_Cell(Indx_Cell2)
+              Indx_Cell3 = Indx_Cell*26*3 + ICELL*3
+              dx_neigh = DR_Cell(Indx_Cell3); dy_neigh = DR_Cell(Indx_Cell3+1); dz_neigh = DR_Cell(Indx_Cell3+2)
+
+              if (Nat_Cell_neigh > 0) then
+                indx_neigh_aux2 = Indx_Cell2 * Nat_Cell_Max * 7; indx_neigh_auxp = Indx_Cell2 * Nat_Cell_Max * 2
+                do l = 0, Nat_Cell_neigh - 1
+                  jmol = indx_neigh_aux2 + l*7; jmol2 = indx_neigh_auxp + l*2
+                  XJ = Sphere_Cell(jmol) + dx_neigh; YJ = Sphere_Cell(jmol+1) + dy_neigh; ZJ = Sphere_Cell(jmol+2) + dz_neigh
+                  itypej = List_Cell(jmol2 + 1)
+
+                  call get_dist(XJ,YJ,ZJ, pos_A_x,pos_A_y,pos_A_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_A,DY_A,DZ_A, RSQ_A, dist_A)
+                  call eval_pair_energy_single_LJ(dist_A, RSQ_A, 0, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en1, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_old = e_old + en1
+                  call eval_pair_energy_single_LJ(dist_A, RSQ_A, 1, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en2, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_new = e_new + en2
+
+                  call get_dist(XJ,YJ,ZJ, pos_B_x,pos_B_y,pos_B_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_B,DY_B,DZ_B, RSQ_B, dist_B)
+                  call eval_pair_energy_single_LJ(dist_B, RSQ_B, 1, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en1, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_old = e_old + en1
+                  call eval_pair_energy_single_LJ(dist_B, RSQ_B, 0, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en2, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_new = e_new + en2
+                end do
+              end if
+              entot_old(indx_thread) = e_old; entot_new(indx_thread) = e_new; overlap_aux(indx_thread) = ov
+            end if
+          end if
+          call syncthreads()
+
+          if (indx_thread == 0) then
+            ov = 0; e_old = 0.0_wp; e_new = 0.0_wp
+            do i = 0, 26
+              if (overlap_aux(i) == 1) ov = 1
+              e_old = e_old + entot_old(i)
+              e_new = e_new + entot_new(i)
+            end do
+            if (ov == 0) then
+              DE = real(e_new - e_old, dkind)
+              if (DE <= 0.0_wp .or. curand_uniform(RND_state(Indx_Rnd)) <= exp(-beta * real(DE, wp))) then
+                List_Cell(indx_atm_aux2 + idx_A_local*2 + 1) = 1
+                List_Cell(indx_atm_aux2 + idx_B_local*2 + 1) = 0
+                Nswap_ac(Indx_Cell) = Nswap_ac(Indx_Cell) + 1
+                Delta_energy(Indx_Cell) = Delta_energy(Indx_Cell) + DE
+              end if
+            end if
+          end if
+        end if
+      end if
+    end if
+  end subroutine subsweep_LJ_swap
+
+  ! ==============================================================================
+  ! DEVICE KERNEL: subsweep_LJ_cross_swap
+  ! DESCRIPTION: Performs parallel long-range cross-cell identity swap moves
+  ! between paired disjoint cells for Lennard-Jones / tabular binary mixtures.
+  ! ==============================================================================
+  attributes(global) subroutine subsweep_LJ_cross_swap(RND_state, nstates, Ndim, Nat_Cell_Max, &
+                                              Ntot_Cell, Nsubset_Cell, Ntypes, sigma_LJ, epsilon_LJ, &
+                                              rangeP, VL0, h, beta, Sphere_Cell, List_Cell, Map_Cell, &
+                                              Nl_Cell, Nat_Cell, DR_Cell, Offset_CB, W_RU, Delta_energy, Nswap_att, Nswap_ac)
+    type(curandStateXORWOW), intent(inout) :: RND_state(0:nstates-1)
+    integer, value :: nstates
+    integer, device, intent(inout) :: List_Cell(0:Ntot_Cell*Nat_Cell_Max*2-1)
+    integer, device, intent(in) :: Map_Cell(0:Ntot_Cell*26-1)
+    integer, device, intent(in) :: Nl_Cell(0:Ndim-1), Nat_Cell(0:Ntot_Cell-1), Offset_CB(0:Ndim-1)
+    integer, device, intent(inout) :: Nswap_att(0:Ntot_Cell-1), Nswap_ac(0:Ntot_Cell-1)
+    integer, value :: Ndim, Nat_Cell_Max, Ntot_Cell, Nsubset_Cell, Ntypes
+    real(wp), device, intent(in) :: sigma_LJ(0:Ntypes*Ntypes-1), epsilon_LJ(0:Ntypes*Ntypes-1)
+    real(wp), device, intent(in) :: rangeP(0:Ntypes*Ntypes-1), VL0(0:Ntypes*Ntypes-1)
+    real(wp), device, intent(in) :: h(0:Ndim*Ndim-1), DR_Cell(0:Ntot_Cell*26*3-1)
+    real(dkind), device, intent(in) :: W_RU(0:Ndim-1)
+    real(wp), value :: beta
+    real(wp), device, intent(in) :: Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1)
+    real(dkind), device, intent(inout) :: Delta_energy(0:Ntot_Cell-1)
+
+    integer :: Nl0, Nl1, Nl2, Nl02, Nl12, Nl22, Indx_Rnd
+    integer :: indx_atm_aux_1, indx_atm_aux2_1, indx_atm_aux_2, indx_atm_aux2_2
+    integer :: j, l, ICELL, jmol, jmol2, is_ov
+    integer :: Indx_Cell2_1, Indx_Cell3_1, Nat_Cell_neigh_1
+    integer :: Indx_Cell2_2, Indx_Cell3_2, Nat_Cell_neigh_2
+    integer :: indx_neigh_aux2, indx_neigh_auxp, itypej
+    integer :: indx_thread, indx_rnd_x, indx_rnd_y, indx_rnd_z
+    integer :: jcell_x1, jcell_y1, jcell_z1, jcell_x2, jcell_y2, jcell_z2, i
+    integer, shared :: Indx_Cell_1, Indx_Cell_2, Nat_Cell_1, Nat_Cell_2
+    integer, shared :: idx_A_local, idx_B_local, can_swap
+    integer, shared :: t_A_old, t_A_new, t_B_old, t_B_new
+    real(wp) :: DX_A, DY_A, DZ_A, DX_B, DY_B, DZ_B
+    real(wp) :: dist_A, dist_B, RSQ_A, RSQ_B, H11, H12, H13, H21, H22, H23, H31, H32, H33
+    real(wp) :: dx_neigh, dy_neigh, dz_neigh, XJ, YJ, ZJ, en1, en2, e_old, e_new, coin, p_acc
+    real(dkind) :: DE
+    real(wp), shared :: pos_A_x, pos_A_y, pos_A_z
+    real(wp), shared :: pos_B_x, pos_B_y, pos_B_z
+    real(wp), shared :: hastings_ratio
+    real(wp), shared :: entot_old(0:NTHREAD-1), entot_new(0:NTHREAD-1)
+    integer, shared :: overlap_aux(0:NTHREAD-1)
+    integer :: count_A1, count_B1, count_A2, count_B2, target_A, target_B, cur_A, cur_B, t, ov
+
+    indx_rnd = blockIdx%x - 1; Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2); Nl02 = Nl0/2; Nl12 = Nl1/2; Nl22 = Nl2/2
+    indx_rnd_z = indx_rnd/(Nl02*Nl12); indx_rnd_y = (indx_rnd - Nl02*Nl12*indx_rnd_z)/Nl02
+    if (indx_rnd_y == 0 .and. indx_rnd_z == 0) then; indx_rnd_x = indx_rnd; else; indx_rnd_x = mod(indx_rnd, indx_rnd_y*Nl02 + indx_rnd_z*Nl02*Nl12); end if
+    jcell_x1 = 2*indx_rnd_x + Offset_CB(0); jcell_y1 = 2*indx_rnd_y + Offset_CB(1); jcell_z1 = 2*indx_rnd_z + Offset_CB(2)
+    jcell_x2 = mod(jcell_x1 + Nl02, Nl0); jcell_y2 = mod(jcell_y1 + Nl12, Nl1); jcell_z2 = mod(jcell_z1 + Nl22, Nl2)
+    indx_thread = threadIdx%x - 1
+
+    if (jcell_x1 < Nl0 .and. jcell_y1 < Nl1 .and. jcell_z1 < Nl2) then
+      Indx_Cell_1 = mod(jcell_x1+Nl0, Nl0) + mod(jcell_y1+Nl1, Nl1)*Nl0 + mod(jcell_z1+Nl2, Nl2)*Nl0*Nl1
+      Indx_Cell_2 = mod(jcell_x2+Nl0, Nl0) + mod(jcell_y2+Nl1, Nl1)*Nl0 + mod(jcell_z2+Nl2, Nl2)*Nl0*Nl1
+      if (Indx_Cell_1 == Indx_Cell_2) return
+      if (mod(jcell_x2 - Offset_CB(0), 2) == 0 .and. &
+          mod(jcell_y2 - Offset_CB(1), 2) == 0 .and. &
+          mod(jcell_z2 - Offset_CB(2), 2) == 0) then
+        if (Indx_Cell_1 > Indx_Cell_2) return
+      end if
+      Indx_Rnd = mod(indx_rnd_x+Nl02, Nl02) + mod(indx_rnd_y+Nl12, Nl12)*Nl02 + mod(indx_rnd_z+Nl22, Nl22)*Nl02*Nl12
+      Nat_Cell_1 = Nat_Cell(Indx_Cell_1)
+      Nat_Cell_2 = Nat_Cell(Indx_Cell_2)
+      if (indx_thread == 0) can_swap = 0
+      call syncthreads()
+
+      if (Nat_Cell_1 >= 1 .and. Nat_Cell_2 >= 1) then
+        H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
+        indx_atm_aux_1  = Indx_Cell_1 * Nat_Cell_Max * 7; indx_atm_aux2_1 = Indx_Cell_1 * Nat_Cell_Max * 2
+        indx_atm_aux_2  = Indx_Cell_2 * Nat_Cell_Max * 7; indx_atm_aux2_2 = Indx_Cell_2 * Nat_Cell_Max * 2
+
+        if (indx_thread == 0) then
+          count_A1 = 0; count_B1 = 0
+          do l = 0, Nat_Cell_1 - 1
+            t = List_Cell(indx_atm_aux2_1 + l*2 + 1)
+            if (t == 0) count_A1 = count_A1 + 1
+            if (t == 1) count_B1 = count_B1 + 1
+          end do
+
+          count_A2 = 0; count_B2 = 0
+          do l = 0, Nat_Cell_2 - 1
+            t = List_Cell(indx_atm_aux2_2 + l*2 + 1)
+            if (t == 0) count_A2 = count_A2 + 1
+            if (t == 1) count_B2 = count_B2 + 1
+          end do
+
+          coin = curand_uniform(RND_state(Indx_Rnd))
+          if (coin < 0.5_wp) then
+            if (count_A1 > 0 .and. count_B2 > 0) then
+              target_A = int(count_A1 * curand_uniform(RND_state(Indx_Rnd)))
+              if (target_A >= count_A1) target_A = count_A1 - 1
+              target_B = int(count_B2 * curand_uniform(RND_state(Indx_Rnd)))
+              if (target_B >= count_B2) target_B = count_B2 - 1
+
+              cur_A = 0; idx_A_local = -1
+              do l = 0, Nat_Cell_1 - 1
+                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == 0) then
+                  if (cur_A == target_A) idx_A_local = l
+                  cur_A = cur_A + 1
+                end if
+              end do
+
+              cur_B = 0; idx_B_local = -1
+              do l = 0, Nat_Cell_2 - 1
+                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == 1) then
+                  if (cur_B == target_B) idx_B_local = l
+                  cur_B = cur_B + 1
+                end if
+              end do
+
+              if (idx_A_local >= 0 .and. idx_B_local >= 0) then
+                can_swap = 1
+                t_A_old = 0; t_A_new = 1
+                t_B_old = 1; t_B_new = 0
+                pos_A_x = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7)
+                pos_A_y = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 1)
+                pos_A_z = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 2)
+
+                pos_B_x = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7)
+                pos_B_y = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 1)
+                pos_B_z = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 2)
+
+                hastings_ratio = real(count_A1 * count_B2, wp) / real((count_B1 + 1) * (count_A2 + 1), wp)
+                Nswap_att(Indx_Cell_1) = Nswap_att(Indx_Cell_1) + 1
+              end if
+            end if
+          else
+            if (count_B1 > 0 .and. count_A2 > 0) then
+              target_A = int(count_B1 * curand_uniform(RND_state(Indx_Rnd)))
+              if (target_A >= count_B1) target_A = count_B1 - 1
+              target_B = int(count_A2 * curand_uniform(RND_state(Indx_Rnd)))
+              if (target_B >= count_A2) target_B = count_A2 - 1
+
+              cur_A = 0; idx_A_local = -1
+              do l = 0, Nat_Cell_1 - 1
+                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == 1) then
+                  if (cur_A == target_A) idx_A_local = l
+                  cur_A = cur_A + 1
+                end if
+              end do
+
+              cur_B = 0; idx_B_local = -1
+              do l = 0, Nat_Cell_2 - 1
+                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == 0) then
+                  if (cur_B == target_B) idx_B_local = l
+                  cur_B = cur_B + 1
+                end if
+              end do
+
+              if (idx_A_local >= 0 .and. idx_B_local >= 0) then
+                can_swap = 1
+                t_A_old = 1; t_A_new = 0
+                t_B_old = 0; t_B_new = 1
+                pos_A_x = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7)
+                pos_A_y = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 1)
+                pos_A_z = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 2)
+
+                pos_B_x = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7)
+                pos_B_y = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 1)
+                pos_B_z = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 2)
+
+                hastings_ratio = real(count_B1 * count_A2, wp) / real((count_A1 + 1) * (count_B2 + 1), wp)
+                Nswap_att(Indx_Cell_1) = Nswap_att(Indx_Cell_1) + 1
+              end if
+            end if
+          end if
+        end if
+        call syncthreads()
+
+        if (can_swap == 1) then
+          overlap_aux(indx_thread) = 0
+          entot_old(indx_thread) = 0.0_wp
+          entot_new(indx_thread) = 0.0_wp
+          call syncthreads()
+
+          if (indx_thread == 0) then
+            e_old = 0.0_wp; e_new = 0.0_wp; ov = 0
+            ! Cell 1 internal particles with A
+            do j = 0, Nat_Cell_1 - 1
+              if (j /= idx_A_local) then
+                jmol  = indx_atm_aux_1  + j*7; jmol2 = indx_atm_aux2_1 + j*2
+                XJ = Sphere_Cell(jmol); YJ = Sphere_Cell(jmol+1); ZJ = Sphere_Cell(jmol+2)
+                itypej = List_Cell(jmol2+1)
+                call get_dist(XJ,YJ,ZJ, pos_A_x,pos_A_y,pos_A_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_A,DY_A,DZ_A, RSQ_A, dist_A)
+                call eval_pair_energy_single_LJ(dist_A, RSQ_A, t_A_old, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en1, is_ov)
+                if (is_ov == 1) ov = 1
+                e_old = e_old + en1
+                call eval_pair_energy_single_LJ(dist_A, RSQ_A, t_A_new, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en2, is_ov)
+                if (is_ov == 1) ov = 1
+                e_new = e_new + en2
+              end if
+            end do
+            ! Cell 2 internal particles with B
+            do j = 0, Nat_Cell_2 - 1
+              if (j /= idx_B_local) then
+                jmol  = indx_atm_aux_2  + j*7; jmol2 = indx_atm_aux2_2 + j*2
+                XJ = Sphere_Cell(jmol); YJ = Sphere_Cell(jmol+1); ZJ = Sphere_Cell(jmol+2)
+                itypej = List_Cell(jmol2+1)
+                call get_dist(XJ,YJ,ZJ, pos_B_x,pos_B_y,pos_B_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_B,DY_B,DZ_B, RSQ_B, dist_B)
+                call eval_pair_energy_single_LJ(dist_B, RSQ_B, t_B_old, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en1, is_ov)
+                if (is_ov == 1) ov = 1
+                e_old = e_old + en1
+                call eval_pair_energy_single_LJ(dist_B, RSQ_B, t_B_new, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en2, is_ov)
+                if (is_ov == 1) ov = 1
+                e_new = e_new + en2
+              end if
+            end do
+            entot_old(0) = e_old; entot_new(0) = e_new; overlap_aux(0) = ov
+          else
+            ICELL = indx_thread - 1
+            if (ICELL < 26) then
+              e_old = 0.0_wp; e_new = 0.0_wp; ov = 0
+              ! Cell 1 neighbor
+              Indx_Cell2_1 = Indx_Cell_1*26 + ICELL; Indx_Cell2_1 = Map_Cell(Indx_Cell2_1); Nat_Cell_neigh_1 = Nat_Cell(Indx_Cell2_1)
+              Indx_Cell3_1 = Indx_Cell_1*26*3 + ICELL*3
+              dx_neigh = DR_Cell(Indx_Cell3_1); dy_neigh = DR_Cell(Indx_Cell3_1+1); dz_neigh = DR_Cell(Indx_Cell3_1+2)
+              if (Nat_Cell_neigh_1 > 0) then
+                indx_neigh_aux2 = Indx_Cell2_1 * Nat_Cell_Max * 7; indx_neigh_auxp = Indx_Cell2_1 * Nat_Cell_Max * 2
+                do l = 0, Nat_Cell_neigh_1 - 1
+                  jmol = indx_neigh_aux2 + l*7; jmol2 = indx_neigh_auxp + l*2
+                  XJ = Sphere_Cell(jmol) + dx_neigh; YJ = Sphere_Cell(jmol+1) + dy_neigh; ZJ = Sphere_Cell(jmol+2) + dz_neigh
+                  itypej = List_Cell(jmol2 + 1)
+                  call get_dist(XJ,YJ,ZJ, pos_A_x,pos_A_y,pos_A_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_A,DY_A,DZ_A, RSQ_A, dist_A)
+                  call eval_pair_energy_single_LJ(dist_A, RSQ_A, t_A_old, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en1, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_old = e_old + en1
+                  call eval_pair_energy_single_LJ(dist_A, RSQ_A, t_A_new, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en2, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_new = e_new + en2
+                end do
+              end if
+
+              ! Cell 2 neighbor
+              Indx_Cell2_2 = Indx_Cell_2*26 + ICELL; Indx_Cell2_2 = Map_Cell(Indx_Cell2_2); Nat_Cell_neigh_2 = Nat_Cell(Indx_Cell2_2)
+              Indx_Cell3_2 = Indx_Cell_2*26*3 + ICELL*3
+              dx_neigh = DR_Cell(Indx_Cell3_2); dy_neigh = DR_Cell(Indx_Cell3_2+1); dz_neigh = DR_Cell(Indx_Cell3_2+2)
+              if (Nat_Cell_neigh_2 > 0) then
+                indx_neigh_aux2 = Indx_Cell2_2 * Nat_Cell_Max * 7; indx_neigh_auxp = Indx_Cell2_2 * Nat_Cell_Max * 2
+                do l = 0, Nat_Cell_neigh_2 - 1
+                  jmol = indx_neigh_aux2 + l*7; jmol2 = indx_neigh_auxp + l*2
+                  XJ = Sphere_Cell(jmol) + dx_neigh; YJ = Sphere_Cell(jmol+1) + dy_neigh; ZJ = Sphere_Cell(jmol+2) + dz_neigh
+                  itypej = List_Cell(jmol2 + 1)
+                  call get_dist(XJ,YJ,ZJ, pos_B_x,pos_B_y,pos_B_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_B,DY_B,DZ_B, RSQ_B, dist_B)
+                  call eval_pair_energy_single_LJ(dist_B, RSQ_B, t_B_old, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en1, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_old = e_old + en1
+                  call eval_pair_energy_single_LJ(dist_B, RSQ_B, t_B_new, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en2, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_new = e_new + en2
+                end do
+              end if
+              entot_old(indx_thread) = e_old; entot_new(indx_thread) = e_new; overlap_aux(indx_thread) = ov
+            end if
+          end if
+          call syncthreads()
+
+          if (indx_thread == 0) then
+            ov = 0; e_old = 0.0_wp; e_new = 0.0_wp
+            do i = 0, 26
+              if (overlap_aux(i) == 1) ov = 1
+              e_old = e_old + entot_old(i)
+              e_new = e_new + entot_new(i)
+            end do
+            if (ov == 0) then
+              DE = real(e_new - e_old, dkind)
+              p_acc = hastings_ratio * exp(-beta * real(DE, wp))
+              if (p_acc > 1.0_wp) p_acc = 1.0_wp
+              if (curand_uniform(RND_state(Indx_Rnd)) <= p_acc) then
+                List_Cell(indx_atm_aux2_1 + idx_A_local*2 + 1) = t_A_new
+                List_Cell(indx_atm_aux2_2 + idx_B_local*2 + 1) = t_B_new
+                Nswap_ac(Indx_Cell_1) = Nswap_ac(Indx_Cell_1) + 1
+                Delta_energy(Indx_Cell_1) = Delta_energy(Indx_Cell_1) + DE
+              end if
+            end if
+          end if
+        end if
+      end if
+    end if
+  end subroutine subsweep_LJ_cross_swap
+
+  ! ==============================================================================
+  ! DEVICE KERNEL: subsweep_angular_swap
+  ! DESCRIPTION: Performs parallel intra-cell identity swap moves for angular patchy
+  ! particles (LJG model, pot_int == 1). Preserves orientations/quaternions while
+  ! swapping species types.
+  ! ==============================================================================
+  attributes(global) subroutine subsweep_angular_swap(RND_state, nstates, bool_tor, Ndim, Nat_Cell_Max, &
+                                                     Ntot_Cell, Nsubset_Cell, Npatches_max, Ntor_max, Ntypes, &
+                                                     Npatches, patch, ref_tor, sigma_jon, sigma_tor, &
+                                                     sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, &
+                                                     Ntor_angle, tor_angle, Vpot_Matrix, h, beta, &
+                                                     Sphere_Cell, List_Cell, Map_Cell, &
+                                                     Nl_Cell, Nat_Cell, DR_Cell, Offset_CB, W_RU, &
+                                                     Delta_energy, Nswap_att, Nswap_ac)
+    type(curandStateXORWOW), intent(inout) :: RND_state(0:nstates-1)
+    integer, value :: nstates, bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Nsubset_Cell, Npatches_max, Ntor_max, Ntypes
+    integer, device, intent(inout) :: List_Cell(0:Ntot_Cell*Nat_Cell_Max*2-1)
+    integer, device, intent(in) :: Map_Cell(0:Ntot_Cell*26-1)
+    integer, device, intent(in) :: Nl_Cell(0:Ndim-1), Nat_Cell(0:Ntot_Cell-1), Offset_CB(0:Ndim-1)
+    integer, device, intent(inout) :: Nswap_att(0:Ntot_Cell-1), Nswap_ac(0:Ntot_Cell-1)
+    integer, device, intent(in) :: Npatches(0:Ntypes-1), Ntor_angle(0:Ntypes*Npatches_max-1)
+    real(wp), device, intent(in) :: patch(0:Ntypes*Npatches_max*Ndim-1), ref_tor(0:Ntypes*Npatches_max*Ndim-1)
+    real(wp), device, intent(in) :: sigma_jon(0:Ntypes*Npatches_max-1), sigma_LJ(0:Ntypes*Ntypes-1), epsilon_LJ(0:Ntypes*Ntypes-1)
+    real(wp), device, intent(in) :: rangeP(0:Ntypes*Ntypes-1), VL0(0:Ntypes*Ntypes-1), XOP(0:Ntypes*Ntypes-1)
+    real(wp), device, intent(in) :: tor_angle(0:Ntypes*Npatches_max*Ntor_max-1), Vpot_Matrix(0:Ntypes*Npatches_max*Ntypes*Npatches_max-1)
+    real(wp), device, intent(in) :: h(0:Ndim*Ndim-1), DR_Cell(0:Ntot_Cell*26*3-1)
+    real(dkind), device, intent(in) :: W_RU(0:Ndim-1)
+    real(wp), value :: sigma_tor, beta
+    real(wp), device, intent(in) :: Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1)
+    real(dkind), device, intent(inout) :: Delta_energy(0:Ntot_Cell-1)
+
+    integer :: Nl0, Nl1, Nl2, Nl02, Nl12, Nl22, Indx_Rnd, indx_atm_aux, indx_atm_aux2
+    integer :: j, l, ICELL, jmol, jmol2, is_ov
+    integer :: Indx_Cell2, Indx_Cell3, Nat_Cell_neigh, indx_neigh_aux2, indx_neigh_auxp, itypej
+    integer :: indx_thread, indx_rnd_x, indx_rnd_y, indx_rnd_z, jcell_x, jcell_y, jcell_z, i
+    integer, shared :: Indx_Cell, Nat_Cell_ijk
+    integer, shared :: idx_A_local, idx_B_local, can_swap
+    real(wp) :: DX_A, DY_A, DZ_A, DX_B, DY_B, DZ_B, DX, DY, DZ
+    real(wp) :: dist_A, dist_B, RSQ_A, RSQ_B, dist, RSQ, H11, H12, H13, H21, H22, H23, H31, H32, H33
+    real(wp) :: dx_neigh, dy_neigh, dz_neigh, XJ, YJ, ZJ, en1, en2, e_old, e_new
+    real(wp) :: Q0_A, Q1_A, Q2_A, Q3_A, Q0_B, Q1_B, Q2_B, Q3_B, Q0j, Q1j, Q2j, Q3j, R2(0:8)
+    real(wp) :: a, pi, dospi
+    real(dkind) :: DE
+    real(wp), shared :: pos_A_x, pos_A_y, pos_A_z
+    real(wp), shared :: pos_B_x, pos_B_y, pos_B_z
+    real(wp), shared :: R_A(0:8), R_B(0:8)
+    real(wp), shared :: entot_old(0:NTHREAD-1), entot_new(0:NTHREAD-1)
+    integer, shared :: overlap_aux(0:NTHREAD-1)
+    integer :: count_A, count_B, target_A, target_B, cur_A, cur_B, t, ov
+
+    a = 1000.0_wp; pi = acos(-1.0_wp); dospi = 2.0_wp*pi
+    indx_rnd = blockIdx%x - 1; Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2); Nl02 = Nl0/2; Nl12 = Nl1/2; Nl22 = Nl2/2
+    indx_rnd_z = indx_rnd/(Nl02*Nl12); indx_rnd_y = (indx_rnd - Nl02*Nl12*indx_rnd_z)/Nl02
+    if (indx_rnd_y == 0 .and. indx_rnd_z == 0) then; indx_rnd_x = indx_rnd; else; indx_rnd_x = mod(indx_rnd, indx_rnd_y*Nl02 + indx_rnd_z*Nl02*Nl12); end if
+    jcell_x = 2*indx_rnd_x + Offset_CB(0); jcell_y = 2*indx_rnd_y + Offset_CB(1); jcell_z = 2*indx_rnd_z + Offset_CB(2)
+    indx_thread = threadIdx%x - 1
+
+    if (jcell_x < Nl0 .and. jcell_y < Nl1 .and. jcell_z < Nl2) then
+      Indx_Cell = mod(jcell_x+Nl0, Nl0) + mod(jcell_y+Nl1, Nl1)*Nl0 + mod(jcell_z+Nl2, Nl2)*Nl0*Nl1
+      Indx_Rnd = mod(indx_rnd_x+Nl02, Nl02) + mod(indx_rnd_y+Nl12, Nl12)*Nl02 + mod(indx_rnd_z+Nl22, Nl22)*Nl02*Nl12
+      Nat_Cell_ijk = Nat_Cell(Indx_Cell)
+      if (indx_thread == 0) can_swap = 0
+      call syncthreads()
+
+      if (Nat_Cell_ijk >= 2) then
+        H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
+        indx_atm_aux  = Indx_Cell * Nat_Cell_Max * 7; indx_atm_aux2 = Indx_Cell * Nat_Cell_Max * 2
+
+        if (indx_thread == 0) then
+          count_A = 0; count_B = 0
+          do l = 0, Nat_Cell_ijk - 1
+            t = List_Cell(indx_atm_aux2 + l*2 + 1)
+            if (t == 0) count_A = count_A + 1
+            if (t == 1) count_B = count_B + 1
+          end do
+
+          if (count_A > 0 .and. count_B > 0) then
+            target_A = int(count_A * curand_uniform(RND_state(Indx_Rnd)))
+            if (target_A >= count_A) target_A = count_A - 1
+            target_B = int(count_B * curand_uniform(RND_state(Indx_Rnd)))
+            if (target_B >= count_B) target_B = count_B - 1
+
+            cur_A = 0; idx_A_local = -1
+            do l = 0, Nat_Cell_ijk - 1
+              if (List_Cell(indx_atm_aux2 + l*2 + 1) == 0) then
+                if (cur_A == target_A) idx_A_local = l
+                cur_A = cur_A + 1
+              end if
+            end do
+
+            cur_B = 0; idx_B_local = -1
+            do l = 0, Nat_Cell_ijk - 1
+              if (List_Cell(indx_atm_aux2 + l*2 + 1) == 1) then
+                if (cur_B == target_B) idx_B_local = l
+                cur_B = cur_B + 1
+              end if
+            end do
+
+            if (idx_A_local >= 0 .and. idx_B_local >= 0) then
+              can_swap = 1
+              pos_A_x = Sphere_Cell(indx_atm_aux + idx_A_local*7)
+              pos_A_y = Sphere_Cell(indx_atm_aux + idx_A_local*7 + 1)
+              pos_A_z = Sphere_Cell(indx_atm_aux + idx_A_local*7 + 2)
+              Q0_A    = Sphere_Cell(indx_atm_aux + idx_A_local*7 + 3)
+              Q1_A    = Sphere_Cell(indx_atm_aux + idx_A_local*7 + 4)
+              Q2_A    = Sphere_Cell(indx_atm_aux + idx_A_local*7 + 5)
+              Q3_A    = Sphere_Cell(indx_atm_aux + idx_A_local*7 + 6)
+              call rot_matrix(Q0_A, Q1_A, Q2_A, Q3_A, R_A)
+
+              pos_B_x = Sphere_Cell(indx_atm_aux + idx_B_local*7)
+              pos_B_y = Sphere_Cell(indx_atm_aux + idx_B_local*7 + 1)
+              pos_B_z = Sphere_Cell(indx_atm_aux + idx_B_local*7 + 2)
+              Q0_B    = Sphere_Cell(indx_atm_aux + idx_B_local*7 + 3)
+              Q1_B    = Sphere_Cell(indx_atm_aux + idx_B_local*7 + 4)
+              Q2_B    = Sphere_Cell(indx_atm_aux + idx_B_local*7 + 5)
+              Q3_B    = Sphere_Cell(indx_atm_aux + idx_B_local*7 + 6)
+              call rot_matrix(Q0_B, Q1_B, Q2_B, Q3_B, R_B)
+
+              Nswap_att(Indx_Cell) = Nswap_att(Indx_Cell) + 1
+            end if
+          end if
+        end if
+        call syncthreads()
+
+        if (can_swap == 1) then
+          overlap_aux(indx_thread) = 0
+          entot_old(indx_thread) = 0.0_wp
+          entot_new(indx_thread) = 0.0_wp
+          call syncthreads()
+
+          if (indx_thread == 0) then
+            e_old = 0.0_wp; e_new = 0.0_wp; ov = 0
+            ! 1. Mutual interaction between A and B
+            call get_dist(pos_B_x, pos_B_y, pos_B_z, pos_A_x, pos_A_y, pos_A_z, &
+                          H11,H12,H13,H21,H22,H23,H31,H32,H33, DX, DY, DZ, RSQ, dist)
+            call eval_pair_energy_single_angular(DX, DY, DZ, dist, RSQ, R_A, R_B, 0, 1, bool_tor, a, pi, dospi, sigma_tor, &
+                                                Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
+                                                sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
+                                                Vpot_Matrix, Ntor_angle, en1, is_ov)
+            if (is_ov == 1) ov = 1
+            e_old = e_old + en1
+            call eval_pair_energy_single_angular(DX, DY, DZ, dist, RSQ, R_A, R_B, 1, 0, bool_tor, a, pi, dospi, sigma_tor, &
+                                                Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
+                                                sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
+                                                Vpot_Matrix, Ntor_angle, en2, is_ov)
+            if (is_ov == 1) ov = 1
+            e_new = e_new + en2
+
+            ! 2. Interactions with other particles in self cell
+            do j = 0, Nat_Cell_ijk - 1
+              if (j /= idx_A_local .and. j /= idx_B_local) then
+                jmol  = indx_atm_aux  + j*7; jmol2 = indx_atm_aux2 + j*2
+                XJ = Sphere_Cell(jmol); YJ = Sphere_Cell(jmol+1); ZJ = Sphere_Cell(jmol+2)
+                Q0j = Sphere_Cell(jmol+3); Q1j = Sphere_Cell(jmol+4); Q2j = Sphere_Cell(jmol+5); Q3j = Sphere_Cell(jmol+6)
+                call rot_matrix(Q0j, Q1j, Q2j, Q3j, R2)
+                itypej = List_Cell(jmol2+1)
+
+                call get_dist(XJ,YJ,ZJ, pos_A_x,pos_A_y,pos_A_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_A,DY_A,DZ_A, RSQ_A, dist_A)
+                call eval_pair_energy_single_angular(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, 0, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                                                    Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
+                                                    sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
+                                                    Vpot_Matrix, Ntor_angle, en1, is_ov)
+                if (is_ov == 1) ov = 1
+                e_old = e_old + en1
+                call eval_pair_energy_single_angular(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, 1, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                                                    Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
+                                                    sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
+                                                    Vpot_Matrix, Ntor_angle, en2, is_ov)
+                if (is_ov == 1) ov = 1
+                e_new = e_new + en2
+
+                call get_dist(XJ,YJ,ZJ, pos_B_x,pos_B_y,pos_B_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_B,DY_B,DZ_B, RSQ_B, dist_B)
+                call eval_pair_energy_single_angular(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, 1, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                                                    Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
+                                                    sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
+                                                    Vpot_Matrix, Ntor_angle, en1, is_ov)
+                if (is_ov == 1) ov = 1
+                e_old = e_old + en1
+                call eval_pair_energy_single_angular(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, 0, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                                                    Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
+                                                    sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
+                                                    Vpot_Matrix, Ntor_angle, en2, is_ov)
+                if (is_ov == 1) ov = 1
+                e_new = e_new + en2
+              end if
+            end do
+            entot_old(0) = e_old; entot_new(0) = e_new; overlap_aux(0) = ov
+          else
+            ICELL = indx_thread - 1
+            if (ICELL < 26) then
+              e_old = 0.0_wp; e_new = 0.0_wp; ov = 0
+              Indx_Cell2 = Indx_Cell*26 + ICELL; Indx_Cell2 = Map_Cell(Indx_Cell2); Nat_Cell_neigh = Nat_Cell(Indx_Cell2)
+              Indx_Cell3 = Indx_Cell*26*3 + ICELL*3
+              dx_neigh = DR_Cell(Indx_Cell3); dy_neigh = DR_Cell(Indx_Cell3+1); dz_neigh = DR_Cell(Indx_Cell3+2)
+
+              if (Nat_Cell_neigh > 0) then
+                indx_neigh_aux2 = Indx_Cell2 * Nat_Cell_Max * 7; indx_neigh_auxp = Indx_Cell2 * Nat_Cell_Max * 2
+                do l = 0, Nat_Cell_neigh - 1
+                  jmol = indx_neigh_aux2 + l*7; jmol2 = indx_neigh_auxp + l*2
+                  XJ = Sphere_Cell(jmol) + dx_neigh; YJ = Sphere_Cell(jmol+1) + dy_neigh; ZJ = Sphere_Cell(jmol+2) + dz_neigh
+                  Q0j = Sphere_Cell(jmol+3); Q1j = Sphere_Cell(jmol+4); Q2j = Sphere_Cell(jmol+5); Q3j = Sphere_Cell(jmol+6)
+                  call rot_matrix(Q0j, Q1j, Q2j, Q3j, R2)
+                  itypej = List_Cell(jmol2 + 1)
+
+                  call get_dist(XJ,YJ,ZJ, pos_A_x,pos_A_y,pos_A_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_A,DY_A,DZ_A, RSQ_A, dist_A)
+                  call eval_pair_energy_single_angular(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, 0, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                                                      Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
+                                                      sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
+                                                      Vpot_Matrix, Ntor_angle, en1, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_old = e_old + en1
+                  call eval_pair_energy_single_angular(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, 1, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                                                      Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
+                                                      sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
+                                                      Vpot_Matrix, Ntor_angle, en2, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_new = e_new + en2
+
+                  call get_dist(XJ,YJ,ZJ, pos_B_x,pos_B_y,pos_B_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_B,DY_B,DZ_B, RSQ_B, dist_B)
+                  call eval_pair_energy_single_angular(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, 1, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                                                      Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
+                                                      sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
+                                                      Vpot_Matrix, Ntor_angle, en1, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_old = e_old + en1
+                  call eval_pair_energy_single_angular(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, 0, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                                                      Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
+                                                      sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
+                                                      Vpot_Matrix, Ntor_angle, en2, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_new = e_new + en2
+                end do
+              end if
+              entot_old(indx_thread) = e_old; entot_new(indx_thread) = e_new; overlap_aux(indx_thread) = ov
+            end if
+          end if
+          call syncthreads()
+
+          if (indx_thread == 0) then
+            ov = 0; e_old = 0.0_wp; e_new = 0.0_wp
+            do i = 0, 26
+              if (overlap_aux(i) == 1) ov = 1
+              e_old = e_old + entot_old(i)
+              e_new = e_new + entot_new(i)
+            end do
+            if (ov == 0) then
+              DE = real(e_new - e_old, dkind)
+              if (DE <= 0.0_wp .or. curand_uniform(RND_state(Indx_Rnd)) <= exp(-beta * real(DE, wp))) then
+                List_Cell(indx_atm_aux2 + idx_A_local*2 + 1) = 1
+                List_Cell(indx_atm_aux2 + idx_B_local*2 + 1) = 0
+                Nswap_ac(Indx_Cell) = Nswap_ac(Indx_Cell) + 1
+                Delta_energy(Indx_Cell) = Delta_energy(Indx_Cell) + DE
+              end if
+            end if
+          end if
+        end if
+      end if
+    end if
+  end subroutine subsweep_angular_swap
+
+  ! ==============================================================================
+  ! DEVICE KERNEL: subsweep_angular_cross_swap
+  ! DESCRIPTION: Performs parallel cross-cell identity swap moves for angular patchy
+  ! particles (LJG model, pot_int == 1).
+  ! ==============================================================================
+  attributes(global) subroutine subsweep_angular_cross_swap(RND_state, nstates, bool_tor, Ndim, Nat_Cell_Max, &
+                                                           Ntot_Cell, Nsubset_Cell, Npatches_max, Ntor_max, Ntypes, &
+                                                           Npatches, patch, ref_tor, sigma_jon, sigma_tor, &
+                                                           sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, &
+                                                           Ntor_angle, tor_angle, Vpot_Matrix, h, beta, &
+                                                           Sphere_Cell, List_Cell, Map_Cell, &
+                                                           Nl_Cell, Nat_Cell, DR_Cell, Offset_CB, W_RU, &
+                                                           Delta_energy, Nswap_att, Nswap_ac)
+    type(curandStateXORWOW), intent(inout) :: RND_state(0:nstates-1)
+    integer, value :: nstates, bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Nsubset_Cell, Npatches_max, Ntor_max, Ntypes
+    integer, device, intent(inout) :: List_Cell(0:Ntot_Cell*Nat_Cell_Max*2-1)
+    integer, device, intent(in) :: Map_Cell(0:Ntot_Cell*26-1)
+    integer, device, intent(in) :: Nl_Cell(0:Ndim-1), Nat_Cell(0:Ntot_Cell-1), Offset_CB(0:Ndim-1)
+    integer, device, intent(inout) :: Nswap_att(0:Ntot_Cell-1), Nswap_ac(0:Ntot_Cell-1)
+    integer, device, intent(in) :: Npatches(0:Ntypes-1), Ntor_angle(0:Ntypes*Npatches_max-1)
+    real(wp), device, intent(in) :: patch(0:Ntypes*Npatches_max*Ndim-1), ref_tor(0:Ntypes*Npatches_max*Ndim-1)
+    real(wp), device, intent(in) :: sigma_jon(0:Ntypes*Npatches_max-1), sigma_LJ(0:Ntypes*Ntypes-1), epsilon_LJ(0:Ntypes*Ntypes-1)
+    real(wp), device, intent(in) :: rangeP(0:Ntypes*Ntypes-1), VL0(0:Ntypes*Ntypes-1), XOP(0:Ntypes*Ntypes-1)
+    real(wp), device, intent(in) :: tor_angle(0:Ntypes*Npatches_max*Ntor_max-1), Vpot_Matrix(0:Ntypes*Npatches_max*Ntypes*Npatches_max-1)
+    real(wp), device, intent(in) :: h(0:Ndim*Ndim-1), DR_Cell(0:Ntot_Cell*26*3-1)
+    real(dkind), device, intent(in) :: W_RU(0:Ndim-1)
+    real(wp), value :: sigma_tor, beta
+    real(wp), device, intent(in) :: Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1)
+    real(dkind), device, intent(inout) :: Delta_energy(0:Ntot_Cell-1)
+
+    integer :: Nl0, Nl1, Nl2, Nl02, Nl12, Nl22, Indx_Rnd
+    integer :: indx_atm_aux_1, indx_atm_aux2_1, indx_atm_aux_2, indx_atm_aux2_2
+    integer :: j, l, ICELL, jmol, jmol2, is_ov
+    integer :: Indx_Cell2_1, Indx_Cell3_1, Nat_Cell_neigh_1
+    integer :: Indx_Cell2_2, Indx_Cell3_2, Nat_Cell_neigh_2
+    integer :: indx_neigh_aux2, indx_neigh_auxp, itypej
+    integer :: indx_thread, indx_rnd_x, indx_rnd_y, indx_rnd_z
+    integer :: jcell_x1, jcell_y1, jcell_z1, jcell_x2, jcell_y2, jcell_z2, i
+    integer, shared :: Indx_Cell_1, Indx_Cell_2, Nat_Cell_1, Nat_Cell_2
+    integer, shared :: idx_A_local, idx_B_local, can_swap
+    integer, shared :: t_A_old, t_A_new, t_B_old, t_B_new
+    real(wp) :: DX_A, DY_A, DZ_A, DX_B, DY_B, DZ_B
+    real(wp) :: dist_A, dist_B, RSQ_A, RSQ_B, H11, H12, H13, H21, H22, H23, H31, H32, H33
+    real(wp) :: dx_neigh, dy_neigh, dz_neigh, XJ, YJ, ZJ, en1, en2, e_old, e_new, coin, p_acc
+    real(wp) :: Q0_A, Q1_A, Q2_A, Q3_A, Q0_B, Q1_B, Q2_B, Q3_B, Q0j, Q1j, Q2j, Q3j, R2(0:8)
+    real(wp) :: a, pi, dospi
+    real(dkind) :: DE
+    real(wp), shared :: pos_A_x, pos_A_y, pos_A_z
+    real(wp), shared :: pos_B_x, pos_B_y, pos_B_z
+    real(wp), shared :: R_A(0:8), R_B(0:8)
+    real(wp), shared :: hastings_ratio
+    real(wp), shared :: entot_old(0:NTHREAD-1), entot_new(0:NTHREAD-1)
+    integer, shared :: overlap_aux(0:NTHREAD-1)
+    integer :: count_A1, count_B1, count_A2, count_B2, target_A, target_B, cur_A, cur_B, t, ov
+
+    a = 1000.0_wp; pi = acos(-1.0_wp); dospi = 2.0_wp*pi
+    indx_rnd = blockIdx%x - 1; Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2); Nl02 = Nl0/2; Nl12 = Nl1/2; Nl22 = Nl2/2
+    indx_rnd_z = indx_rnd/(Nl02*Nl12); indx_rnd_y = (indx_rnd - Nl02*Nl12*indx_rnd_z)/Nl02
+    if (indx_rnd_y == 0 .and. indx_rnd_z == 0) then; indx_rnd_x = indx_rnd; else; indx_rnd_x = mod(indx_rnd, indx_rnd_y*Nl02 + indx_rnd_z*Nl02*Nl12); end if
+    jcell_x1 = 2*indx_rnd_x + Offset_CB(0); jcell_y1 = 2*indx_rnd_y + Offset_CB(1); jcell_z1 = 2*indx_rnd_z + Offset_CB(2)
+    jcell_x2 = mod(jcell_x1 + Nl02, Nl0); jcell_y2 = mod(jcell_y1 + Nl12, Nl1); jcell_z2 = mod(jcell_z1 + Nl22, Nl2)
+    indx_thread = threadIdx%x - 1
+
+    if (jcell_x1 < Nl0 .and. jcell_y1 < Nl1 .and. jcell_z1 < Nl2) then
+      Indx_Cell_1 = mod(jcell_x1+Nl0, Nl0) + mod(jcell_y1+Nl1, Nl1)*Nl0 + mod(jcell_z1+Nl2, Nl2)*Nl0*Nl1
+      Indx_Cell_2 = mod(jcell_x2+Nl0, Nl0) + mod(jcell_y2+Nl1, Nl1)*Nl0 + mod(jcell_z2+Nl2, Nl2)*Nl0*Nl1
+      if (Indx_Cell_1 == Indx_Cell_2) return
+      if (mod(jcell_x2 - Offset_CB(0), 2) == 0 .and. &
+          mod(jcell_y2 - Offset_CB(1), 2) == 0 .and. &
+          mod(jcell_z2 - Offset_CB(2), 2) == 0) then
+        if (Indx_Cell_1 > Indx_Cell_2) return
+      end if
+      Indx_Rnd = mod(indx_rnd_x+Nl02, Nl02) + mod(indx_rnd_y+Nl12, Nl12)*Nl02 + mod(indx_rnd_z+Nl22, Nl22)*Nl02*Nl12
+      Nat_Cell_1 = Nat_Cell(Indx_Cell_1)
+      Nat_Cell_2 = Nat_Cell(Indx_Cell_2)
+      if (indx_thread == 0) can_swap = 0
+      call syncthreads()
+
+      if (Nat_Cell_1 >= 1 .and. Nat_Cell_2 >= 1) then
+        H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
+        indx_atm_aux_1  = Indx_Cell_1 * Nat_Cell_Max * 7; indx_atm_aux2_1 = Indx_Cell_1 * Nat_Cell_Max * 2
+        indx_atm_aux_2  = Indx_Cell_2 * Nat_Cell_Max * 7; indx_atm_aux2_2 = Indx_Cell_2 * Nat_Cell_Max * 2
+
+        if (indx_thread == 0) then
+          count_A1 = 0; count_B1 = 0
+          do l = 0, Nat_Cell_1 - 1
+            t = List_Cell(indx_atm_aux2_1 + l*2 + 1)
+            if (t == 0) count_A1 = count_A1 + 1
+            if (t == 1) count_B1 = count_B1 + 1
+          end do
+
+          count_A2 = 0; count_B2 = 0
+          do l = 0, Nat_Cell_2 - 1
+            t = List_Cell(indx_atm_aux2_2 + l*2 + 1)
+            if (t == 0) count_A2 = count_A2 + 1
+            if (t == 1) count_B2 = count_B2 + 1
+          end do
+
+          coin = curand_uniform(RND_state(Indx_Rnd))
+          if (coin < 0.5_wp) then
+            if (count_A1 > 0 .and. count_B2 > 0) then
+              target_A = int(count_A1 * curand_uniform(RND_state(Indx_Rnd)))
+              if (target_A >= count_A1) target_A = count_A1 - 1
+              target_B = int(count_B2 * curand_uniform(RND_state(Indx_Rnd)))
+              if (target_B >= count_B2) target_B = count_B2 - 1
+
+              cur_A = 0; idx_A_local = -1
+              do l = 0, Nat_Cell_1 - 1
+                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == 0) then
+                  if (cur_A == target_A) idx_A_local = l
+                  cur_A = cur_A + 1
+                end if
+              end do
+
+              cur_B = 0; idx_B_local = -1
+              do l = 0, Nat_Cell_2 - 1
+                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == 1) then
+                  if (cur_B == target_B) idx_B_local = l
+                  cur_B = cur_B + 1
+                end if
+              end do
+
+              if (idx_A_local >= 0 .and. idx_B_local >= 0) then
+                can_swap = 1
+                t_A_old = 0; t_A_new = 1
+                t_B_old = 1; t_B_new = 0
+                pos_A_x = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7)
+                pos_A_y = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 1)
+                pos_A_z = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 2)
+                Q0_A    = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 3)
+                Q1_A    = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 4)
+                Q2_A    = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 5)
+                Q3_A    = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 6)
+                call rot_matrix(Q0_A, Q1_A, Q2_A, Q3_A, R_A)
+
+                pos_B_x = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7)
+                pos_B_y = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 1)
+                pos_B_z = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 2)
+                Q0_B    = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 3)
+                Q1_B    = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 4)
+                Q2_B    = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 5)
+                Q3_B    = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 6)
+                call rot_matrix(Q0_B, Q1_B, Q2_B, Q3_B, R_B)
+
+                hastings_ratio = real(count_A1 * count_B2, wp) / real((count_B1 + 1) * (count_A2 + 1), wp)
+                Nswap_att(Indx_Cell_1) = Nswap_att(Indx_Cell_1) + 1
+              end if
+            end if
+          else
+            if (count_B1 > 0 .and. count_A2 > 0) then
+              target_A = int(count_B1 * curand_uniform(RND_state(Indx_Rnd)))
+              if (target_A >= count_B1) target_A = count_B1 - 1
+              target_B = int(count_A2 * curand_uniform(RND_state(Indx_Rnd)))
+              if (target_B >= count_A2) target_B = count_A2 - 1
+
+              cur_A = 0; idx_A_local = -1
+              do l = 0, Nat_Cell_1 - 1
+                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == 1) then
+                  if (cur_A == target_A) idx_A_local = l
+                  cur_A = cur_A + 1
+                end if
+              end do
+
+              cur_B = 0; idx_B_local = -1
+              do l = 0, Nat_Cell_2 - 1
+                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == 0) then
+                  if (cur_B == target_B) idx_B_local = l
+                  cur_B = cur_B + 1
+                end if
+              end do
+
+              if (idx_A_local >= 0 .and. idx_B_local >= 0) then
+                can_swap = 1
+                t_A_old = 1; t_A_new = 0
+                t_B_old = 0; t_B_new = 1
+                pos_A_x = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7)
+                pos_A_y = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 1)
+                pos_A_z = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 2)
+                Q0_A    = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 3)
+                Q1_A    = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 4)
+                Q2_A    = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 5)
+                Q3_A    = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 6)
+                call rot_matrix(Q0_A, Q1_A, Q2_A, Q3_A, R_A)
+
+                pos_B_x = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7)
+                pos_B_y = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 1)
+                pos_B_z = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 2)
+                Q0_B    = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 3)
+                Q1_B    = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 4)
+                Q2_B    = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 5)
+                Q3_B    = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 6)
+                call rot_matrix(Q0_B, Q1_B, Q2_B, Q3_B, R_B)
+
+                hastings_ratio = real(count_B1 * count_A2, wp) / real((count_A1 + 1) * (count_B2 + 1), wp)
+                Nswap_att(Indx_Cell_1) = Nswap_att(Indx_Cell_1) + 1
+              end if
+            end if
+          end if
+        end if
+        call syncthreads()
+
+        if (can_swap == 1) then
+          overlap_aux(indx_thread) = 0
+          entot_old(indx_thread) = 0.0_wp
+          entot_new(indx_thread) = 0.0_wp
+          call syncthreads()
+
+          if (indx_thread == 0) then
+            e_old = 0.0_wp; e_new = 0.0_wp; ov = 0
+            ! Cell 1 internal particles with A
+            do j = 0, Nat_Cell_1 - 1
+              if (j /= idx_A_local) then
+                jmol  = indx_atm_aux_1  + j*7; jmol2 = indx_atm_aux2_1 + j*2
+                XJ = Sphere_Cell(jmol); YJ = Sphere_Cell(jmol+1); ZJ = Sphere_Cell(jmol+2)
+                Q0j = Sphere_Cell(jmol+3); Q1j = Sphere_Cell(jmol+4); Q2j = Sphere_Cell(jmol+5); Q3j = Sphere_Cell(jmol+6)
+                call rot_matrix(Q0j, Q1j, Q2j, Q3j, R2)
+                itypej = List_Cell(jmol2+1)
+                call get_dist(XJ,YJ,ZJ, pos_A_x,pos_A_y,pos_A_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_A,DY_A,DZ_A, RSQ_A, dist_A)
+                call eval_pair_energy_single_angular(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, t_A_old, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                                                    Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
+                                                    sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
+                                                    Vpot_Matrix, Ntor_angle, en1, is_ov)
+                if (is_ov == 1) ov = 1
+                e_old = e_old + en1
+                call eval_pair_energy_single_angular(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, t_A_new, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                                                    Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
+                                                    sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
+                                                    Vpot_Matrix, Ntor_angle, en2, is_ov)
+                if (is_ov == 1) ov = 1
+                e_new = e_new + en2
+              end if
+            end do
+            ! Cell 2 internal particles with B
+            do j = 0, Nat_Cell_2 - 1
+              if (j /= idx_B_local) then
+                jmol  = indx_atm_aux_2  + j*7; jmol2 = indx_atm_aux2_2 + j*2
+                XJ = Sphere_Cell(jmol); YJ = Sphere_Cell(jmol+1); ZJ = Sphere_Cell(jmol+2)
+                Q0j = Sphere_Cell(jmol+3); Q1j = Sphere_Cell(jmol+4); Q2j = Sphere_Cell(jmol+5); Q3j = Sphere_Cell(jmol+6)
+                call rot_matrix(Q0j, Q1j, Q2j, Q3j, R2)
+                itypej = List_Cell(jmol2+1)
+                call get_dist(XJ,YJ,ZJ, pos_B_x,pos_B_y,pos_B_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_B,DY_B,DZ_B, RSQ_B, dist_B)
+                call eval_pair_energy_single_angular(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, t_B_old, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                                                    Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
+                                                    sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
+                                                    Vpot_Matrix, Ntor_angle, en1, is_ov)
+                if (is_ov == 1) ov = 1
+                e_old = e_old + en1
+                call eval_pair_energy_single_angular(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, t_B_new, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                                                    Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
+                                                    sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
+                                                    Vpot_Matrix, Ntor_angle, en2, is_ov)
+                if (is_ov == 1) ov = 1
+                e_new = e_new + en2
+              end if
+            end do
+            entot_old(0) = e_old; entot_new(0) = e_new; overlap_aux(0) = ov
+          else
+            ICELL = indx_thread - 1
+            if (ICELL < 26) then
+              e_old = 0.0_wp; e_new = 0.0_wp; ov = 0
+              ! Cell 1 neighbor
+              Indx_Cell2_1 = Indx_Cell_1*26 + ICELL; Indx_Cell2_1 = Map_Cell(Indx_Cell2_1); Nat_Cell_neigh_1 = Nat_Cell(Indx_Cell2_1)
+              Indx_Cell3_1 = Indx_Cell_1*26*3 + ICELL*3
+              dx_neigh = DR_Cell(Indx_Cell3_1); dy_neigh = DR_Cell(Indx_Cell3_1+1); dz_neigh = DR_Cell(Indx_Cell3_1+2)
+              if (Nat_Cell_neigh_1 > 0) then
+                indx_neigh_aux2 = Indx_Cell2_1 * Nat_Cell_Max * 7; indx_neigh_auxp = Indx_Cell2_1 * Nat_Cell_Max * 2
+                do l = 0, Nat_Cell_neigh_1 - 1
+                  jmol = indx_neigh_aux2 + l*7; jmol2 = indx_neigh_auxp + l*2
+                  XJ = Sphere_Cell(jmol) + dx_neigh; YJ = Sphere_Cell(jmol+1) + dy_neigh; ZJ = Sphere_Cell(jmol+2) + dz_neigh
+                  Q0j = Sphere_Cell(jmol+3); Q1j = Sphere_Cell(jmol+4); Q2j = Sphere_Cell(jmol+5); Q3j = Sphere_Cell(jmol+6)
+                  call rot_matrix(Q0j, Q1j, Q2j, Q3j, R2)
+                  itypej = List_Cell(jmol2 + 1)
+                  call get_dist(XJ,YJ,ZJ, pos_A_x,pos_A_y,pos_A_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_A,DY_A,DZ_A, RSQ_A, dist_A)
+                  call eval_pair_energy_single_angular(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, t_A_old, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                                                      Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
+                                                      sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
+                                                      Vpot_Matrix, Ntor_angle, en1, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_old = e_old + en1
+                  call eval_pair_energy_single_angular(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, t_A_new, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                                                      Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
+                                                      sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
+                                                      Vpot_Matrix, Ntor_angle, en2, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_new = e_new + en2
+                end do
+              end if
+
+              ! Cell 2 neighbor
+              Indx_Cell2_2 = Indx_Cell_2*26 + ICELL; Indx_Cell2_2 = Map_Cell(Indx_Cell2_2); Nat_Cell_neigh_2 = Nat_Cell(Indx_Cell2_2)
+              Indx_Cell3_2 = Indx_Cell_2*26*3 + ICELL*3
+              dx_neigh = DR_Cell(Indx_Cell3_2); dy_neigh = DR_Cell(Indx_Cell3_2+1); dz_neigh = DR_Cell(Indx_Cell3_2+2)
+              if (Nat_Cell_neigh_2 > 0) then
+                indx_neigh_aux2 = Indx_Cell2_2 * Nat_Cell_Max * 7; indx_neigh_auxp = Indx_Cell2_2 * Nat_Cell_Max * 2
+                do l = 0, Nat_Cell_neigh_2 - 1
+                  jmol = indx_neigh_aux2 + l*7; jmol2 = indx_neigh_auxp + l*2
+                  XJ = Sphere_Cell(jmol) + dx_neigh; YJ = Sphere_Cell(jmol+1) + dy_neigh; ZJ = Sphere_Cell(jmol+2) + dz_neigh
+                  Q0j = Sphere_Cell(jmol+3); Q1j = Sphere_Cell(jmol+4); Q2j = Sphere_Cell(jmol+5); Q3j = Sphere_Cell(jmol+6)
+                  call rot_matrix(Q0j, Q1j, Q2j, Q3j, R2)
+                  itypej = List_Cell(jmol2 + 1)
+                  call get_dist(XJ,YJ,ZJ, pos_B_x,pos_B_y,pos_B_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_B,DY_B,DZ_B, RSQ_B, dist_B)
+                  call eval_pair_energy_single_angular(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, t_B_old, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                                                      Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
+                                                      sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
+                                                      Vpot_Matrix, Ntor_angle, en1, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_old = e_old + en1
+                  call eval_pair_energy_single_angular(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, t_B_new, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                                                      Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
+                                                      sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
+                                                      Vpot_Matrix, Ntor_angle, en2, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_new = e_new + en2
+                end do
+              end if
+              entot_old(indx_thread) = e_old; entot_new(indx_thread) = e_new; overlap_aux(indx_thread) = ov
+            end if
+          end if
+          call syncthreads()
+
+          if (indx_thread == 0) then
+            ov = 0; e_old = 0.0_wp; e_new = 0.0_wp
+            do i = 0, 26
+              if (overlap_aux(i) == 1) ov = 1
+              e_old = e_old + entot_old(i)
+              e_new = e_new + entot_new(i)
+            end do
+            if (ov == 0) then
+              DE = real(e_new - e_old, dkind)
+              p_acc = hastings_ratio * exp(-beta * real(DE, wp))
+              if (p_acc > 1.0_wp) p_acc = 1.0_wp
+              if (curand_uniform(RND_state(Indx_Rnd)) <= p_acc) then
+                List_Cell(indx_atm_aux2_1 + idx_A_local*2 + 1) = t_A_new
+                List_Cell(indx_atm_aux2_2 + idx_B_local*2 + 1) = t_B_new
+                Nswap_ac(Indx_Cell_1) = Nswap_ac(Indx_Cell_1) + 1
+                Delta_energy(Indx_Cell_1) = Delta_energy(Indx_Cell_1) + DE
+              end if
+            end if
+          end if
+        end if
+      end if
+    end if
+  end subroutine subsweep_angular_cross_swap
+
+  ! ==============================================================================
+  ! DEVICE KERNEL: subsweep_sitesite_swap
+  ! DESCRIPTION: Performs parallel intra-cell identity swap moves for site-site patchy
+  ! particles (Palaia / SSP model, pot_int == 2). Preserves orientations while swapping types.
+  ! ==============================================================================
+  attributes(global) subroutine subsweep_sitesite_swap(RND_state, nstates, Ndim, Nat_Cell_Max, &
+                                                      Ntot_Cell, Nsubset_Cell, Npatches_max, Ntypes, &
+                                                      Npatches, patch, sigma_LJ, epsilon_LJ, &
+                                                      rangeP, VL0, Vpot_Matrix, &
+                                                      sigp_factor, Rcp_factor, Rc_factor, h, beta, &
+                                                      Sphere_Cell, List_Cell, Map_Cell, &
+                                                      Nl_Cell, Nat_Cell, DR_Cell, Offset_CB, W_RU, &
+                                                      Delta_energy, Nswap_att, Nswap_ac)
+    type(curandStateXORWOW), intent(inout) :: RND_state(0:nstates-1)
+    integer, value :: nstates, Ndim, Nat_Cell_Max, Ntot_Cell, Nsubset_Cell, Npatches_max, Ntypes
+    integer, device, intent(inout) :: List_Cell(0:Ntot_Cell*Nat_Cell_Max*2-1)
+    integer, device, intent(in) :: Map_Cell(0:Ntot_Cell*26-1)
+    integer, device, intent(in) :: Nl_Cell(0:Ndim-1), Nat_Cell(0:Ntot_Cell-1), Offset_CB(0:Ndim-1)
+    integer, device, intent(inout) :: Nswap_att(0:Ntot_Cell-1), Nswap_ac(0:Ntot_Cell-1)
+    integer, device, intent(in) :: Npatches(0:Ntypes-1)
+    real(wp), device, intent(in) :: patch(0:Ntypes*Npatches_max*Ndim-1)
+    real(wp), device, intent(in) :: sigma_LJ(0:Ntypes*Ntypes-1), epsilon_LJ(0:Ntypes*Ntypes-1)
+    real(wp), device, intent(in) :: rangeP(0:Ntypes*Ntypes-1), VL0(0:Ntypes*Ntypes-1)
+    real(wp), device, intent(in) :: Vpot_Matrix(0:Ntypes*Npatches_max*Ntypes*Npatches_max-1)
+    real(wp), device, intent(in) :: h(0:Ndim*Ndim-1), DR_Cell(0:Ntot_Cell*26*3-1)
+    real(dkind), device, intent(in) :: W_RU(0:Ndim-1)
+    real(wp), value :: sigp_factor, Rcp_factor, Rc_factor, beta
+    real(wp), device, intent(in) :: Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1)
+    real(dkind), device, intent(inout) :: Delta_energy(0:Ntot_Cell-1)
+
+    integer :: Nl0, Nl1, Nl2, Nl02, Nl12, Nl22, Indx_Rnd, indx_atm_aux, indx_atm_aux2
+    integer :: j, l, ICELL, jmol, jmol2, is_ov
+    integer :: Indx_Cell2, Indx_Cell3, Nat_Cell_neigh, indx_neigh_aux2, indx_neigh_auxp, itypej
+    integer :: indx_thread, indx_rnd_x, indx_rnd_y, indx_rnd_z, jcell_x, jcell_y, jcell_z, i
+    integer, shared :: Indx_Cell, Nat_Cell_ijk
+    integer, shared :: idx_A_local, idx_B_local, can_swap
+    real(wp) :: DX_A, DY_A, DZ_A, DX_B, DY_B, DZ_B, DX, DY, DZ
+    real(wp) :: dist_A, dist_B, RSQ_A, RSQ_B, dist, RSQ, H11, H12, H13, H21, H22, H23, H31, H32, H33
+    real(wp) :: dx_neigh, dy_neigh, dz_neigh, XJ, YJ, ZJ, en1, en2, e_old, e_new
+    real(wp) :: Q0_A, Q1_A, Q2_A, Q3_A, Q0_B, Q1_B, Q2_B, Q3_B, Q0j, Q1j, Q2j, Q3j, R2(0:8)
+    real(wp) :: pi
+    real(dkind) :: DE
+    real(wp), shared :: pos_A_x, pos_A_y, pos_A_z
+    real(wp), shared :: pos_B_x, pos_B_y, pos_B_z
+    real(wp), shared :: R_A(0:8), R_B(0:8)
+    real(wp), shared :: entot_old(0:NTHREAD-1), entot_new(0:NTHREAD-1)
+    integer, shared :: overlap_aux(0:NTHREAD-1)
+    integer :: count_A, count_B, target_A, target_B, cur_A, cur_B, t, ov
+
+    pi = acos(-1.0_wp)
+    indx_rnd = blockIdx%x - 1; Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2); Nl02 = Nl0/2; Nl12 = Nl1/2; Nl22 = Nl2/2
+    indx_rnd_z = indx_rnd/(Nl02*Nl12); indx_rnd_y = (indx_rnd - Nl02*Nl12*indx_rnd_z)/Nl02
+    if (indx_rnd_y == 0 .and. indx_rnd_z == 0) then; indx_rnd_x = indx_rnd; else; indx_rnd_x = mod(indx_rnd, indx_rnd_y*Nl02 + indx_rnd_z*Nl02*Nl12); end if
+    jcell_x = 2*indx_rnd_x + Offset_CB(0); jcell_y = 2*indx_rnd_y + Offset_CB(1); jcell_z = 2*indx_rnd_z + Offset_CB(2)
+    indx_thread = threadIdx%x - 1
+
+    if (jcell_x < Nl0 .and. jcell_y < Nl1 .and. jcell_z < Nl2) then
+      Indx_Cell = mod(jcell_x+Nl0, Nl0) + mod(jcell_y+Nl1, Nl1)*Nl0 + mod(jcell_z+Nl2, Nl2)*Nl0*Nl1
+      Indx_Rnd = mod(indx_rnd_x+Nl02, Nl02) + mod(indx_rnd_y+Nl12, Nl12)*Nl02 + mod(indx_rnd_z+Nl22, Nl22)*Nl02*Nl12
+      Nat_Cell_ijk = Nat_Cell(Indx_Cell)
+      if (indx_thread == 0) can_swap = 0
+      call syncthreads()
+
+      if (Nat_Cell_ijk >= 2) then
+        H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
+        indx_atm_aux  = Indx_Cell * Nat_Cell_Max * 7; indx_atm_aux2 = Indx_Cell * Nat_Cell_Max * 2
+
+        if (indx_thread == 0) then
+          count_A = 0; count_B = 0
+          do l = 0, Nat_Cell_ijk - 1
+            t = List_Cell(indx_atm_aux2 + l*2 + 1)
+            if (t == 0) count_A = count_A + 1
+            if (t == 1) count_B = count_B + 1
+          end do
+
+          if (count_A > 0 .and. count_B > 0) then
+            target_A = int(count_A * curand_uniform(RND_state(Indx_Rnd)))
+            if (target_A >= count_A) target_A = count_A - 1
+            target_B = int(count_B * curand_uniform(RND_state(Indx_Rnd)))
+            if (target_B >= count_B) target_B = count_B - 1
+
+            cur_A = 0; idx_A_local = -1
+            do l = 0, Nat_Cell_ijk - 1
+              if (List_Cell(indx_atm_aux2 + l*2 + 1) == 0) then
+                if (cur_A == target_A) idx_A_local = l
+                cur_A = cur_A + 1
+              end if
+            end do
+
+            cur_B = 0; idx_B_local = -1
+            do l = 0, Nat_Cell_ijk - 1
+              if (List_Cell(indx_atm_aux2 + l*2 + 1) == 1) then
+                if (cur_B == target_B) idx_B_local = l
+                cur_B = cur_B + 1
+              end if
+            end do
+
+            if (idx_A_local >= 0 .and. idx_B_local >= 0) then
+              can_swap = 1
+              pos_A_x = Sphere_Cell(indx_atm_aux + idx_A_local*7)
+              pos_A_y = Sphere_Cell(indx_atm_aux + idx_A_local*7 + 1)
+              pos_A_z = Sphere_Cell(indx_atm_aux + idx_A_local*7 + 2)
+              Q0_A    = Sphere_Cell(indx_atm_aux + idx_A_local*7 + 3)
+              Q1_A    = Sphere_Cell(indx_atm_aux + idx_A_local*7 + 4)
+              Q2_A    = Sphere_Cell(indx_atm_aux + idx_A_local*7 + 5)
+              Q3_A    = Sphere_Cell(indx_atm_aux + idx_A_local*7 + 6)
+              call rot_matrix(Q0_A, Q1_A, Q2_A, Q3_A, R_A)
+
+              pos_B_x = Sphere_Cell(indx_atm_aux + idx_B_local*7)
+              pos_B_y = Sphere_Cell(indx_atm_aux + idx_B_local*7 + 1)
+              pos_B_z = Sphere_Cell(indx_atm_aux + idx_B_local*7 + 2)
+              Q0_B    = Sphere_Cell(indx_atm_aux + idx_B_local*7 + 3)
+              Q1_B    = Sphere_Cell(indx_atm_aux + idx_B_local*7 + 4)
+              Q2_B    = Sphere_Cell(indx_atm_aux + idx_B_local*7 + 5)
+              Q3_B    = Sphere_Cell(indx_atm_aux + idx_B_local*7 + 6)
+              call rot_matrix(Q0_B, Q1_B, Q2_B, Q3_B, R_B)
+
+              Nswap_att(Indx_Cell) = Nswap_att(Indx_Cell) + 1
+            end if
+          end if
+        end if
+        call syncthreads()
+
+        if (can_swap == 1) then
+          overlap_aux(indx_thread) = 0
+          entot_old(indx_thread) = 0.0_wp
+          entot_new(indx_thread) = 0.0_wp
+          call syncthreads()
+
+          if (indx_thread == 0) then
+            e_old = 0.0_wp; e_new = 0.0_wp; ov = 0
+            ! 1. Mutual interaction between A and B
+            call get_dist(pos_B_x, pos_B_y, pos_B_z, pos_A_x, pos_A_y, pos_A_z, &
+                          H11,H12,H13,H21,H22,H23,H31,H32,H33, DX, DY, DZ, RSQ, dist)
+            call eval_pair_energy_single_sitesite(DX, DY, DZ, dist, RSQ, R_A, R_B, 0, 1, pi, &
+                                                 sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
+                                                 Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en1, is_ov)
+            if (is_ov == 1) ov = 1
+            e_old = e_old + en1
+            call eval_pair_energy_single_sitesite(DX, DY, DZ, dist, RSQ, R_A, R_B, 1, 0, pi, &
+                                                 sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
+                                                 Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en2, is_ov)
+            if (is_ov == 1) ov = 1
+            e_new = e_new + en2
+
+            ! 2. Interactions with other particles in self cell
+            do j = 0, Nat_Cell_ijk - 1
+              if (j /= idx_A_local .and. j /= idx_B_local) then
+                jmol  = indx_atm_aux  + j*7; jmol2 = indx_atm_aux2 + j*2
+                XJ = Sphere_Cell(jmol); YJ = Sphere_Cell(jmol+1); ZJ = Sphere_Cell(jmol+2)
+                Q0j = Sphere_Cell(jmol+3); Q1j = Sphere_Cell(jmol+4); Q2j = Sphere_Cell(jmol+5); Q3j = Sphere_Cell(jmol+6)
+                call rot_matrix(Q0j, Q1j, Q2j, Q3j, R2)
+                itypej = List_Cell(jmol2+1)
+
+                call get_dist(XJ,YJ,ZJ, pos_A_x,pos_A_y,pos_A_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_A,DY_A,DZ_A, RSQ_A, dist_A)
+                call eval_pair_energy_single_sitesite(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, 0, itypej, pi, &
+                                                     sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
+                                                     Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en1, is_ov)
+                if (is_ov == 1) ov = 1
+                e_old = e_old + en1
+                call eval_pair_energy_single_sitesite(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, 1, itypej, pi, &
+                                                     sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
+                                                     Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en2, is_ov)
+                if (is_ov == 1) ov = 1
+                e_new = e_new + en2
+
+                call get_dist(XJ,YJ,ZJ, pos_B_x,pos_B_y,pos_B_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_B,DY_B,DZ_B, RSQ_B, dist_B)
+                call eval_pair_energy_single_sitesite(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, 1, itypej, pi, &
+                                                     sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
+                                                     Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en1, is_ov)
+                if (is_ov == 1) ov = 1
+                e_old = e_old + en1
+                call eval_pair_energy_single_sitesite(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, 0, itypej, pi, &
+                                                     sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
+                                                     Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en2, is_ov)
+                if (is_ov == 1) ov = 1
+                e_new = e_new + en2
+              end if
+            end do
+            entot_old(0) = e_old; entot_new(0) = e_new; overlap_aux(0) = ov
+          else
+            ICELL = indx_thread - 1
+            if (ICELL < 26) then
+              e_old = 0.0_wp; e_new = 0.0_wp; ov = 0
+              Indx_Cell2 = Indx_Cell*26 + ICELL; Indx_Cell2 = Map_Cell(Indx_Cell2); Nat_Cell_neigh = Nat_Cell(Indx_Cell2)
+              Indx_Cell3 = Indx_Cell*26*3 + ICELL*3
+              dx_neigh = DR_Cell(Indx_Cell3); dy_neigh = DR_Cell(Indx_Cell3+1); dz_neigh = DR_Cell(Indx_Cell3+2)
+
+              if (Nat_Cell_neigh > 0) then
+                indx_neigh_aux2 = Indx_Cell2 * Nat_Cell_Max * 7; indx_neigh_auxp = Indx_Cell2 * Nat_Cell_Max * 2
+                do l = 0, Nat_Cell_neigh - 1
+                  jmol = indx_neigh_aux2 + l*7; jmol2 = indx_neigh_auxp + l*2
+                  XJ = Sphere_Cell(jmol) + dx_neigh; YJ = Sphere_Cell(jmol+1) + dy_neigh; ZJ = Sphere_Cell(jmol+2) + dz_neigh
+                  Q0j = Sphere_Cell(jmol+3); Q1j = Sphere_Cell(jmol+4); Q2j = Sphere_Cell(jmol+5); Q3j = Sphere_Cell(jmol+6)
+                  call rot_matrix(Q0j, Q1j, Q2j, Q3j, R2)
+                  itypej = List_Cell(jmol2 + 1)
+
+                  call get_dist(XJ,YJ,ZJ, pos_A_x,pos_A_y,pos_A_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_A,DY_A,DZ_A, RSQ_A, dist_A)
+                  call eval_pair_energy_single_sitesite(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, 0, itypej, pi, &
+                                                       sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
+                                                       Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en1, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_old = e_old + en1
+                  call eval_pair_energy_single_sitesite(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, 1, itypej, pi, &
+                                                       sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
+                                                       Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en2, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_new = e_new + en2
+
+                  call get_dist(XJ,YJ,ZJ, pos_B_x,pos_B_y,pos_B_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_B,DY_B,DZ_B, RSQ_B, dist_B)
+                  call eval_pair_energy_single_sitesite(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, 1, itypej, pi, &
+                                                       sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
+                                                       Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en1, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_old = e_old + en1
+                  call eval_pair_energy_single_sitesite(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, 0, itypej, pi, &
+                                                       sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
+                                                       Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en2, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_new = e_new + en2
+                end do
+              end if
+              entot_old(indx_thread) = e_old; entot_new(indx_thread) = e_new; overlap_aux(indx_thread) = ov
+            end if
+          end if
+          call syncthreads()
+
+          if (indx_thread == 0) then
+            ov = 0; e_old = 0.0_wp; e_new = 0.0_wp
+            do i = 0, 26
+              if (overlap_aux(i) == 1) ov = 1
+              e_old = e_old + entot_old(i)
+              e_new = e_new + entot_new(i)
+            end do
+            if (ov == 0) then
+              DE = real(e_new - e_old, dkind)
+              if (DE <= 0.0_wp .or. curand_uniform(RND_state(Indx_Rnd)) <= exp(-beta * real(DE, wp))) then
+                List_Cell(indx_atm_aux2 + idx_A_local*2 + 1) = 1
+                List_Cell(indx_atm_aux2 + idx_B_local*2 + 1) = 0
+                Nswap_ac(Indx_Cell) = Nswap_ac(Indx_Cell) + 1
+                Delta_energy(Indx_Cell) = Delta_energy(Indx_Cell) + DE
+              end if
+            end if
+          end if
+        end if
+      end if
+    end if
+  end subroutine subsweep_sitesite_swap
+
+  ! ==============================================================================
+  ! DEVICE KERNEL: subsweep_sitesite_cross_swap
+  ! DESCRIPTION: Performs parallel cross-cell identity swap moves for site-site patchy
+  ! particles (Palaia / SSP model, pot_int == 2).
+  ! ==============================================================================
+  attributes(global) subroutine subsweep_sitesite_cross_swap(RND_state, nstates, Ndim, Nat_Cell_Max, &
+                                                            Ntot_Cell, Nsubset_Cell, Npatches_max, Ntypes, &
+                                                            Npatches, patch, sigma_LJ, epsilon_LJ, &
+                                                            rangeP, VL0, Vpot_Matrix, &
+                                                            sigp_factor, Rcp_factor, Rc_factor, h, beta, &
+                                                            Sphere_Cell, List_Cell, Map_Cell, &
+                                                            Nl_Cell, Nat_Cell, DR_Cell, Offset_CB, W_RU, &
+                                                            Delta_energy, Nswap_att, Nswap_ac)
+    type(curandStateXORWOW), intent(inout) :: RND_state(0:nstates-1)
+    integer, value :: nstates, Ndim, Nat_Cell_Max, Ntot_Cell, Nsubset_Cell, Npatches_max, Ntypes
+    integer, device, intent(inout) :: List_Cell(0:Ntot_Cell*Nat_Cell_Max*2-1)
+    integer, device, intent(in) :: Map_Cell(0:Ntot_Cell*26-1)
+    integer, device, intent(in) :: Nl_Cell(0:Ndim-1), Nat_Cell(0:Ntot_Cell-1), Offset_CB(0:Ndim-1)
+    integer, device, intent(inout) :: Nswap_att(0:Ntot_Cell-1), Nswap_ac(0:Ntot_Cell-1)
+    integer, device, intent(in) :: Npatches(0:Ntypes-1)
+    real(wp), device, intent(in) :: patch(0:Ntypes*Npatches_max*Ndim-1)
+    real(wp), device, intent(in) :: sigma_LJ(0:Ntypes*Ntypes-1), epsilon_LJ(0:Ntypes*Ntypes-1)
+    real(wp), device, intent(in) :: rangeP(0:Ntypes*Ntypes-1), VL0(0:Ntypes*Ntypes-1)
+    real(wp), device, intent(in) :: Vpot_Matrix(0:Ntypes*Npatches_max*Ntypes*Npatches_max-1)
+    real(wp), device, intent(in) :: h(0:Ndim*Ndim-1), DR_Cell(0:Ntot_Cell*26*3-1)
+    real(dkind), device, intent(in) :: W_RU(0:Ndim-1)
+    real(wp), value :: sigp_factor, Rcp_factor, Rc_factor, beta
+    real(wp), device, intent(in) :: Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1)
+    real(dkind), device, intent(inout) :: Delta_energy(0:Ntot_Cell-1)
+
+    integer :: Nl0, Nl1, Nl2, Nl02, Nl12, Nl22, Indx_Rnd
+    integer :: indx_atm_aux_1, indx_atm_aux2_1, indx_atm_aux_2, indx_atm_aux2_2
+    integer :: j, l, ICELL, jmol, jmol2, is_ov
+    integer :: Indx_Cell2_1, Indx_Cell3_1, Nat_Cell_neigh_1
+    integer :: Indx_Cell2_2, Indx_Cell3_2, Nat_Cell_neigh_2
+    integer :: indx_neigh_aux2, indx_neigh_auxp, itypej
+    integer :: indx_thread, indx_rnd_x, indx_rnd_y, indx_rnd_z
+    integer :: jcell_x1, jcell_y1, jcell_z1, jcell_x2, jcell_y2, jcell_z2, i
+    integer, shared :: Indx_Cell_1, Indx_Cell_2, Nat_Cell_1, Nat_Cell_2
+    integer, shared :: idx_A_local, idx_B_local, can_swap
+    integer, shared :: t_A_old, t_A_new, t_B_old, t_B_new
+    real(wp) :: DX_A, DY_A, DZ_A, DX_B, DY_B, DZ_B
+    real(wp) :: dist_A, dist_B, RSQ_A, RSQ_B, H11, H12, H13, H21, H22, H23, H31, H32, H33
+    real(wp) :: dx_neigh, dy_neigh, dz_neigh, XJ, YJ, ZJ, en1, en2, e_old, e_new, coin, p_acc
+    real(wp) :: Q0_A, Q1_A, Q2_A, Q3_A, Q0_B, Q1_B, Q2_B, Q3_B, Q0j, Q1j, Q2j, Q3j, R2(0:8)
+    real(wp) :: pi
+    real(dkind) :: DE
+    real(wp), shared :: pos_A_x, pos_A_y, pos_A_z
+    real(wp), shared :: pos_B_x, pos_B_y, pos_B_z
+    real(wp), shared :: R_A(0:8), R_B(0:8)
+    real(wp), shared :: hastings_ratio
+    real(wp), shared :: entot_old(0:NTHREAD-1), entot_new(0:NTHREAD-1)
+    integer, shared :: overlap_aux(0:NTHREAD-1)
+    integer :: count_A1, count_B1, count_A2, count_B2, target_A, target_B, cur_A, cur_B, t, ov
+
+    pi = acos(-1.0_wp)
+    indx_rnd = blockIdx%x - 1; Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2); Nl02 = Nl0/2; Nl12 = Nl1/2; Nl22 = Nl2/2
+    indx_rnd_z = indx_rnd/(Nl02*Nl12); indx_rnd_y = (indx_rnd - Nl02*Nl12*indx_rnd_z)/Nl02
+    if (indx_rnd_y == 0 .and. indx_rnd_z == 0) then; indx_rnd_x = indx_rnd; else; indx_rnd_x = mod(indx_rnd, indx_rnd_y*Nl02 + indx_rnd_z*Nl02*Nl12); end if
+    jcell_x1 = 2*indx_rnd_x + Offset_CB(0); jcell_y1 = 2*indx_rnd_y + Offset_CB(1); jcell_z1 = 2*indx_rnd_z + Offset_CB(2)
+    jcell_x2 = mod(jcell_x1 + Nl02, Nl0); jcell_y2 = mod(jcell_y1 + Nl12, Nl1); jcell_z2 = mod(jcell_z1 + Nl22, Nl2)
+    indx_thread = threadIdx%x - 1
+
+    if (jcell_x1 < Nl0 .and. jcell_y1 < Nl1 .and. jcell_z1 < Nl2) then
+      Indx_Cell_1 = mod(jcell_x1+Nl0, Nl0) + mod(jcell_y1+Nl1, Nl1)*Nl0 + mod(jcell_z1+Nl2, Nl2)*Nl0*Nl1
+      Indx_Cell_2 = mod(jcell_x2+Nl0, Nl0) + mod(jcell_y2+Nl1, Nl1)*Nl0 + mod(jcell_z2+Nl2, Nl2)*Nl0*Nl1
+      if (Indx_Cell_1 == Indx_Cell_2) return
+      if (mod(jcell_x2 - Offset_CB(0), 2) == 0 .and. &
+          mod(jcell_y2 - Offset_CB(1), 2) == 0 .and. &
+          mod(jcell_z2 - Offset_CB(2), 2) == 0) then
+        if (Indx_Cell_1 > Indx_Cell_2) return
+      end if
+      Indx_Rnd = mod(indx_rnd_x+Nl02, Nl02) + mod(indx_rnd_y+Nl12, Nl12)*Nl02 + mod(indx_rnd_z+Nl22, Nl22)*Nl02*Nl12
+      Nat_Cell_1 = Nat_Cell(Indx_Cell_1)
+      Nat_Cell_2 = Nat_Cell(Indx_Cell_2)
+      if (indx_thread == 0) can_swap = 0
+      call syncthreads()
+
+      if (Nat_Cell_1 >= 1 .and. Nat_Cell_2 >= 1) then
+        H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
+        indx_atm_aux_1  = Indx_Cell_1 * Nat_Cell_Max * 7; indx_atm_aux2_1 = Indx_Cell_1 * Nat_Cell_Max * 2
+        indx_atm_aux_2  = Indx_Cell_2 * Nat_Cell_Max * 7; indx_atm_aux2_2 = Indx_Cell_2 * Nat_Cell_Max * 2
+
+        if (indx_thread == 0) then
+          count_A1 = 0; count_B1 = 0
+          do l = 0, Nat_Cell_1 - 1
+            t = List_Cell(indx_atm_aux2_1 + l*2 + 1)
+            if (t == 0) count_A1 = count_A1 + 1
+            if (t == 1) count_B1 = count_B1 + 1
+          end do
+
+          count_A2 = 0; count_B2 = 0
+          do l = 0, Nat_Cell_2 - 1
+            t = List_Cell(indx_atm_aux2_2 + l*2 + 1)
+            if (t == 0) count_A2 = count_A2 + 1
+            if (t == 1) count_B2 = count_B2 + 1
+          end do
+
+          coin = curand_uniform(RND_state(Indx_Rnd))
+          if (coin < 0.5_wp) then
+            if (count_A1 > 0 .and. count_B2 > 0) then
+              target_A = int(count_A1 * curand_uniform(RND_state(Indx_Rnd)))
+              if (target_A >= count_A1) target_A = count_A1 - 1
+              target_B = int(count_B2 * curand_uniform(RND_state(Indx_Rnd)))
+              if (target_B >= count_B2) target_B = count_B2 - 1
+
+              cur_A = 0; idx_A_local = -1
+              do l = 0, Nat_Cell_1 - 1
+                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == 0) then
+                  if (cur_A == target_A) idx_A_local = l
+                  cur_A = cur_A + 1
+                end if
+              end do
+
+              cur_B = 0; idx_B_local = -1
+              do l = 0, Nat_Cell_2 - 1
+                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == 1) then
+                  if (cur_B == target_B) idx_B_local = l
+                  cur_B = cur_B + 1
+                end if
+              end do
+
+              if (idx_A_local >= 0 .and. idx_B_local >= 0) then
+                can_swap = 1
+                t_A_old = 0; t_A_new = 1
+                t_B_old = 1; t_B_new = 0
+                pos_A_x = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7)
+                pos_A_y = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 1)
+                pos_A_z = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 2)
+                Q0_A    = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 3)
+                Q1_A    = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 4)
+                Q2_A    = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 5)
+                Q3_A    = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 6)
+                call rot_matrix(Q0_A, Q1_A, Q2_A, Q3_A, R_A)
+
+                pos_B_x = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7)
+                pos_B_y = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 1)
+                pos_B_z = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 2)
+                Q0_B    = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 3)
+                Q1_B    = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 4)
+                Q2_B    = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 5)
+                Q3_B    = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 6)
+                call rot_matrix(Q0_B, Q1_B, Q2_B, Q3_B, R_B)
+
+                hastings_ratio = real(count_A1 * count_B2, wp) / real((count_B1 + 1) * (count_A2 + 1), wp)
+                Nswap_att(Indx_Cell_1) = Nswap_att(Indx_Cell_1) + 1
+              end if
+            end if
+          else
+            if (count_B1 > 0 .and. count_A2 > 0) then
+              target_A = int(count_B1 * curand_uniform(RND_state(Indx_Rnd)))
+              if (target_A >= count_B1) target_A = count_B1 - 1
+              target_B = int(count_A2 * curand_uniform(RND_state(Indx_Rnd)))
+              if (target_B >= count_A2) target_B = count_A2 - 1
+
+              cur_A = 0; idx_A_local = -1
+              do l = 0, Nat_Cell_1 - 1
+                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == 1) then
+                  if (cur_A == target_A) idx_A_local = l
+                  cur_A = cur_A + 1
+                end if
+              end do
+
+              cur_B = 0; idx_B_local = -1
+              do l = 0, Nat_Cell_2 - 1
+                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == 0) then
+                  if (cur_B == target_B) idx_B_local = l
+                  cur_B = cur_B + 1
+                end if
+              end do
+
+              if (idx_A_local >= 0 .and. idx_B_local >= 0) then
+                can_swap = 1
+                t_A_old = 1; t_A_new = 0
+                t_B_old = 0; t_B_new = 1
+                pos_A_x = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7)
+                pos_A_y = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 1)
+                pos_A_z = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 2)
+                Q0_A    = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 3)
+                Q1_A    = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 4)
+                Q2_A    = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 5)
+                Q3_A    = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 6)
+                call rot_matrix(Q0_A, Q1_A, Q2_A, Q3_A, R_A)
+
+                pos_B_x = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7)
+                pos_B_y = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 1)
+                pos_B_z = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 2)
+                Q0_B    = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 3)
+                Q1_B    = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 4)
+                Q2_B    = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 5)
+                Q3_B    = Sphere_Cell(indx_atm_aux_2 + idx_B_local*7 + 6)
+                call rot_matrix(Q0_B, Q1_B, Q2_B, Q3_B, R_B)
+
+                hastings_ratio = real(count_B1 * count_A2, wp) / real((count_A1 + 1) * (count_B2 + 1), wp)
+                Nswap_att(Indx_Cell_1) = Nswap_att(Indx_Cell_1) + 1
+              end if
+            end if
+          end if
+        end if
+        call syncthreads()
+
+        if (can_swap == 1) then
+          overlap_aux(indx_thread) = 0
+          entot_old(indx_thread) = 0.0_wp
+          entot_new(indx_thread) = 0.0_wp
+          call syncthreads()
+
+          if (indx_thread == 0) then
+            e_old = 0.0_wp; e_new = 0.0_wp; ov = 0
+            ! Cell 1 internal particles with A
+            do j = 0, Nat_Cell_1 - 1
+              if (j /= idx_A_local) then
+                jmol  = indx_atm_aux_1  + j*7; jmol2 = indx_atm_aux2_1 + j*2
+                XJ = Sphere_Cell(jmol); YJ = Sphere_Cell(jmol+1); ZJ = Sphere_Cell(jmol+2)
+                Q0j = Sphere_Cell(jmol+3); Q1j = Sphere_Cell(jmol+4); Q2j = Sphere_Cell(jmol+5); Q3j = Sphere_Cell(jmol+6)
+                call rot_matrix(Q0j, Q1j, Q2j, Q3j, R2)
+                itypej = List_Cell(jmol2+1)
+                call get_dist(XJ,YJ,ZJ, pos_A_x,pos_A_y,pos_A_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_A,DY_A,DZ_A, RSQ_A, dist_A)
+                call eval_pair_energy_single_sitesite(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, t_A_old, itypej, pi, &
+                                                     sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
+                                                     Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en1, is_ov)
+                if (is_ov == 1) ov = 1
+                e_old = e_old + en1
+                call eval_pair_energy_single_sitesite(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, t_A_new, itypej, pi, &
+                                                     sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
+                                                     Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en2, is_ov)
+                if (is_ov == 1) ov = 1
+                e_new = e_new + en2
+              end if
+            end do
+            ! Cell 2 internal particles with B
+            do j = 0, Nat_Cell_2 - 1
+              if (j /= idx_B_local) then
+                jmol  = indx_atm_aux_2  + j*7; jmol2 = indx_atm_aux2_2 + j*2
+                XJ = Sphere_Cell(jmol); YJ = Sphere_Cell(jmol+1); ZJ = Sphere_Cell(jmol+2)
+                Q0j = Sphere_Cell(jmol+3); Q1j = Sphere_Cell(jmol+4); Q2j = Sphere_Cell(jmol+5); Q3j = Sphere_Cell(jmol+6)
+                call rot_matrix(Q0j, Q1j, Q2j, Q3j, R2)
+                itypej = List_Cell(jmol2+1)
+                call get_dist(XJ,YJ,ZJ, pos_B_x,pos_B_y,pos_B_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_B,DY_B,DZ_B, RSQ_B, dist_B)
+                call eval_pair_energy_single_sitesite(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, t_B_old, itypej, pi, &
+                                                     sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
+                                                     Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en1, is_ov)
+                if (is_ov == 1) ov = 1
+                e_old = e_old + en1
+                call eval_pair_energy_single_sitesite(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, t_B_new, itypej, pi, &
+                                                     sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
+                                                     Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en2, is_ov)
+                if (is_ov == 1) ov = 1
+                e_new = e_new + en2
+              end if
+            end do
+            entot_old(0) = e_old; entot_new(0) = e_new; overlap_aux(0) = ov
+          else
+            ICELL = indx_thread - 1
+            if (ICELL < 26) then
+              e_old = 0.0_wp; e_new = 0.0_wp; ov = 0
+              ! Cell 1 neighbor
+              Indx_Cell2_1 = Indx_Cell_1*26 + ICELL; Indx_Cell2_1 = Map_Cell(Indx_Cell2_1); Nat_Cell_neigh_1 = Nat_Cell(Indx_Cell2_1)
+              Indx_Cell3_1 = Indx_Cell_1*26*3 + ICELL*3
+              dx_neigh = DR_Cell(Indx_Cell3_1); dy_neigh = DR_Cell(Indx_Cell3_1+1); dz_neigh = DR_Cell(Indx_Cell3_1+2)
+              if (Nat_Cell_neigh_1 > 0) then
+                indx_neigh_aux2 = Indx_Cell2_1 * Nat_Cell_Max * 7; indx_neigh_auxp = Indx_Cell2_1 * Nat_Cell_Max * 2
+                do l = 0, Nat_Cell_neigh_1 - 1
+                  jmol = indx_neigh_aux2 + l*7; jmol2 = indx_neigh_auxp + l*2
+                  XJ = Sphere_Cell(jmol) + dx_neigh; YJ = Sphere_Cell(jmol+1) + dy_neigh; ZJ = Sphere_Cell(jmol+2) + dz_neigh
+                  Q0j = Sphere_Cell(jmol+3); Q1j = Sphere_Cell(jmol+4); Q2j = Sphere_Cell(jmol+5); Q3j = Sphere_Cell(jmol+6)
+                  call rot_matrix(Q0j, Q1j, Q2j, Q3j, R2)
+                  itypej = List_Cell(jmol2 + 1)
+                  call get_dist(XJ,YJ,ZJ, pos_A_x,pos_A_y,pos_A_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_A,DY_A,DZ_A, RSQ_A, dist_A)
+                  call eval_pair_energy_single_sitesite(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, t_A_old, itypej, pi, &
+                                                       sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
+                                                       Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en1, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_old = e_old + en1
+                  call eval_pair_energy_single_sitesite(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, t_A_new, itypej, pi, &
+                                                       sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
+                                                       Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en2, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_new = e_new + en2
+                end do
+              end if
+
+              ! Cell 2 neighbor
+              Indx_Cell2_2 = Indx_Cell_2*26 + ICELL; Indx_Cell2_2 = Map_Cell(Indx_Cell2_2); Nat_Cell_neigh_2 = Nat_Cell(Indx_Cell2_2)
+              Indx_Cell3_2 = Indx_Cell_2*26*3 + ICELL*3
+              dx_neigh = DR_Cell(Indx_Cell3_2); dy_neigh = DR_Cell(Indx_Cell3_2+1); dz_neigh = DR_Cell(Indx_Cell3_2+2)
+              if (Nat_Cell_neigh_2 > 0) then
+                indx_neigh_aux2 = Indx_Cell2_2 * Nat_Cell_Max * 7; indx_neigh_auxp = Indx_Cell2_2 * Nat_Cell_Max * 2
+                do l = 0, Nat_Cell_neigh_2 - 1
+                  jmol = indx_neigh_aux2 + l*7; jmol2 = indx_neigh_auxp + l*2
+                  XJ = Sphere_Cell(jmol) + dx_neigh; YJ = Sphere_Cell(jmol+1) + dy_neigh; ZJ = Sphere_Cell(jmol+2) + dz_neigh
+                  Q0j = Sphere_Cell(jmol+3); Q1j = Sphere_Cell(jmol+4); Q2j = Sphere_Cell(jmol+5); Q3j = Sphere_Cell(jmol+6)
+                  call rot_matrix(Q0j, Q1j, Q2j, Q3j, R2)
+                  itypej = List_Cell(jmol2 + 1)
+                  call get_dist(XJ,YJ,ZJ, pos_B_x,pos_B_y,pos_B_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_B,DY_B,DZ_B, RSQ_B, dist_B)
+                  call eval_pair_energy_single_sitesite(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, t_B_old, itypej, pi, &
+                                                       sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
+                                                       Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en1, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_old = e_old + en1
+                  call eval_pair_energy_single_sitesite(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, t_B_new, itypej, pi, &
+                                                       sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
+                                                       Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en2, is_ov)
+                  if (is_ov == 1) ov = 1
+                  e_new = e_new + en2
+                end do
+              end if
+              entot_old(indx_thread) = e_old; entot_new(indx_thread) = e_new; overlap_aux(indx_thread) = ov
+            end if
+          end if
+          call syncthreads()
+
+          if (indx_thread == 0) then
+            ov = 0; e_old = 0.0_wp; e_new = 0.0_wp
+            do i = 0, 26
+              if (overlap_aux(i) == 1) ov = 1
+              e_old = e_old + entot_old(i)
+              e_new = e_new + entot_new(i)
+            end do
+            if (ov == 0) then
+              DE = real(e_new - e_old, dkind)
+              p_acc = hastings_ratio * exp(-beta * real(DE, wp))
+              if (p_acc > 1.0_wp) p_acc = 1.0_wp
+              if (curand_uniform(RND_state(Indx_Rnd)) <= p_acc) then
+                List_Cell(indx_atm_aux2_1 + idx_A_local*2 + 1) = t_A_new
+                List_Cell(indx_atm_aux2_2 + idx_B_local*2 + 1) = t_B_new
+                Nswap_ac(Indx_Cell_1) = Nswap_ac(Indx_Cell_1) + 1
+                Delta_energy(Indx_Cell_1) = Delta_energy(Indx_Cell_1) + DE
+              end if
+            end if
+          end if
+        end if
+      end if
+    end if
+  end subroutine subsweep_sitesite_cross_swap
 
   ! ==============================================================================
   ! KERNEL: shiftGPU
@@ -3338,21 +5224,31 @@ attributes(device) subroutine evaluate_cell_interactions( &
   ! HOST SUBROUTINE: subsweep_swap_gpu
   ! DESCRIPTION: Host wrapper to invoke intra-cell identity swaps on GPU.
   ! ==============================================================================
-  subroutine subsweep_swap_gpu(Offset, Nswap_att_tot, Nswap_acc_tot)
+  subroutine subsweep_swap_gpu(Offset, Nswap_att_tot, Nswap_acc_tot, En_tot)
     use configuration, only: Ndim
-    use potential, only: Npart_types
+    use potential, only: Npart_types, Bool_tor, Nrb_sites_max, Ntor_max, &
+                         sigp_factor, Rcp_factor, Rc_factor, patch_radial_factor, sigma_tor_jon
+    use rundata, only: pot_int, beta
     use Cell, only: Nat_Cell_Max, Ntot_Cell, Nsubset_Cell, List_Cell
     integer, dimension(0:Ndim-1), intent(in) :: Offset
     integer, intent(inout) :: Nswap_att_tot, Nswap_acc_tot
+    real(dkind), intent(inout), optional :: En_tot
     integer :: nblock, TOTAL_THREADS, i, ierror
+    real(dkind) :: Total_energy
 
     if (Npart_types /= 2) return
+
+    patch_radial_factor_dev = patch_radial_factor
 
     if (.not. allocated(Nswap_att_dev)) then
       allocate(Nswap_att_dev(0:Ntot_Cell-1))
       allocate(Nswap_ac_dev(0:Ntot_Cell-1))
       allocate(Nswap_att_host(0:Ntot_Cell-1))
       allocate(Nswap_ac_host(0:Ntot_Cell-1))
+    end if
+    if (.not. allocated(Delta_E_dev)) then
+      allocate(Delta_E_dev(0:Ntot_Cell-1))
+      allocate(Delta_E(0:Ntot_Cell-1))
     end if
 
     nblock = Nsubset_Cell
@@ -3362,43 +5258,86 @@ attributes(device) subroutine evaluate_cell_interactions( &
     Offset_dev = Offset
     Nswap_att_dev = 0
     Nswap_ac_dev = 0
+    Delta_E_dev = 0.0_wp
 
-    call subsweep_HS_swap<<<nblock,NTHREAD>>>(RND_States, TOTAL_THREADS, Ndim, Nat_Cell_Max, &
-                                              Ntot_Cell, Nsubset_Cell, Npart_types, sigma_LJ_dev, hdev, &
-                                              Sphere_Celldev, List_Cell_dev, Map_Cell_dev, &
-                                              Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Offset_dev, W_RU_dev, &
-                                              Nswap_att_dev, Nswap_ac_dev)
+    if (pot_int == -1) then
+      call subsweep_HS_swap<<<nblock,NTHREAD>>>(RND_States, TOTAL_THREADS, Ndim, Nat_Cell_Max, &
+                                                Ntot_Cell, Nsubset_Cell, Npart_types, sigma_LJ_dev, hdev, &
+                                                Sphere_Celldev, List_Cell_dev, Map_Cell_dev, &
+                                                Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Offset_dev, W_RU_dev, &
+                                                Nswap_att_dev, Nswap_ac_dev)
+    else if (pot_int < 1) then
+      call subsweep_LJ_swap<<<nblock,NTHREAD>>>(RND_States, TOTAL_THREADS, Ndim, Nat_Cell_Max, &
+                                                Ntot_Cell, Nsubset_Cell, Npart_types, sigma_LJ_dev, epsilon_LJ_dev, &
+                                                range_dev, VL0_dev, hdev, beta, Sphere_Celldev, List_Cell_dev, Map_Cell_dev, &
+                                                Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Offset_dev, W_RU_dev, &
+                                                Delta_E_dev, Nswap_att_dev, Nswap_ac_dev)
+    else if (pot_int == 1) then
+      call subsweep_angular_swap<<<nblock,NTHREAD>>>(RND_States, TOTAL_THREADS, Bool_tor, Ndim, Nat_Cell_Max, &
+                                                Ntot_Cell, Nsubset_Cell, Nrb_sites_max, Ntor_max, Npart_types, &
+                                                Npatches_dev, patchdev, ref_tor_dev, sigma_jon_dev, sigma_tor_jon, &
+                                                sigma_LJ_dev, epsilon_LJ_dev, range_dev, VL0_dev, XOP_dev, &
+                                                Ntor_angle_dev, tor_angle_dev, Vpot_Matrix_dev, hdev, beta, &
+                                                Sphere_Celldev, List_Cell_dev, Map_Cell_dev, &
+                                                Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Offset_dev, W_RU_dev, &
+                                                Delta_E_dev, Nswap_att_dev, Nswap_ac_dev)
+    else if (pot_int == 2) then
+      call subsweep_sitesite_swap<<<nblock,NTHREAD>>>(RND_States, TOTAL_THREADS, Ndim, Nat_Cell_Max, &
+                                                Ntot_Cell, Nsubset_Cell, Nrb_sites_max, Npart_types, &
+                                                Npatches_dev, patchdev, sigma_LJ_dev, epsilon_LJ_dev, &
+                                                range_dev, VL0_dev, Vpot_Matrix_dev, &
+                                                sigp_factor, Rcp_factor, Rc_factor, hdev, beta, &
+                                                Sphere_Celldev, List_Cell_dev, Map_Cell_dev, &
+                                                Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Offset_dev, W_RU_dev, &
+                                                Delta_E_dev, Nswap_att_dev, Nswap_ac_dev)
+    end if
 
     ierror = cudaDeviceSynchronize()
+    Delta_E        = Delta_E_dev
     Nswap_att_host = Nswap_att_dev
     Nswap_ac_host  = Nswap_ac_dev
     List_Cell      = List_Cell_dev
 
+    Total_energy = 0.0d0
     do i = 0, Ntot_Cell - 1
+       Total_energy  = Total_energy + Real(Delta_E(i), dkind)
        Nswap_att_tot = Nswap_att_tot + Nswap_att_host(i)
        Nswap_acc_tot = Nswap_acc_tot + Nswap_ac_host(i)
     end do
+    if (present(En_tot)) then
+       En_tot = En_tot + Total_energy
+    end if
   end subroutine subsweep_swap_gpu
 
   ! ==============================================================================
   ! HOST SUBROUTINE: subsweep_cross_swap_gpu
   ! DESCRIPTION: Host wrapper to invoke long-range cross-cell identity swaps on GPU.
   ! ==============================================================================
-  subroutine subsweep_cross_swap_gpu(Offset, Nswap_att_tot, Nswap_acc_tot)
+  subroutine subsweep_cross_swap_gpu(Offset, Nswap_att_tot, Nswap_acc_tot, En_tot)
     use configuration, only: Ndim
-    use potential, only: Npart_types
+    use potential, only: Npart_types, Bool_tor, Nrb_sites_max, Ntor_max, &
+                         sigp_factor, Rcp_factor, Rc_factor, patch_radial_factor, sigma_tor_jon
+    use rundata, only: pot_int, beta
     use Cell, only: Nat_Cell_Max, Ntot_Cell, Nsubset_Cell, List_Cell
     integer, dimension(0:Ndim-1), intent(in) :: Offset
     integer, intent(inout) :: Nswap_att_tot, Nswap_acc_tot
+    real(dkind), intent(inout), optional :: En_tot
     integer :: nblock, TOTAL_THREADS, i, ierror
+    real(dkind) :: Total_energy
 
     if (Npart_types /= 2) return
+
+    patch_radial_factor_dev = patch_radial_factor
 
     if (.not. allocated(Nswap_att_dev)) then
       allocate(Nswap_att_dev(0:Ntot_Cell-1))
       allocate(Nswap_ac_dev(0:Ntot_Cell-1))
       allocate(Nswap_att_host(0:Ntot_Cell-1))
       allocate(Nswap_ac_host(0:Ntot_Cell-1))
+    end if
+    if (.not. allocated(Delta_E_dev)) then
+      allocate(Delta_E_dev(0:Ntot_Cell-1))
+      allocate(Delta_E(0:Ntot_Cell-1))
     end if
 
     nblock = Nsubset_Cell
@@ -3408,22 +5347,55 @@ attributes(device) subroutine evaluate_cell_interactions( &
     Offset_dev = Offset
     Nswap_att_dev = 0
     Nswap_ac_dev = 0
+    Delta_E_dev = 0.0_wp
 
-    call subsweep_HS_cross_swap<<<nblock,NTHREAD>>>(RND_States, TOTAL_THREADS, Ndim, Nat_Cell_Max, &
-                                                    Ntot_Cell, Nsubset_Cell, Npart_types, sigma_LJ_dev, hdev, &
-                                                    Sphere_Celldev, List_Cell_dev, Map_Cell_dev, &
-                                                    Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Offset_dev, W_RU_dev, &
-                                                    Nswap_att_dev, Nswap_ac_dev)
+    if (pot_int == -1) then
+      call subsweep_HS_cross_swap<<<nblock,NTHREAD>>>(RND_States, TOTAL_THREADS, Ndim, Nat_Cell_Max, &
+                                                      Ntot_Cell, Nsubset_Cell, Npart_types, sigma_LJ_dev, hdev, &
+                                                      Sphere_Celldev, List_Cell_dev, Map_Cell_dev, &
+                                                      Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Offset_dev, W_RU_dev, &
+                                                      Nswap_att_dev, Nswap_ac_dev)
+    else if (pot_int < 1) then
+      call subsweep_LJ_cross_swap<<<nblock,NTHREAD>>>(RND_States, TOTAL_THREADS, Ndim, Nat_Cell_Max, &
+                                                      Ntot_Cell, Nsubset_Cell, Npart_types, sigma_LJ_dev, epsilon_LJ_dev, &
+                                                      range_dev, VL0_dev, hdev, beta, Sphere_Celldev, List_Cell_dev, Map_Cell_dev, &
+                                                      Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Offset_dev, W_RU_dev, &
+                                                      Delta_E_dev, Nswap_att_dev, Nswap_ac_dev)
+    else if (pot_int == 1) then
+      call subsweep_angular_cross_swap<<<nblock,NTHREAD>>>(RND_States, TOTAL_THREADS, Bool_tor, Ndim, Nat_Cell_Max, &
+                                                      Ntot_Cell, Nsubset_Cell, Nrb_sites_max, Ntor_max, Npart_types, &
+                                                      Npatches_dev, patchdev, ref_tor_dev, sigma_jon_dev, sigma_tor_jon, &
+                                                      sigma_LJ_dev, epsilon_LJ_dev, range_dev, VL0_dev, XOP_dev, &
+                                                      Ntor_angle_dev, tor_angle_dev, Vpot_Matrix_dev, hdev, beta, &
+                                                      Sphere_Celldev, List_Cell_dev, Map_Cell_dev, &
+                                                      Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Offset_dev, W_RU_dev, &
+                                                      Delta_E_dev, Nswap_att_dev, Nswap_ac_dev)
+    else if (pot_int == 2) then
+      call subsweep_sitesite_cross_swap<<<nblock,NTHREAD>>>(RND_States, TOTAL_THREADS, Ndim, Nat_Cell_Max, &
+                                                      Ntot_Cell, Nsubset_Cell, Nrb_sites_max, Npart_types, &
+                                                      Npatches_dev, patchdev, sigma_LJ_dev, epsilon_LJ_dev, &
+                                                      range_dev, VL0_dev, Vpot_Matrix_dev, &
+                                                      sigp_factor, Rcp_factor, Rc_factor, hdev, beta, &
+                                                      Sphere_Celldev, List_Cell_dev, Map_Cell_dev, &
+                                                      Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Offset_dev, W_RU_dev, &
+                                                      Delta_E_dev, Nswap_att_dev, Nswap_ac_dev)
+    end if
 
     ierror = cudaDeviceSynchronize()
+    Delta_E        = Delta_E_dev
     Nswap_att_host = Nswap_att_dev
     Nswap_ac_host  = Nswap_ac_dev
     List_Cell      = List_Cell_dev
 
+    Total_energy = 0.0d0
     do i = 0, Ntot_Cell - 1
+       Total_energy  = Total_energy + Real(Delta_E(i), dkind)
        Nswap_att_tot = Nswap_att_tot + Nswap_att_host(i)
        Nswap_acc_tot = Nswap_acc_tot + Nswap_ac_host(i)
     end do
+    if (present(En_tot)) then
+       En_tot = En_tot + Total_energy
+    end if
   end subroutine subsweep_cross_swap_gpu
 
   ! ==============================================================================

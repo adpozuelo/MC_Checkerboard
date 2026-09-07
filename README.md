@@ -26,7 +26,7 @@ Lennard-Jones reduced units are used. Potentials are truncated and shifted at ra
 
 - **GPU Acceleration**: CUDA Fortran implementation with checkerboard parallelization [1]
 - **Multiple Potentials**: Hard-sphere (HS, including non-additive mixtures), Lennard-Jones (LJ) mixtures, tabulated potentials (LAMMPS potential tables for isotropic n-component mixtures), and patchy (LJG / SSP) models
-- **GPU-Accelerated Identity Swaps**: Massively parallel identity swap moves ($A \leftrightarrow B$) for binary hard-sphere mixtures leveraging checkerboard cellular decomposition and long-range sublattice swaps to accelerate compositional mixing [5]
+- **GPU-Accelerated Identity Swaps**: Massively parallel identity swap moves ($A \leftrightarrow B$) for binary mixtures across all potential models (Hard Spheres, Lennard-Jones/table, angular patchy, and site-site patchy) leveraging checkerboard cellular decomposition and long-range sublattice swaps [5]
 - **Anisotropic Interactions**: Lennard-Jones core with angular (patch-patch) and torsional terms
 - **Multiple Ensembles**: Supports both NVT (canonical) and NpT (isothermal-isobaric)
 - **Aggregation Volume Bias MC (AVBMC)**: Advanced cluster swap moves (association & dissociation) [3] with Configurable Rosenbluth (CBMC) bulk probing scheme and $O(1)$ single-particle cell list updates
@@ -218,8 +218,8 @@ The namelist filename passed as the first command-line argument to `mc_gpu.exe` 
 - `avbmc_max_trials` - Maximum number of pair attempts per AVBMC step to bound execution time for large systems (default: `50`)
 
 ### Identity Swap Moves (Binary Mixtures)
-- `swap_moves` - Enable GPU-accelerated identity swap moves ($A \leftrightarrow B$) (`.true.` / `.false.`, default: `.false.`).
-  > **Note / Consistency Requirement:** Identity swap moves are **exclusively implemented for binary hard-sphere mixtures** (`Npart_types = 2` and `model = 'HS'`). Setting `swap_moves = .true.` with $N_{\text{part\_types}} \ne 2$ or non-HS models will trigger an immediate fatal error and cleanly terminate the simulation during input initialization.
+- `swap_moves` - Enable GPU-accelerated identity swap moves ($A \leftrightarrow B$) (`.true.` / `.false.`, default: `.false.`). Supported for all interaction potentials: Hard Spheres (`HS`), Lennard-Jones (`LJ`), Tabulated potentials (`TABLE`), Angular Patchy (`LJG`), and Site-Site Patchy (`SSP`).
+  > **Note / Consistency Requirement:** Identity swap moves require binary mixtures (`Npart_types = 2`). Setting `swap_moves = .true.` with $N_{\text{part\_types}} \ne 2$ will trigger an immediate fatal error and cleanly terminate the simulation during input initialization.
 - `Nswap` - Number of swap sub-passes executed per swap step (default: `1`). Each sub-pass performs 8 checkerboard subset intra-cell sweeps and 4 long-range cross-cell sweeps.
 - `Nswapf` - Frequency (in MC sweeps) of identity swap moves (default: `1`, i.e., swap moves attempted every sweep when `swap_moves = .true.`).
 - **Adaptive Swap Throttling**: When active, the main simulation controller monitors the rolling swap acceptance rate ($P_{\text{swap}}$). If $P_{\text{swap}}$ drops below $0.00005$ due to high-density compositional jamming, `Nswapf` is automatically throttled to `100` sweeps (saving GPU compute time) and automatically restored to `1` if $P_{\text{swap}}$ recovers.
@@ -256,24 +256,35 @@ To achieve maximum precision even at high packing densities near the equation of
 1. **Fine Shell Resolution & Log-Linear Contact Fit**: Pair separations are histogrammed into 10 fine shells of width $\delta_{ab} = 0.0025\,\sigma_{ab}$ right at contact ($r \in [\sigma_{ab},\, 1.025\,\sigma_{ab})$). The contact value $g_{ab}(\sigma_{ab}^+)$ is obtained via a Log-Linear least-squares fit ($\ln g(r) = a + b(r - \sigma_{ab})$), matching the physical exponential decay of pair correlations near contact.
 2. **Block Time-Accumulation (NpT / NVT Compatible)**: Pair distance counts and box volume are accumulated periodically across all MC cycles within each `Nsave` window (`Accumulate_HS_Virial_Histogram`). The reported $P_{\text{virial}}$ is computed from the window-averaged contact distribution $\langle g_{ab}(\sigma_{ab}^+) \rangle$ and average volume $\langle V \rangle$, reducing statistical counting noise by $\sim 3.16\times$.
 
-#### GPU Checkerboard Identity Swaps (Binary HS Mixtures)
+#### GPU Checkerboard Identity Swaps (Binary Mixtures, All Potentials)
 
 In dense multicomponent fluid mixtures, traditional single-particle translation moves frequently encounter severe sampling bottlenecks caused by local steric cages (compositional jamming), resulting in sluggish structural relaxation and slow convergence. Identity swap moves ($A \leftrightarrow B$) [5] overcome this barrier by exchanging particle species identities without displacing atomic center-of-mass positions, dramatically accelerating phase space exploration and thermodynamic equilibration.
 
+**Supported Potential Models:**
+- **Hard Spheres (`HS`)**: Overlap rejection test with athermal detailed balance.
+- **Lennard-Jones & Tabular (`LJ`, `TABLE`)**: Smooth continuous isotropic pairwise energy difference $\Delta E$ evaluated across neighbor cells.
+- **Angular Patchy (`LJG`, `pot_int = 1`)**: Patch-patch angular modulation with orientation matrices reconstructed from quaternions. Mutual pair interactions and all neighbor patch orientations are evaluated before and after the identity swap.
+- **Site-Site Patchy (`SSP`, `pot_int = 2`)**: Direct site-site distance evaluations using rotated patch coordinate offsets and radial cutoff factors.
+
 **Checkerboard Parallelization Strategy:**
-1. **Intra-Cell Identity Swaps (`subsweep_HS_swap`)**:
+1. **Intra-Cell Identity Swaps (`subsweep_HS_swap`, `subsweep_LJ_swap`, `subsweep_angular_swap`, `subsweep_sitesite_swap`)**:
    - In each of the 8 cellular checkerboard subsets, all active cells are separated by $\ge 1$ buffer cell from each other, ensuring completely conflict-free parallel execution.
    - For every active cell possessing both species ($n_A \ge 1$ and $n_B \ge 1$), a candidate pair $(a \in A, b \in B)$ is chosen.
-   - GPU warp threads concurrently test the central cell and all 26 neighboring cells for hard-core overlaps under the swapped state ($a \to B, b \to A$).
-   - If zero overlaps occur, the move is accepted unconditionally ($\alpha = 1.0$) because the cell composition $(n_A, n_B)$ remains invariant.
-2. **Long-Range Cross-Cell Identity Swaps (`subsweep_HS_cross_swap`)**:
-   - Spatially separated cell pairs $(C_1, C_2)$ situated at $(j_x, j_y, j_z)$ and $(j_x + N_{lx}/2, j_y + N_{ly}/2, j_z + N_{lz}/2)$ are paired across opposite halves of the box ($\text{separation} \ge L/2 > 2\sigma_{\text{max}}$).
-   - Because their 26-neighborhoods are completely disjoint, both local neighborhoods are checked in parallel.
-   - Acceptance satisfies exact detailed balance via the Hastings factor:
-     $$\alpha = \min\left(1, \frac{n_{A,1}\, n_{B,2}}{(n_{B,1} + 1)(n_{A,2} + 1)}\right)$$
-3. **Consistency & Constraints**:
-   - Exclusively enabled for binary mixtures: `Npart_types = 2` and `model = 'HS'`. Attempting to use `swap_moves = .true.` with $N_{\text{part\_types}} \ne 2$ or continuous potentials triggers an immediate fatal error during initialization.
-   - Preserves exact species stoichiometry ($N_A, N_B = \text{const}$).
+   - GPU warp threads concurrently test the central cell and all 26 neighboring cells for energy change $\Delta E = E_{\text{new}} - E_{\text{old}}$ (or hard-core overlaps under HS).
+   - Because orientations differ between particles $a$ and $b$, their mutual pair interaction $u(a, b)$ is evaluated both before and after the swap:
+     $$\Delta E_{ab} = u(a_{\text{new}}, b_{\text{new}}) - u(a_{\text{old}}, b_{\text{old}})$$
+   - The move is accepted according to the Metropolis-Hastings criterion:
+     $$\alpha = \min\left(1, e^{-\beta\,\Delta E}\right)$$
+     (since intra-cell swaps preserve local species numbers $n_A$ and $n_B$, the Hastings ratio is unity).
+2. **Long-Range Cross-Cell Identity Swaps (`subsweep_HS_cross_swap`, `subsweep_LJ_cross_swap`, `subsweep_angular_cross_swap`, `subsweep_sitesite_cross_swap`)**:
+   - Spatially separated cell pairs $(C_1, C_2)$ situated at $(j_x, j_y, j_z)$ and $(j_x + N_{lx}/2, j_y + N_{ly}/2, j_z + N_{lz}/2)$ are paired across opposite halves of the box ($\text{separation} \ge L/2 > R_c$).
+   - Because their 26-neighborhoods are completely disjoint, both local neighborhoods are evaluated in parallel.
+   - A symmetric coin toss ($0 \leftrightarrow 1$ vs $1 \leftrightarrow 0$) selects swap direction to ensure microscopic reversibility.
+   - Acceptance satisfies exact detailed balance via the Hastings factor and Boltzmann weight:
+     $$\alpha = \min\left(1, \frac{n_{A,1}\, n_{B,2}}{(n_{B,1} + 1)(n_{A,2} + 1)}\, e^{-\beta\,\Delta E}\right)$$
+3. **Energy Accumulation & Detailed Balance**:
+   - Running simulation energy `En_tot` is updated on the host and GPU directly from the accepted kernel energy differences ($\Delta E$), maintaining strict energy conservation without drift.
+   - Preserves exact global species stoichiometry ($N_A, N_B = \text{const}$).
    - Achieves sustained throughputs of $\sim 400,000\text{--}500,000$ swap attempts/second on modern GPUs with near-zero computational overhead.
 
 #### Mathematical Formulation of LJ
@@ -501,6 +512,12 @@ Computing resources provided by CSIC.
 ## Version History
 
 For a complete record of all versions and features, see [Changelog.md](Changelog.md).
+
+- **V2.8** (September 2026) Generalized Identity Swap Moves for All Potential Models
+  - Extended GPU checkerboard identity swap moves ($A \leftrightarrow B$) from hard spheres to all interaction models: Lennard-Jones/table (`LJ`, `TABLE`), angular patchy (`LJG`), and site-site patchy (`SSP`).
+  - Added dedicated CUDA device kernels (`subsweep_LJ_swap`, `subsweep_LJ_cross_swap`, `subsweep_angular_swap`, `subsweep_angular_cross_swap`, `subsweep_sitesite_swap`, `subsweep_sitesite_cross_swap`) with quaternion-based orientation preservation and pairwise energy evaluations.
+  - Implemented CPU reference routine `calc_swap_energy_cpu` in `src/energy.cuf` and automated unit test suite `src/test_swap_energy.cuf` validating exact energy conservation and overlap checks across all four interaction models.
+  - Integrated GPU running energy accumulation (`En_tot`) and energy drift tracking at simulation checkpoints.
 
 - **V2.7** (September 2026) Standalone Direct Execution & Modernized Build
   - Removed obsolete MPI runtime dependency (`MPI_Init`/`MPI_Finalize`) from `src/Main.cuf`, allowing `mc_gpu.exe` to be invoked directly from the command line without `mpirun -np 1`.

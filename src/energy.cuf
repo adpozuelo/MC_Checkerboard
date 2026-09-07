@@ -518,3 +518,115 @@ Subroutine HS_Virial_Pressure(P_HS)
    Vol_accum = 0.0_wp
    nsamples_virial = 0
 End Subroutine HS_Virial_Pressure
+
+! ==============================================================================
+! CPU ROUTINE: calc_swap_energy_cpu
+! DESCRIPTION: Computes the exact energy difference Delta_E on the CPU when
+! swapping the species identities of particles i1 and i2.
+! Supports all interaction potentials (HS, LJ, Table, Angular, Site-Site).
+! Properly accounts for non-spherically symmetric orientations and mutual pair
+! energy changes between i1 and i2.
+! ==============================================================================
+Subroutine calc_swap_energy_cpu(i1, i2, delta_e, overlap)
+   Use set_precision
+   Use configuration
+   Use potential
+   Use rundata, Only: pot_int
+   Implicit None
+   Integer, Intent(in)   :: i1, i2
+   Real(wp), Intent(out) :: delta_e
+   Logical, Intent(out)  :: overlap
+
+   Integer :: k, orig_type1, orig_type2
+   Real(wp) :: e_old_12, e_new_12, e_old_1, e_new_1, e_old_2, e_new_2
+   Logical :: ov_k
+
+   delta_e = 0.0_wp
+   overlap = .false.
+
+   orig_type1 = itype(i1)
+   orig_type2 = itype(i2)
+
+   If (orig_type1 == orig_type2) Return
+
+   ! 1. Evaluate mutual interaction between i1 and i2 in old configuration
+   If (pot_int == -1) Then
+      Call ener_HS(i1, i2, e_old_12, ov_k)
+   ElseIf (pot_int < 1) Then
+      Call ener_LJ(i1, i2, e_old_12, ov_k)
+   Else
+      Call ener(i1, i2, e_old_12, ov_k)
+   EndIf
+   If (ov_k) overlap = .true.
+
+   ! 2. Evaluate mutual interaction in swapped configuration
+   itype(i1) = orig_type2
+   itype(i2) = orig_type1
+
+   If (pot_int == -1) Then
+      Call ener_HS(i1, i2, e_new_12, ov_k)
+   ElseIf (pot_int < 1) Then
+      Call ener_LJ(i1, i2, e_new_12, ov_k)
+   Else
+      Call ener(i1, i2, e_new_12, ov_k)
+   EndIf
+   If (ov_k) overlap = .true.
+
+   If (pot_int /= -1) Then
+      delta_e = delta_e + (e_new_12 - e_old_12)
+   EndIf
+
+   ! 3. Evaluate interactions with all other particles k /= i1, i2
+   Do k = 0, Natoms - 1
+      If (k /= i1 .and. k /= i2) Then
+         ! Interactions in new swapped configuration (itype(i1)=orig_type2, itype(i2)=orig_type1)
+         If (pot_int == -1) Then
+            Call ener_HS(i1, k, e_new_1, ov_k)
+            If (ov_k) overlap = .true.
+            Call ener_HS(i2, k, e_new_2, ov_k)
+            If (ov_k) overlap = .true.
+         ElseIf (pot_int < 1) Then
+            Call ener_LJ(i1, k, e_new_1, ov_k)
+            If (ov_k) overlap = .true.
+            Call ener_LJ(i2, k, e_new_2, ov_k)
+            If (ov_k) overlap = .true.
+         Else
+            Call ener(i1, k, e_new_1, ov_k)
+            If (ov_k) overlap = .true.
+            Call ener(i2, k, e_new_2, ov_k)
+            If (ov_k) overlap = .true.
+         EndIf
+
+         ! Interactions in old configuration: temporarily restore original types
+         itype(i1) = orig_type1
+         itype(i2) = orig_type2
+         If (pot_int == -1) Then
+            Call ener_HS(i1, k, e_old_1, ov_k)
+            If (ov_k) overlap = .true.
+            Call ener_HS(i2, k, e_old_2, ov_k)
+            If (ov_k) overlap = .true.
+         ElseIf (pot_int < 1) Then
+            Call ener_LJ(i1, k, e_old_1, ov_k)
+            If (ov_k) overlap = .true.
+            Call ener_LJ(i2, k, e_old_2, ov_k)
+            If (ov_k) overlap = .true.
+         Else
+            Call ener(i1, k, e_old_1, ov_k)
+            If (ov_k) overlap = .true.
+            Call ener(i2, k, e_old_2, ov_k)
+            If (ov_k) overlap = .true.
+         EndIf
+         ! Re-apply swapped types for remainder of the loop
+         itype(i1) = orig_type2
+         itype(i2) = orig_type1
+
+         If (pot_int /= -1) Then
+            delta_e = delta_e + (e_new_1 - e_old_1) + (e_new_2 - e_old_2)
+         EndIf
+      EndIf
+   EndDo
+
+   ! Restore original types
+   itype(i1) = orig_type1
+   itype(i2) = orig_type2
+End Subroutine calc_swap_energy_cpu

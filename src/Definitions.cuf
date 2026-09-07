@@ -106,8 +106,8 @@ MODULE rundata
    Logical  :: use_energy_ratio = .false.              ! Use relative energy ratio instead of absolute threshold
    Integer  :: avbmc_k_trials = 10                     ! Number of CBMC Rosenbluth trial positions (K) in bulk for AVBMC moves
    Integer  :: avbmc_max_trials = 50                   ! Maximum AVBMC pair trials per step to cap execution time
-   ! Identity Swap Moves for Binary Hard-Sphere Mixtures (A <-> B)
-   Logical  :: swap_moves = .false.                    ! Flag for enabling GPU checkerboard identity swap moves (binary HS only)
+   ! Identity Swap Moves for Binary Mixtures (A <-> B)
+   Logical  :: swap_moves = .false.                    ! Flag for enabling GPU checkerboard identity swap moves (binary mixtures, all potentials)
    Integer  :: Nswap = 1                               ! Number of swap sub-passes per MC cycle (each sub-pass: 8 intra + 4 cross sets)
    Integer  :: Nswapf = 1                              ! Frequency (in MC sweeps) of identity swap moves
    Integer  :: nswap_att = 0, nswap_acc = 0            ! Identity swap window counters (reset every Nsave steps)

@@ -131,4 +131,9 @@ Main.o                   : Definitions.o potential_functions.o Read_input_data_n
                            mod_avbmc.o mod_clusters.o lammps_hmc_wrapper.o
 
 clean:
-	rm -f *.o *.mod $(EXE)
+	rm -f *.o *.mod $(EXE) test_swap_energy.exe
+
+test_swap: Definitions.o potential_functions.o energy.o test_swap_energy.cuf
+	$(FC) $(FCOPTS) $(LKOPTS) Definitions.o potential_functions.o energy.o test_swap_energy.cuf -o test_swap_energy.exe
+	./test_swap_energy.exe
+	rm -f test_swap_energy.exe

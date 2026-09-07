@@ -246,7 +246,7 @@ Subroutine MCswap_Checkerboard()
      Integer, Dimension(0:Ndim-1) :: Offset
      Real(wp)   :: rnd
 
-      If (.not. swap_moves .or. Npart_types /= 2 .or. pot_int /= -1) Return
+      If (.not. swap_moves .or. Npart_types /= 2) Return
 
      ! 1. Intra-cell swaps across all 8 checkerboard subsets
      Do I = 1, Nset_Cell
@@ -258,7 +258,7 @@ Subroutine MCswap_Checkerboard()
         Offset(1) = Indx_Set(Indx, 2)
         Offset(2) = Indx_Set(Indx, 3)
 
-        Call subsweep_swap_gpu(Offset, nswap_att, nswap_acc)
+        Call subsweep_swap_gpu(Offset, nswap_att, nswap_acc, En_tot)
      End Do
 
      ! 2. Long-range cross-cell swaps between paired distant cells
@@ -271,7 +271,7 @@ Subroutine MCswap_Checkerboard()
         Offset(1) = Indx_Set(Indx, 2)
         Offset(2) = Indx_Set(Indx, 3)
 
-        Call subsweep_cross_swap_gpu(Offset, nswap_att, nswap_acc)
+        Call subsweep_cross_swap_gpu(Offset, nswap_att, nswap_acc, En_tot)
      End Do
 
 End Subroutine MCswap_Checkerboard

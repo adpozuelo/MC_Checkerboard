@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.8.0] - 2026-09-07
+
+### Added
+- **Generalized Identity Swap Moves for All Potential Models**:
+  - Generalized GPU checkerboard identity swap moves ($A \leftrightarrow B$) from hard spheres (`HS`) to all supported interaction models:
+    - Lennard-Jones and tabular mixtures (`LJ`, `TABLE`, `pot_int = 0` / `pot_int < 1`).
+    - Angular patchy particles (`LJG`, `pot_int = 1`).
+    - Site-site patchy particles (`SSP`, `pot_int = 2`).
+  - Added dedicated CUDA device evaluators:
+    - `eval_pair_energy_single_LJ`: Pair energy and overlap evaluation for LJ and Catmull-Rom interpolated tables.
+    - `eval_pair_energy_single_angular`: Angular and torsional modulation using rotated patch and reference vectors.
+    - `eval_pair_energy_single_sitesite`: Palaia site-site distances and cutoff evaluations.
+  - Implemented 6 new CUDA global kernels in `src/Subsweep_Energy_CUDA.cuf`:
+    - Intra-cell kernels: `subsweep_LJ_swap`, `subsweep_angular_swap`, `subsweep_sitesite_swap`.
+    - Cross-cell kernels: `subsweep_LJ_cross_swap`, `subsweep_angular_cross_swap`, `subsweep_sitesite_cross_swap`.
+  - Mutual pair interaction evaluation: In intra-cell swaps, the mutual pair interaction $u(a, b)$ between the two swapped particles is evaluated both before and after the identity swap, correctly accounting for orientation differences:
+    $$\Delta E_{ab} = u(a_{\text{new}}, b_{\text{new}}) - u(a_{\text{old}}, b_{\text{old}})$$
+  - Directional coin flip: In cross-cell swaps, added a 50/50 symmetric coin toss for swap direction ($0 \leftrightarrow 1$ vs $1 \leftrightarrow 0$) to guarantee microscopic reversibility and detailed balance.
+  - CPU reference subroutine `calc_swap_energy_cpu` in `src/energy.cuf` for verification and double-checking.
+  - Automated verification test suite `src/test_swap_energy.cuf` validating $\Delta E = E_{\text{tot}}(\text{after}) - E_{\text{tot}}(\text{before})$ to within floating-point precision ($< 10^{-7}$) across HS, LJ, angular patchy, and site-site patchy potentials.
+
+### Changed
+- **Driver and Energy Accumulation**:
+  - `src/Subsweep_Energy_CUDA.cuf`: Updated host wrappers `subsweep_swap_gpu` and `subsweep_cross_swap_gpu` to dispatch to the appropriate kernel according to `pot_int`, synchronize device execution, and accumulate `Delta_E` into running energy `En_tot`.
+  - `src/MCsweep_Checkerboard.cuf`: Removed `pot_int /= -1` early return guard in `MCswap_Checkerboard()` and routed `En_tot` through the host wrappers.
+  - `src/Main.cuf`:
+    - Removed `pot_int == -1` restriction on swap moves during the main simulation loop.
+    - Formatted `P_Swap` column output for patchy potential simulation runs.
+    - Added energy drift tracking (`|En_tot - En_tot_old|`) at periodic checkpoints and at final GPU energy evaluation.
+  - `src/Read_input_data_nml.cuf`: Removed fatal error stopping non-HS potentials when `swap_moves = .true.` and updated initialization banner logs.
+
+---
+
 ## [2.7.0] - 2026-09-04
 
 ### Changed & Removed

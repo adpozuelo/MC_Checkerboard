@@ -195,7 +195,7 @@ Subroutine Read_Input_Data
                               border_criterion, energy_threshold, energy_border_ratio, use_energy_ratio, avbmc_k_trials, avbmc_max_trials
     ! MC_Params include:
     !   Nvolf: Frequency (in MC sweeps) of NpT volume moves (default 1)
-    !   swap_moves: .true. / .false. (Enable GPU checkerboard identity swaps, binary HS only)
+    !   swap_moves: .true. / .false. (Enable GPU checkerboard identity swaps, binary mixtures)
     !   Nswap: Number of swap sub-passes per MC cycle (default 1)
     !   Nswapf: Frequency (in MC sweeps) of identity swap moves (default 1)
     Namelist /MC_Params/ hmax, omax, vmax, displ_update, temp0, temp1, npt, Nvolf, iscale, pres, seed, swap_moves, Nswap, Nswapf
@@ -267,14 +267,10 @@ Subroutine Read_Input_Data
             c_red, Npart_types, c_reset
          stop 1
       End If
-      If (pot_int /= -1) Then
-         write(*,'(/A,"*** Fatal error: Identity swap moves are currently only implemented for Hard Spheres (model = ''HS''). ***",A)') &
-            c_red, c_reset
-         stop 1
-      End If
       If (Nswap < 1) Nswap = 1
       If (Nswapf < 1) Nswapf = 1
       write(*,'(A)') c_green // '  -> Identity Swap Moves:     ENABLED (Binary Checkerboard GPU)' // c_reset
+      write(*,'(A,A)')          '     - Potential model:       ', trim(model)
       write(*,'(A,I6)')         '     - Swap trials per cycle: ', Nswap
       write(*,'(A,I6)')         '     - Swap move frequency:   ', Nswapf
    Else
