@@ -30,9 +30,13 @@ output_*.out
 # SLURM job scripts (often contain user-specific paths)
 *.slurm
 
-# Log files
+# Log and TeX auxiliary files
 *.log
 *.out
+*.aux
+*.synctex.gz
+*.fls
+*.fdb_latexmk
 
 # Backup files
 *~
