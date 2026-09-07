@@ -18,6 +18,11 @@ coords.out-*.dat
 movie.xyz
 movie-quat.dat
 trajectory.nc
+trajectory.lammpstrj
+*.lammpstrj
+data.restart
+input-restart.nml
+run-data.dat
 input-restart.d
 run-data-*.dat
 output_*.out
