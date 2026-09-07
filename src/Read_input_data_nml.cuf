@@ -440,7 +440,12 @@ Subroutine Read_Input_Data
          stop 1
       End If
    Else
-      Read(20,*); Read(20,*) (Nrb_sites(J),J=0,Npart_types-1)
+       Do 
+          Read(20, '(A)', IOSTAT=ios) line
+          If (ios /= 0) Exit
+          If (index(line, 'TOPOLOGY') > 0) Exit
+       End Do
+       Read(20,*) (Nrb_sites(J),J=0,Npart_types-1)
 
       Do i = 0, Npart_types-1
           If (Nrb_sites(i) > Nrb_sites_max) stop ' [FATAL ERROR] Particle type exceeds maximum patches'
@@ -481,7 +486,11 @@ Subroutine Read_Input_Data
       If ( Maxval(Ntor_angle) > Ntor_max) stop 'Error: max torsional angles exceeded'
 
       Allocate ( Vpot_Matrix( 0 : Npart_types*Npart_types*Nrb_sites_max*Nrb_sites_max -1 ) ); Vpot_Matrix = 0.
-      Read(20,*) 
+      Do 
+         Read(20, '(A)', IOSTAT=ios) line
+         If (ios /= 0) Exit
+         If (index(line, 'vpot') > 0 .or. index(line, 'VPOT') > 0) Exit
+      End Do
       Do I = 0, Npart_types -1
         Indx1= I * Npart_types * Nrb_sites_max *Nrb_sites_max 
         Do J = 0, Nrb_sites(I) -1 
@@ -514,7 +523,11 @@ Subroutine Read_Input_Data
               EndDo
          EndDo
       Else
-         Read(20,*) 
+         Do 
+            Read(20, '(A)', IOSTAT=ios) line
+            If (ios /= 0) Exit
+            If (index(line, 'sigmas_ang') > 0 .or. index(line, 'SIGMAS_ANG') > 0) Exit
+         End Do
          Do I= 0, Npart_types-1
             Indx = I*Nrb_sites_max
             If(Nrb_sites(i).ge.1) Then
@@ -522,7 +535,11 @@ Subroutine Read_Input_Data
                Read(20,*) 
             EndIf
          EndDo
-         Read(20,*) 
+         Do 
+            Read(20, '(A)', IOSTAT=ios) line
+            If (ios /= 0) Exit
+            If (index(line, 'sigma_LJ') > 0 .or. index(line, 'SIGMA_LJ') > 0) Exit
+         End Do
          Do I=0,Npart_types-1
               Indx = I*Npart_types
               Do J = 0, Npart_types-1

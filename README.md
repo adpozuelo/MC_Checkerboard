@@ -548,6 +548,17 @@ For a complete record of all versions and features, see [Changelog.md](Changelog
   - Added configurable threshold `asym_threshold` (default `0.5`) in `Control_Params` namelist.
   - Renamed final output configuration files to `mclast_conf.lammpstrj`, `mclast_clconf.lammpstrj`, and `mclast_brdconf.lammpstrj` to avoid overwriting outputs when running post-processing utilities like `trj_analysis`.
 
+- **V2.5** (September 2026) Association Volume Bias Monte Carlo (AVBMC) for Patchy Colloidal Clusters
+  - Generalized AVBMC moves to patchy colloidal systems (Palaia site-site SSP model) with geometric dipole asymmetry ($\eta_i \ge \eta_{\text{thresh}}$) to bias moves specifically to cluster surfaces/borders.
+  - Formulated and verified microscopic reversibility (detailed balance) with Rosenbluth volume bias ($K$ bulk trials), proving the flux invariant $\text{arg}_{\text{fwd}} \cdot \text{arg}_{\text{rev}} \equiv 1$ to machine precision ($3.17 \times 10^{-17}$).
+  - Optimized single-particle neighbor cell energy evaluations ($O(1)$ query on 27-cell neighborhood) with hard-core overlap rejection, completely bypassing PCIe transfer bottlenecks during trial generation.
+  - Implemented automatic host-device cell grid synchronization on accepted moves.
+  - Added standalone JCTC benchmark test case in `test_cases/ssp_avbmc_clusters_benchmark/` (dilute patchy clusters at $\rho = 0.001218$, $N=7695$) comparing canonical vs.\ AVBMC sampling, with publication-ready LaTeX documentation and 4-panel figures.
+
+- **V2.4** (September 2026) Generalized Identity Swaps for All Potentials
+  - Generalization of identity swap moves from hard spheres to all potential types (Lennard-Jones, tabular isotropic, angular patchy, and site-site patchy).
+  - Standalone microscopic reversibility test case and performance benchmarks in `test_cases/nahs_swap_benchmark/`.
+
 - **V2.3** (August 2026) Multi-state (S1-A1 to S1-A3, S1-A1 to S2-A2, S2-A2 to S3-A3) and Hybrid (MC to HMC) transitions
   - LAMMPS potential definitions are now stored in external files `potential_ssp_analytic.lmp` and `potential_ssp_table.lmp` and included in the LAMMPS input script.
   

@@ -5035,11 +5035,9 @@ attributes(device) subroutine evaluate_cell_interactions( &
       allocate(Nat_Cell_dev(0:size(Nat_Cell)-1))
     end if
 
-    if (init_pass /= 1) then
-      List_Cell_dev   = List_Cell
-      Sphere_Celldev  = Sphere_Cell
-      Nat_Cell_dev    = Nat_Cell
-    end if
+    List_Cell_dev   = List_Cell
+    Sphere_Celldev  = Sphere_Cell
+    Nat_Cell_dev    = Nat_Cell
     hdev            = h
     energydev = 0.0_wp
     

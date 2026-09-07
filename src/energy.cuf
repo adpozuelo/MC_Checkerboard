@@ -630,3 +630,90 @@ Subroutine calc_swap_energy_cpu(i1, i2, delta_e, overlap)
    itype(i1) = orig_type1
    itype(i2) = orig_type2
 End Subroutine calc_swap_energy_cpu
+
+! ==============================================================================
+! CPU ROUTINE: calc_single_particle_energy
+! ==============================================================================
+! Evaluates the interaction energy of particle `id_atom` (1-based) placed at
+! trial reduced position `r_pos` (3D, in [0,1)) with all other particles in
+! the system using the 27-cell neighborhood. If hard-core overlap (R < 0.5)
+! is detected, returns is_overlap = .true. and e_total = 9.0e33.
+Subroutine calc_single_particle_energy(id_atom, r_pos, e_total, is_overlap)
+   Use set_precision
+   Use configuration, Only: r, ndim
+   Use Cell, Only: Nat_Cell, List_Cell, Nat_cell_max, Map_Cell, W_RU, Nl_Cell
+   Use rundata, Only: pot_int
+   Implicit None
+
+   Integer, Intent(In)   :: id_atom  ! 1-based index
+   Real(wp), Intent(In)  :: r_pos(3)
+   Real(wp), Intent(Out) :: e_total
+   Logical, Intent(Out)  :: is_overlap
+
+   Integer :: i_atom, Indx(3), icell_center, icell_idx, c, k, j_atom
+   Real(wp) :: XI, YI, ZI, r_saved(3), en_pair
+   Logical :: ov
+   Integer, External :: icell
+
+   i_atom = id_atom - 1
+   e_total = 0.0_wp
+   is_overlap = .False.
+
+   ! Save current position of i_atom and temporarily set to wrapped r_pos
+   r_saved(1:3) = r(i_atom * ndim : i_atom * ndim + 2)
+
+   XI = r_pos(1) - Floor(r_pos(1))
+   YI = r_pos(2) - Floor(r_pos(2))
+   ZI = r_pos(3) - Floor(r_pos(3))
+
+   r(i_atom * ndim)     = XI
+   r(i_atom * ndim + 1) = YI
+   r(i_atom * ndim + 2) = ZI
+
+   Indx(1) = Int(XI / w_RU(0))
+   Indx(2) = Int(YI / w_RU(1))
+   Indx(3) = Int(ZI / w_RU(2))
+
+   If (Indx(1) >= Nl_Cell(0)) Indx(1) = Nl_Cell(0) - 1
+   If (Indx(1) < 0) Indx(1) = 0
+   If (Indx(2) >= Nl_Cell(1)) Indx(2) = Nl_Cell(1) - 1
+   If (Indx(2) < 0) Indx(2) = 0
+   If (Indx(3) >= Nl_Cell(2)) Indx(3) = Nl_Cell(2) - 1
+   If (Indx(3) < 0) Indx(3) = 0
+
+   icell_center = icell(Indx(1), Indx(2), Indx(3))
+
+   ! Loop over 27 cells (center cell + 26 neighbors)
+   Do icell_idx = 0, 26
+      If (icell_idx == 0) Then
+         c = icell_center
+      Else
+         c = Map_Cell(icell_center * 26 + (icell_idx - 1))
+      End If
+
+      Do k = 0, Nat_Cell(c) - 1
+         j_atom = List_Cell(c * Nat_cell_max * 2 + k * 2)
+         If (j_atom /= i_atom) Then
+            If (pot_int == -1) Then
+               Call ener_HS(i_atom, j_atom, en_pair, ov)
+            ElseIf (pot_int < 1) Then
+               Call ener_LJ(i_atom, j_atom, en_pair, ov)
+            Else
+               Call ener(i_atom, j_atom, en_pair, ov)
+            End If
+
+            If (ov) Then
+               is_overlap = .True.
+               e_total = 9.0e33_wp
+               r(i_atom * ndim : i_atom * ndim + 2) = r_saved(1:3)
+               Return
+            End If
+            e_total = e_total + en_pair
+         End If
+      End Do
+   End Do
+
+   ! Restore saved position
+   r(i_atom * ndim : i_atom * ndim + 2) = r_saved(1:3)
+End Subroutine calc_single_particle_energy
+

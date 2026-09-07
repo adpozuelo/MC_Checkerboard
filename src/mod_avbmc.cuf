@@ -167,17 +167,20 @@ CONTAINS
       Integer :: i_non_idx, i_brd_idx, id_non, id_brd, id_target, n_neigh, k_pick, k_avbmc, navbmc_trials
       Integer :: K_trials, m, m_chosen
       Real(wp) :: r_bind, v_bind, v_box, pi
-      Real(wp) :: r_old(3), r_curr(3), r_trial(3), r_target_real(3), dr(3), dist_r, u_dist
+      Real(wp) :: r_old(3), r_trial(3), r_target_real(3), dr(3), dist_r, u_dist
       Real(wp) :: rnd, rnd1, rnd2, rnd3, phi, cos_th, sin_th
       Real(wp) :: e_old, e_eval, delta_e, prob_acc
       Real(wp) :: w_sum_bulk, w_avg_bulk, w_cluster, cum_w, r_pick
-      Real(wp), Allocatable :: w_trials(:), r_trials_box(:,:)
+      Real(wp), Allocatable :: w_trials(:), delta_e_trial(:), r_trials_box(:,:)
+      Logical :: has_overlap, any_accepted
+      External :: calc_single_particle_energy
 
       If (.Not. avbmc) Return
       If (nbrd <= 0 .Or. nnonassoc <= 0) Return
 
       K_trials = Max(1, avbmc_k_trials)
       Allocate(w_trials(K_trials))
+      Allocate(delta_e_trial(K_trials))
       Allocate(r_trials_box(3, K_trials))
 
       pi = Acos(-1.0_wp)
@@ -185,6 +188,9 @@ CONTAINS
       v_bind = (4.0_wp / 3.0_wp) * pi * (r_bind**3)
       v_box = Box(0) * Box(1) * Box(2)
       navbmc_trials = Min(avbmc_max_trials, Min(nbrd, nnonassoc))
+      any_accepted = .False.
+
+      Call Convert_CB_RU()
 
       Do k_avbmc = 1, navbmc_trials
          If (nbrd <= 0 .Or. nnonassoc <= 0) Exit
@@ -213,14 +219,13 @@ CONTAINS
             n_neigh = 1
          End If
 
-         Call Convert_CB_RU()
-         e_old = En_tot
          r_old(1:3) = r((id_non - 1) * ndim : (id_non - 1) * ndim + 2)
-         r_curr(1:3) = r_old(1:3)
-
-         ! Bulk Rosenbluth Weight Calculation (W_old)
-         ! Trial 1 is the actual current bulk position
-         w_trials(1) = 1.0_wp
+         Call calc_single_particle_energy(id_non, r_old, e_old, has_overlap)
+         If (has_overlap) Then
+            w_trials(1) = 0.0_wp
+         Else
+            w_trials(1) = 1.0_wp
+         End If
          r_trials_box(1:3, 1) = r_old(1:3)
 
          ! Generate K-1 dummy trial positions in the bulk
@@ -232,13 +237,13 @@ CONTAINS
             r_trials_box(2, m) = rnd2
             r_trials_box(3, m) = rnd3
 
-            Call update_single_particle_cell(id_non, r_curr, r_trials_box(1:3, m))
-            r((id_non - 1) * ndim : (id_non - 1) * ndim + 2) = r_trials_box(1:3, m)
-            r_curr(1:3) = r_trials_box(1:3, m)
-            Call CB_system_energy_GPU(1)
-            e_eval = En_tot
-            delta_e = e_eval - e_old
-            w_trials(m) = Exp(-beta * delta_e)
+            Call calc_single_particle_energy(id_non, r_trials_box(1:3, m), e_eval, has_overlap)
+            If (has_overlap) Then
+               w_trials(m) = 0.0_wp
+            Else
+               delta_e = e_eval - e_old
+               w_trials(m) = Exp(-beta * delta_e)
+            End If
          End Do
          w_sum_bulk = Sum(w_trials(1:K_trials))
 
@@ -268,27 +273,31 @@ CONTAINS
          r_trial(2) = r_trial(2) - Floor(r_trial(2))
          r_trial(3) = r_trial(3) - Floor(r_trial(3))
 
-         Call update_single_particle_cell(id_non, r_curr, r_trial)
-         r((id_non - 1) * ndim : (id_non - 1) * ndim + 2) = r_trial(1:3)
-         r_curr(1:3) = r_trial(1:3)
-         Call CB_system_energy_GPU(1)
-         e_eval = En_tot
-         delta_e = e_eval - e_old
-         w_cluster = Exp(-beta * delta_e)
+         Call calc_single_particle_energy(id_non, r_trial, e_eval, has_overlap)
+         If (has_overlap) Then
+            w_cluster = 0.0_wp
+         Else
+            delta_e = e_eval - e_old
+            w_cluster = Exp(-beta * delta_e)
+         End If
 
          ! Association acceptance criterion using Rosenbluth weight W_old
-         prob_acc = (Real(nbrd * n_neigh + 1, wp) / Real(nnonassoc, wp)) * &
-            (v_box / v_bind) * (Real(K_trials, wp) * w_cluster / w_sum_bulk)
+         If (w_sum_bulk > 0.0_wp .And. w_cluster > 0.0_wp) Then
+            prob_acc = (Real(nbrd * n_neigh + 1, wp) / Real(nnonassoc, wp)) * &
+               (v_box / v_bind) * (Real(K_trials, wp) * w_cluster / w_sum_bulk)
+         Else
+            prob_acc = 0.0_wp
+         End If
 
          navbmc_in_att = navbmc_in_att + 1
 
          Call Random_number(rnd)
-         If (rnd < prob_acc .And. w_sum_bulk > 0.0_wp) Then
+         If (rnd < prob_acc) Then
             navbmc_in_acc = navbmc_in_acc + 1
-         Else
-            Call update_single_particle_cell(id_non, r_curr, r_old)
-            r((id_non - 1) * ndim : (id_non - 1) * ndim + 2) = r_old(1:3)
-            En_tot = e_old
+            r((id_non - 1) * ndim : (id_non - 1) * ndim + 2) = r_trial(1:3)
+            Call update_single_particle_cell(id_non, r_old, r_trial)
+            En_tot = En_tot + delta_e
+            any_accepted = .True.
          End If
 
          ! ===================================================================
@@ -304,10 +313,8 @@ CONTAINS
          n_neigh = neighbors_in(id_brd)
          If (n_neigh <= 0) n_neigh = 1
 
-         Call Convert_CB_RU()
-         e_old = En_tot
          r_old(1:3) = r((id_brd - 1) * ndim : (id_brd - 1) * ndim + 2)
-         r_curr(1:3) = r_old(1:3)
+         Call calc_single_particle_energy(id_brd, r_old, e_old, has_overlap)
 
          ! Generate K_trials independent trial positions in bulk V_out
          Do m = 1, K_trials
@@ -318,20 +325,25 @@ CONTAINS
             r_trials_box(2, m) = rnd2
             r_trials_box(3, m) = rnd3
 
-            Call update_single_particle_cell(id_brd, r_curr, r_trials_box(1:3, m))
-            r((id_brd - 1) * ndim : (id_brd - 1) * ndim + 2) = r_trials_box(1:3, m)
-            r_curr(1:3) = r_trials_box(1:3, m)
-            Call CB_system_energy_GPU(1)
-            e_eval = En_tot
-            delta_e = e_eval - e_old
-            w_trials(m) = Exp(-beta * delta_e)
+            Call calc_single_particle_energy(id_brd, r_trials_box(1:3, m), e_eval, has_overlap)
+            If (has_overlap) Then
+               w_trials(m) = 0.0_wp
+               delta_e_trial(m) = 0.0_wp
+            Else
+               delta_e_trial(m) = e_eval - e_old
+               w_trials(m) = Exp(-beta * delta_e_trial(m))
+            End If
          End Do
          w_sum_bulk = Sum(w_trials(1:K_trials))
          w_avg_bulk = w_sum_bulk / Real(K_trials, wp)
 
          ! Dissociation acceptance criterion using Rosenbluth average w_avg_bulk
-         prob_acc = (Real(nnonassoc + 1, wp) / Real(nbrd * n_neigh, wp)) * &
-            (v_bind / v_box) * w_avg_bulk
+         If (w_sum_bulk > 0.0_wp) Then
+            prob_acc = (Real(nnonassoc + 1, wp) / Real(nbrd * n_neigh, wp)) * &
+               (v_bind / v_box) * w_avg_bulk
+         Else
+            prob_acc = 0.0_wp
+         End If
 
          navbmc_out_att = navbmc_out_att + 1
 
@@ -351,20 +363,20 @@ CONTAINS
                End If
             End Do
 
-            Call update_single_particle_cell(id_brd, r_curr, r_trials_box(1:3, m_chosen))
             r((id_brd - 1) * ndim : (id_brd - 1) * ndim + 2) = r_trials_box(1:3, m_chosen)
-            Call CB_system_energy_GPU(1)
-         Else
-            Call update_single_particle_cell(id_brd, r_curr, r_old)
-            r((id_brd - 1) * ndim : (id_brd - 1) * ndim + 2) = r_old(1:3)
-            En_tot = e_old
+            Call update_single_particle_cell(id_brd, r_old, r_trials_box(1:3, m_chosen))
+            En_tot = En_tot + delta_e_trial(m_chosen)
+            any_accepted = .True.
          End If
       End Do
 
-      Call repopulate_checkerboard_cells()
-      Call CB_system_energy_GPU(1)
+      If (any_accepted) Then
+         Call repopulate_checkerboard_cells()
+         Call CB_system_energy_GPU(1)
+      End If
 
       Deallocate(w_trials)
+      Deallocate(delta_e_trial)
       Deallocate(r_trials_box)
 
    End Subroutine attempt_avbmc_pair_moves

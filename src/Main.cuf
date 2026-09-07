@@ -715,7 +715,22 @@ Program MC_CB_GPU
    If (trim(traj_format) == 'netcdf' .or. trim(traj_format) == 'both') Call netcdf_close_trajectory()
 
    ! --------------------------------------------------------------------------
-   ! Final energy calculation and output
+   ! Final analysis and property output
+   ! --------------------------------------------------------------------------
+   Call Convert_CB_RU
+   Call Calculate_averages
+   Call Write_final_properties
+
+   If (ncluster > 0) Then
+      ! Final cluster analysis so all cluster outputs match the final configuration
+      Call run_cluster_analysis(istep_ini+istep_fin)
+   End If
+
+   Call Write_final_conf
+   Call Write_final_conf2(istep_ini+istep_fin)
+
+   ! --------------------------------------------------------------------------
+   ! Final energy verification and cleanup
    ! --------------------------------------------------------------------------
    overlap=.false.
    En_tot_old = En_tot
@@ -723,26 +738,9 @@ Program MC_CB_GPU
    If (pot_int /= -1) write(*,'(A,f18.8,A,es11.4)') c_yellow // ' >>> Final energy evaluated with GPU = ' // c_reset, En_tot, &
                                                     ' | Drift = ', abs(En_tot - En_tot_old)
 
-   Call Convert_CB_RU
-   Call Calculate_averages
-   Call Write_final_properties
-
-   If (ncluster > 0) Then
-      If (avbmc) Then
-         Call run_cluster_analysis(istep_ini+istep_fin)
-         Call attempt_avbmc_pair_moves(neighbors, offset, adjacency)
-         Call print_avbmc_stats()
-      End If
-      ! Final cluster analysis on post-AVBMC state so all cluster outputs match the final configuration
-      Call run_cluster_analysis(istep_ini+istep_fin)
-   End If
-
-   Call Write_final_conf
-   Call Write_final_conf2(istep_ini+istep_fin)
-
    if (Nmc_hmc > 0) call close_hmc_lammps()
-   Call limpio
    Call clusters_dealloc()
+   Call limpio
    write(*,'(A)') c_green // ' >>> Simulation completely finished. GPU memory cleaned.' // c_reset
 
 End Program MC_CB_GPU
