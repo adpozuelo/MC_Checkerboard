@@ -84,6 +84,8 @@ Lennard-Jones reduced units are used. Potentials are truncated and shifted at ra
 
 ## Compilation
 
+> For a comprehensive, step-by-step installation guide covering HPC module environments, LAMMPS compilation for HMC, Makefile customization, and troubleshooting, see [INSTALL.md](file:///home/e.lomba/MC_Checkerboard/INSTALL.md).
+
 ### Prerequisites for NetCDF Support
 
 If you want NetCDF trajectory output, load the NetCDF-Fortran module:
