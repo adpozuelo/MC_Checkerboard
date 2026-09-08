@@ -2676,6 +2676,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
     integer :: jcell_x, jcell_y, jcell_z
     integer, shared :: Indx_Cell, Nat_Cell_ijk
     integer, shared :: idx_A_local, idx_B_local, can_swap
+    integer, shared :: t_A_old, t_A_new, t_B_old, t_B_new
     real(wp) :: DX_A, DY_A, DZ_A, DX_B, DY_B, DZ_B
     real(wp) :: dist_A, dist_B, RSQ_A, RSQ_B, H11, H12, H13, H21, H22, H23, H31, H32, H33
     real(wp) :: dx_neigh, dy_neigh, dz_neigh, XJ, YJ, ZJ
@@ -2684,6 +2685,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
     real(wp), shared :: pos_B_x, pos_B_y, pos_B_z
     integer, shared :: overlap_aux(0:NTHREAD-1)
     integer :: count_A, count_B, target_A, target_B, cur_A, cur_B, t, i
+    integer :: species_A, species_B
 
     indx_rnd = blockIdx%x - 1; Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2); Nl02 = Nl0/2; Nl12 = Nl1/2; Nl22 = Nl2/2
     indx_rnd_z = indx_rnd/(Nl02*Nl12); indx_rnd_y = (indx_rnd - Nl02*Nl12*indx_rnd_z)/Nl02
@@ -2704,11 +2706,24 @@ attributes(device) subroutine evaluate_cell_interactions( &
         indx_atm_aux2 = Indx_Cell * Nat_Cell_Max * 2
 
         if (indx_thread == 0) then
+          if (Ntypes == 2) then
+            species_A = 0
+            species_B = 1
+          else
+            species_A = int(Ntypes * curand_uniform(RND_state(Indx_Rnd)))
+            if (species_A >= Ntypes) species_A = Ntypes - 1
+            species_B = int((Ntypes - 1) * curand_uniform(RND_state(Indx_Rnd)))
+            if (species_B >= species_A) species_B = species_B + 1
+            if (species_B >= Ntypes) species_B = Ntypes - 1
+          end if
+          t_A_old = species_A; t_A_new = species_B
+          t_B_old = species_B; t_B_new = species_A
+
           count_A = 0; count_B = 0
           do l = 0, Nat_Cell_ijk - 1
             t = List_Cell(indx_atm_aux2 + l*2 + 1)
-            if (t == 0) count_A = count_A + 1
-            if (t == 1) count_B = count_B + 1
+            if (t == species_A) count_A = count_A + 1
+            if (t == species_B) count_B = count_B + 1
           end do
 
           if (count_A > 0 .and. count_B > 0) then
@@ -2721,10 +2736,10 @@ attributes(device) subroutine evaluate_cell_interactions( &
             idx_A_local = -1; idx_B_local = -1
             do l = 0, Nat_Cell_ijk - 1
               t = List_Cell(indx_atm_aux2 + l*2 + 1)
-              if (t == 0) then
+              if (t == species_A) then
                 if (cur_A == target_A) idx_A_local = l
                 cur_A = cur_A + 1
-              else if (t == 1) then
+              else if (t == species_B) then
                 if (cur_B == target_B) idx_B_local = l
                 cur_B = cur_B + 1
               end if
@@ -2760,14 +2775,14 @@ attributes(device) subroutine evaluate_cell_interactions( &
                 XJ = Sphere_Cell(jmol); YJ = Sphere_Cell(jmol+1); ZJ = Sphere_Cell(jmol+2)
                 itypej = List_Cell(jmol2+1)
 
-                ! Test Particle A with new type 1 (B) interacting with itypej
-                Indxk_A = Ntypes * 1 + itypej
+                ! Test Particle A with new type t_A_new interacting with itypej
+                Indxk_A = Ntypes * t_A_new + itypej
                 sigsq_A = sigma_LJ(Indxk_A) * sigma_LJ(Indxk_A)
                 call get_dist(XJ,YJ,ZJ, pos_A_x,pos_A_y,pos_A_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_A,DY_A,DZ_A, RSQ_A, dist_A)
                 if (RSQ_A < sigsq_A) overlap = 1
 
-                ! Test Particle B with new type 0 (A) interacting with itypej
-                Indxk_B = Ntypes * 0 + itypej
+                ! Test Particle B with new type t_B_new interacting with itypej
+                Indxk_B = Ntypes * t_B_new + itypej
                 sigsq_B = sigma_LJ(Indxk_B) * sigma_LJ(Indxk_B)
                 call get_dist(XJ,YJ,ZJ, pos_B_x,pos_B_y,pos_B_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_B,DY_B,DZ_B, RSQ_B, dist_B)
                 if (RSQ_B < sigsq_B) overlap = 1
@@ -2795,14 +2810,14 @@ attributes(device) subroutine evaluate_cell_interactions( &
                   ZJ = Sphere_Cell(jmol+2) + dz_neigh
                   itypej = List_Cell(jmol2 + 1)
 
-                  ! Test Particle A with new type 1
-                  Indxk_A = Ntypes * 1 + itypej
+                  ! Test Particle A with new type t_A_new
+                  Indxk_A = Ntypes * t_A_new + itypej
                   sigsq_A = sigma_LJ(Indxk_A) * sigma_LJ(Indxk_A)
                   call get_dist(XJ,YJ,ZJ, pos_A_x,pos_A_y,pos_A_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_A,DY_A,DZ_A, RSQ_A, dist_A)
                   if (RSQ_A < sigsq_A) overlap = 1
 
-                  ! Test Particle B with new type 0
-                  Indxk_B = Ntypes * 0 + itypej
+                  ! Test Particle B with new type t_B_new
+                  Indxk_B = Ntypes * t_B_new + itypej
                   sigsq_B = sigma_LJ(Indxk_B) * sigma_LJ(Indxk_B)
                   call get_dist(XJ,YJ,ZJ, pos_B_x,pos_B_y,pos_B_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_B,DY_B,DZ_B, RSQ_B, dist_B)
                   if (RSQ_B < sigsq_B) overlap = 1
@@ -2820,8 +2835,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
             end do
             if (overlap == 0) then
               ! Accepted: update type indices in device List_Cell
-              List_Cell(indx_atm_aux2 + idx_A_local*2 + 1) = 1
-              List_Cell(indx_atm_aux2 + idx_B_local*2 + 1) = 0
+              List_Cell(indx_atm_aux2 + idx_A_local*2 + 1) = t_A_new
+              List_Cell(indx_atm_aux2 + idx_B_local*2 + 1) = t_B_new
               Nswap_ac(Indx_Cell) = Nswap_ac(Indx_Cell) + 1
             end if
           end if
@@ -2870,6 +2885,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
     real(wp), shared :: hastings_ratio
     integer, shared :: overlap_aux(0:NTHREAD-1)
     integer :: count_A1, count_B1, count_A2, count_B2, target_A, target_B, cur_A, cur_B, t, i
+    integer :: species_A, species_B
 
     indx_rnd = blockIdx%x - 1; Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2); Nl02 = Nl0/2; Nl12 = Nl1/2; Nl22 = Nl2/2
     indx_rnd_z = indx_rnd/(Nl02*Nl12); indx_rnd_y = (indx_rnd - Nl02*Nl12*indx_rnd_z)/Nl02
@@ -2899,18 +2915,29 @@ attributes(device) subroutine evaluate_cell_interactions( &
         indx_atm_aux_2  = Indx_Cell_2 * Nat_Cell_Max * 7; indx_atm_aux2_2 = Indx_Cell_2 * Nat_Cell_Max * 2
 
         if (indx_thread == 0) then
+          if (Ntypes == 2) then
+            species_A = 0
+            species_B = 1
+          else
+            species_A = int(Ntypes * curand_uniform(RND_state(Indx_Rnd)))
+            if (species_A >= Ntypes) species_A = Ntypes - 1
+            species_B = int((Ntypes - 1) * curand_uniform(RND_state(Indx_Rnd)))
+            if (species_B >= species_A) species_B = species_B + 1
+            if (species_B >= Ntypes) species_B = Ntypes - 1
+          end if
+
           count_A1 = 0; count_B1 = 0
           do l = 0, Nat_Cell_1 - 1
             t = List_Cell(indx_atm_aux2_1 + l*2 + 1)
-            if (t == 0) count_A1 = count_A1 + 1
-            if (t == 1) count_B1 = count_B1 + 1
+            if (t == species_A) count_A1 = count_A1 + 1
+            if (t == species_B) count_B1 = count_B1 + 1
           end do
 
           count_A2 = 0; count_B2 = 0
           do l = 0, Nat_Cell_2 - 1
             t = List_Cell(indx_atm_aux2_2 + l*2 + 1)
-            if (t == 0) count_A2 = count_A2 + 1
-            if (t == 1) count_B2 = count_B2 + 1
+            if (t == species_A) count_A2 = count_A2 + 1
+            if (t == species_B) count_B2 = count_B2 + 1
           end do
 
           coin = curand_uniform(RND_state(Indx_Rnd))
@@ -2923,7 +2950,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               cur_A = 0; idx_A_local = -1
               do l = 0, Nat_Cell_1 - 1
-                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == 0) then
+                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == species_A) then
                   if (cur_A == target_A) idx_A_local = l
                   cur_A = cur_A + 1
                 end if
@@ -2931,7 +2958,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               cur_B = 0; idx_B_local = -1
               do l = 0, Nat_Cell_2 - 1
-                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == 1) then
+                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == species_B) then
                   if (cur_B == target_B) idx_B_local = l
                   cur_B = cur_B + 1
                 end if
@@ -2939,8 +2966,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               if (idx_A_local >= 0 .and. idx_B_local >= 0) then
                 can_swap = 1
-                t_A_old = 0; t_A_new = 1
-                t_B_old = 1; t_B_new = 0
+                t_A_old = species_A; t_A_new = species_B
+                t_B_old = species_B; t_B_new = species_A
                 pos_A_x = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7)
                 pos_A_y = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 1)
                 pos_A_z = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 2)
@@ -2963,7 +2990,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               cur_A = 0; idx_A_local = -1
               do l = 0, Nat_Cell_1 - 1
-                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == 1) then
+                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == species_B) then
                   if (cur_A == target_A) idx_A_local = l
                   cur_A = cur_A + 1
                 end if
@@ -2971,7 +2998,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               cur_B = 0; idx_B_local = -1
               do l = 0, Nat_Cell_2 - 1
-                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == 0) then
+                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == species_A) then
                   if (cur_B == target_B) idx_B_local = l
                   cur_B = cur_B + 1
                 end if
@@ -2979,8 +3006,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               if (idx_A_local >= 0 .and. idx_B_local >= 0) then
                 can_swap = 1
-                t_A_old = 1; t_A_new = 0
-                t_B_old = 0; t_B_new = 1
+                t_A_old = species_B; t_A_new = species_A
+                t_B_old = species_A; t_B_new = species_B
                 pos_A_x = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7)
                 pos_A_y = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 1)
                 pos_A_z = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 2)
@@ -3120,6 +3147,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
     integer :: indx_thread, indx_rnd_x, indx_rnd_y, indx_rnd_z, jcell_x, jcell_y, jcell_z, i
     integer, shared :: Indx_Cell, Nat_Cell_ijk
     integer, shared :: idx_A_local, idx_B_local, can_swap
+    integer, shared :: t_A_old, t_A_new, t_B_old, t_B_new
     real(wp) :: DX_A, DY_A, DZ_A, DX_B, DY_B, DZ_B, DX, DY, DZ
     real(wp) :: dist_A, dist_B, RSQ_A, RSQ_B, dist, RSQ, H11, H12, H13, H21, H22, H23, H31, H32, H33
     real(wp) :: dx_neigh, dy_neigh, dz_neigh, XJ, YJ, ZJ, en1, en2, e_old, e_new
@@ -3129,6 +3157,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
     real(wp), shared :: entot_old(0:NTHREAD-1), entot_new(0:NTHREAD-1)
     integer, shared :: overlap_aux(0:NTHREAD-1)
     integer :: count_A, count_B, target_A, target_B, cur_A, cur_B, t, ov
+    integer :: species_A, species_B
 
     indx_rnd = blockIdx%x - 1; Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2); Nl02 = Nl0/2; Nl12 = Nl1/2; Nl22 = Nl2/2
     indx_rnd_z = indx_rnd/(Nl02*Nl12); indx_rnd_y = (indx_rnd - Nl02*Nl12*indx_rnd_z)/Nl02
@@ -3148,11 +3177,24 @@ attributes(device) subroutine evaluate_cell_interactions( &
         indx_atm_aux  = Indx_Cell * Nat_Cell_Max * 7; indx_atm_aux2 = Indx_Cell * Nat_Cell_Max * 2
 
         if (indx_thread == 0) then
+          if (Ntypes == 2) then
+            species_A = 0
+            species_B = 1
+          else
+            species_A = int(Ntypes * curand_uniform(RND_state(Indx_Rnd)))
+            if (species_A >= Ntypes) species_A = Ntypes - 1
+            species_B = int((Ntypes - 1) * curand_uniform(RND_state(Indx_Rnd)))
+            if (species_B >= species_A) species_B = species_B + 1
+            if (species_B >= Ntypes) species_B = Ntypes - 1
+          end if
+          t_A_old = species_A; t_A_new = species_B
+          t_B_old = species_B; t_B_new = species_A
+
           count_A = 0; count_B = 0
           do l = 0, Nat_Cell_ijk - 1
             t = List_Cell(indx_atm_aux2 + l*2 + 1)
-            if (t == 0) count_A = count_A + 1
-            if (t == 1) count_B = count_B + 1
+            if (t == species_A) count_A = count_A + 1
+            if (t == species_B) count_B = count_B + 1
           end do
 
           if (count_A > 0 .and. count_B > 0) then
@@ -3163,7 +3205,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
             cur_A = 0; idx_A_local = -1
             do l = 0, Nat_Cell_ijk - 1
-              if (List_Cell(indx_atm_aux2 + l*2 + 1) == 0) then
+              if (List_Cell(indx_atm_aux2 + l*2 + 1) == species_A) then
                 if (cur_A == target_A) idx_A_local = l
                 cur_A = cur_A + 1
               end if
@@ -3171,7 +3213,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
             cur_B = 0; idx_B_local = -1
             do l = 0, Nat_Cell_ijk - 1
-              if (List_Cell(indx_atm_aux2 + l*2 + 1) == 1) then
+              if (List_Cell(indx_atm_aux2 + l*2 + 1) == species_B) then
                 if (cur_B == target_B) idx_B_local = l
                 cur_B = cur_B + 1
               end if
@@ -3204,10 +3246,10 @@ attributes(device) subroutine evaluate_cell_interactions( &
             ! 1. Mutual interaction between A and B
             call get_dist(pos_B_x, pos_B_y, pos_B_z, pos_A_x, pos_A_y, pos_A_z, &
                           H11,H12,H13,H21,H22,H23,H31,H32,H33, DX, DY, DZ, RSQ, dist)
-            call eval_pair_energy_single_LJ(dist, RSQ, 0, 1, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en1, is_ov)
+            call eval_pair_energy_single_LJ(dist, RSQ, t_A_old, t_B_old, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en1, is_ov)
             if (is_ov == 1) ov = 1
             e_old = e_old + en1
-            call eval_pair_energy_single_LJ(dist, RSQ, 1, 0, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en2, is_ov)
+            call eval_pair_energy_single_LJ(dist, RSQ, t_A_new, t_B_new, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en2, is_ov)
             if (is_ov == 1) ov = 1
             e_new = e_new + en2
 
@@ -3219,18 +3261,18 @@ attributes(device) subroutine evaluate_cell_interactions( &
                 itypej = List_Cell(jmol2+1)
 
                 call get_dist(XJ,YJ,ZJ, pos_A_x,pos_A_y,pos_A_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_A,DY_A,DZ_A, RSQ_A, dist_A)
-                call eval_pair_energy_single_LJ(dist_A, RSQ_A, 0, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en1, is_ov)
+                call eval_pair_energy_single_LJ(dist_A, RSQ_A, t_A_old, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en1, is_ov)
                 if (is_ov == 1) ov = 1
                 e_old = e_old + en1
-                call eval_pair_energy_single_LJ(dist_A, RSQ_A, 1, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en2, is_ov)
+                call eval_pair_energy_single_LJ(dist_A, RSQ_A, t_A_new, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en2, is_ov)
                 if (is_ov == 1) ov = 1
                 e_new = e_new + en2
 
                 call get_dist(XJ,YJ,ZJ, pos_B_x,pos_B_y,pos_B_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_B,DY_B,DZ_B, RSQ_B, dist_B)
-                call eval_pair_energy_single_LJ(dist_B, RSQ_B, 1, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en1, is_ov)
+                call eval_pair_energy_single_LJ(dist_B, RSQ_B, t_B_old, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en1, is_ov)
                 if (is_ov == 1) ov = 1
                 e_old = e_old + en1
-                call eval_pair_energy_single_LJ(dist_B, RSQ_B, 0, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en2, is_ov)
+                call eval_pair_energy_single_LJ(dist_B, RSQ_B, t_B_new, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en2, is_ov)
                 if (is_ov == 1) ov = 1
                 e_new = e_new + en2
               end if
@@ -3252,18 +3294,18 @@ attributes(device) subroutine evaluate_cell_interactions( &
                   itypej = List_Cell(jmol2 + 1)
 
                   call get_dist(XJ,YJ,ZJ, pos_A_x,pos_A_y,pos_A_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_A,DY_A,DZ_A, RSQ_A, dist_A)
-                  call eval_pair_energy_single_LJ(dist_A, RSQ_A, 0, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en1, is_ov)
+                  call eval_pair_energy_single_LJ(dist_A, RSQ_A, t_A_old, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en1, is_ov)
                   if (is_ov == 1) ov = 1
                   e_old = e_old + en1
-                  call eval_pair_energy_single_LJ(dist_A, RSQ_A, 1, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en2, is_ov)
+                  call eval_pair_energy_single_LJ(dist_A, RSQ_A, t_A_new, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en2, is_ov)
                   if (is_ov == 1) ov = 1
                   e_new = e_new + en2
 
                   call get_dist(XJ,YJ,ZJ, pos_B_x,pos_B_y,pos_B_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_B,DY_B,DZ_B, RSQ_B, dist_B)
-                  call eval_pair_energy_single_LJ(dist_B, RSQ_B, 1, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en1, is_ov)
+                  call eval_pair_energy_single_LJ(dist_B, RSQ_B, t_B_old, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en1, is_ov)
                   if (is_ov == 1) ov = 1
                   e_old = e_old + en1
-                  call eval_pair_energy_single_LJ(dist_B, RSQ_B, 0, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en2, is_ov)
+                  call eval_pair_energy_single_LJ(dist_B, RSQ_B, t_B_new, itypej, Ntypes, rangeP, sigma_LJ, epsilon_LJ, VL0, en2, is_ov)
                   if (is_ov == 1) ov = 1
                   e_new = e_new + en2
                 end do
@@ -3283,8 +3325,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
             if (ov == 0) then
               DE = real(e_new - e_old, dkind)
               if (DE <= 0.0_wp .or. curand_uniform(RND_state(Indx_Rnd)) <= exp(-beta * real(DE, wp))) then
-                List_Cell(indx_atm_aux2 + idx_A_local*2 + 1) = 1
-                List_Cell(indx_atm_aux2 + idx_B_local*2 + 1) = 0
+                List_Cell(indx_atm_aux2 + idx_A_local*2 + 1) = t_A_new
+                List_Cell(indx_atm_aux2 + idx_B_local*2 + 1) = t_B_new
                 Nswap_ac(Indx_Cell) = Nswap_ac(Indx_Cell) + 1
                 Delta_energy(Indx_Cell) = Delta_energy(Indx_Cell) + DE
               end if
@@ -3340,6 +3382,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
     real(wp), shared :: entot_old(0:NTHREAD-1), entot_new(0:NTHREAD-1)
     integer, shared :: overlap_aux(0:NTHREAD-1)
     integer :: count_A1, count_B1, count_A2, count_B2, target_A, target_B, cur_A, cur_B, t, ov
+    integer :: species_A, species_B
 
     indx_rnd = blockIdx%x - 1; Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2); Nl02 = Nl0/2; Nl12 = Nl1/2; Nl22 = Nl2/2
     indx_rnd_z = indx_rnd/(Nl02*Nl12); indx_rnd_y = (indx_rnd - Nl02*Nl12*indx_rnd_z)/Nl02
@@ -3369,18 +3412,29 @@ attributes(device) subroutine evaluate_cell_interactions( &
         indx_atm_aux_2  = Indx_Cell_2 * Nat_Cell_Max * 7; indx_atm_aux2_2 = Indx_Cell_2 * Nat_Cell_Max * 2
 
         if (indx_thread == 0) then
+          if (Ntypes == 2) then
+            species_A = 0
+            species_B = 1
+          else
+            species_A = int(Ntypes * curand_uniform(RND_state(Indx_Rnd)))
+            if (species_A >= Ntypes) species_A = Ntypes - 1
+            species_B = int((Ntypes - 1) * curand_uniform(RND_state(Indx_Rnd)))
+            if (species_B >= species_A) species_B = species_B + 1
+            if (species_B >= Ntypes) species_B = Ntypes - 1
+          end if
+
           count_A1 = 0; count_B1 = 0
           do l = 0, Nat_Cell_1 - 1
             t = List_Cell(indx_atm_aux2_1 + l*2 + 1)
-            if (t == 0) count_A1 = count_A1 + 1
-            if (t == 1) count_B1 = count_B1 + 1
+            if (t == species_A) count_A1 = count_A1 + 1
+            if (t == species_B) count_B1 = count_B1 + 1
           end do
 
           count_A2 = 0; count_B2 = 0
           do l = 0, Nat_Cell_2 - 1
             t = List_Cell(indx_atm_aux2_2 + l*2 + 1)
-            if (t == 0) count_A2 = count_A2 + 1
-            if (t == 1) count_B2 = count_B2 + 1
+            if (t == species_A) count_A2 = count_A2 + 1
+            if (t == species_B) count_B2 = count_B2 + 1
           end do
 
           coin = curand_uniform(RND_state(Indx_Rnd))
@@ -3393,7 +3447,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               cur_A = 0; idx_A_local = -1
               do l = 0, Nat_Cell_1 - 1
-                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == 0) then
+                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == species_A) then
                   if (cur_A == target_A) idx_A_local = l
                   cur_A = cur_A + 1
                 end if
@@ -3401,7 +3455,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               cur_B = 0; idx_B_local = -1
               do l = 0, Nat_Cell_2 - 1
-                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == 1) then
+                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == species_B) then
                   if (cur_B == target_B) idx_B_local = l
                   cur_B = cur_B + 1
                 end if
@@ -3409,8 +3463,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               if (idx_A_local >= 0 .and. idx_B_local >= 0) then
                 can_swap = 1
-                t_A_old = 0; t_A_new = 1
-                t_B_old = 1; t_B_new = 0
+                t_A_old = species_A; t_A_new = species_B
+                t_B_old = species_B; t_B_new = species_A
                 pos_A_x = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7)
                 pos_A_y = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 1)
                 pos_A_z = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 2)
@@ -3432,7 +3486,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               cur_A = 0; idx_A_local = -1
               do l = 0, Nat_Cell_1 - 1
-                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == 1) then
+                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == species_B) then
                   if (cur_A == target_A) idx_A_local = l
                   cur_A = cur_A + 1
                 end if
@@ -3440,7 +3494,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               cur_B = 0; idx_B_local = -1
               do l = 0, Nat_Cell_2 - 1
-                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == 0) then
+                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == species_A) then
                   if (cur_B == target_B) idx_B_local = l
                   cur_B = cur_B + 1
                 end if
@@ -3448,8 +3502,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               if (idx_A_local >= 0 .and. idx_B_local >= 0) then
                 can_swap = 1
-                t_A_old = 1; t_A_new = 0
-                t_B_old = 0; t_B_new = 1
+                t_A_old = species_B; t_A_new = species_A
+                t_B_old = species_A; t_B_new = species_B
                 pos_A_x = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7)
                 pos_A_y = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 1)
                 pos_A_z = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 2)
@@ -3614,6 +3668,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
     integer :: indx_thread, indx_rnd_x, indx_rnd_y, indx_rnd_z, jcell_x, jcell_y, jcell_z, i
     integer, shared :: Indx_Cell, Nat_Cell_ijk
     integer, shared :: idx_A_local, idx_B_local, can_swap
+    integer, shared :: t_A_old, t_A_new, t_B_old, t_B_new
     real(wp) :: DX_A, DY_A, DZ_A, DX_B, DY_B, DZ_B, DX, DY, DZ
     real(wp) :: dist_A, dist_B, RSQ_A, RSQ_B, dist, RSQ, H11, H12, H13, H21, H22, H23, H31, H32, H33
     real(wp) :: dx_neigh, dy_neigh, dz_neigh, XJ, YJ, ZJ, en1, en2, e_old, e_new
@@ -3626,6 +3681,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
     real(wp), shared :: entot_old(0:NTHREAD-1), entot_new(0:NTHREAD-1)
     integer, shared :: overlap_aux(0:NTHREAD-1)
     integer :: count_A, count_B, target_A, target_B, cur_A, cur_B, t, ov
+    integer :: species_A, species_B
 
     a = 1000.0_wp; pi = acos(-1.0_wp); dospi = 2.0_wp*pi
     indx_rnd = blockIdx%x - 1; Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2); Nl02 = Nl0/2; Nl12 = Nl1/2; Nl22 = Nl2/2
@@ -3646,11 +3702,24 @@ attributes(device) subroutine evaluate_cell_interactions( &
         indx_atm_aux  = Indx_Cell * Nat_Cell_Max * 7; indx_atm_aux2 = Indx_Cell * Nat_Cell_Max * 2
 
         if (indx_thread == 0) then
+          if (Ntypes == 2) then
+            species_A = 0
+            species_B = 1
+          else
+            species_A = int(Ntypes * curand_uniform(RND_state(Indx_Rnd)))
+            if (species_A >= Ntypes) species_A = Ntypes - 1
+            species_B = int((Ntypes - 1) * curand_uniform(RND_state(Indx_Rnd)))
+            if (species_B >= species_A) species_B = species_B + 1
+            if (species_B >= Ntypes) species_B = Ntypes - 1
+          end if
+          t_A_old = species_A; t_A_new = species_B
+          t_B_old = species_B; t_B_new = species_A
+
           count_A = 0; count_B = 0
           do l = 0, Nat_Cell_ijk - 1
             t = List_Cell(indx_atm_aux2 + l*2 + 1)
-            if (t == 0) count_A = count_A + 1
-            if (t == 1) count_B = count_B + 1
+            if (t == species_A) count_A = count_A + 1
+            if (t == species_B) count_B = count_B + 1
           end do
 
           if (count_A > 0 .and. count_B > 0) then
@@ -3661,7 +3730,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
             cur_A = 0; idx_A_local = -1
             do l = 0, Nat_Cell_ijk - 1
-              if (List_Cell(indx_atm_aux2 + l*2 + 1) == 0) then
+              if (List_Cell(indx_atm_aux2 + l*2 + 1) == species_A) then
                 if (cur_A == target_A) idx_A_local = l
                 cur_A = cur_A + 1
               end if
@@ -3669,7 +3738,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
             cur_B = 0; idx_B_local = -1
             do l = 0, Nat_Cell_ijk - 1
-              if (List_Cell(indx_atm_aux2 + l*2 + 1) == 1) then
+              if (List_Cell(indx_atm_aux2 + l*2 + 1) == species_B) then
                 if (cur_B == target_B) idx_B_local = l
                 cur_B = cur_B + 1
               end if
@@ -3712,13 +3781,13 @@ attributes(device) subroutine evaluate_cell_interactions( &
             ! 1. Mutual interaction between A and B
             call get_dist(pos_B_x, pos_B_y, pos_B_z, pos_A_x, pos_A_y, pos_A_z, &
                           H11,H12,H13,H21,H22,H23,H31,H32,H33, DX, DY, DZ, RSQ, dist)
-            call eval_pair_energy_single_angular(DX, DY, DZ, dist, RSQ, R_A, R_B, 0, 1, bool_tor, a, pi, dospi, sigma_tor, &
+            call eval_pair_energy_single_angular(DX, DY, DZ, dist, RSQ, R_A, R_B, t_A_old, t_B_old, bool_tor, a, pi, dospi, sigma_tor, &
                                                 Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
                                                 sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
                                                 Vpot_Matrix, Ntor_angle, en1, is_ov)
             if (is_ov == 1) ov = 1
             e_old = e_old + en1
-            call eval_pair_energy_single_angular(DX, DY, DZ, dist, RSQ, R_A, R_B, 1, 0, bool_tor, a, pi, dospi, sigma_tor, &
+            call eval_pair_energy_single_angular(DX, DY, DZ, dist, RSQ, R_A, R_B, t_A_new, t_B_new, bool_tor, a, pi, dospi, sigma_tor, &
                                                 Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
                                                 sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
                                                 Vpot_Matrix, Ntor_angle, en2, is_ov)
@@ -3735,13 +3804,13 @@ attributes(device) subroutine evaluate_cell_interactions( &
                 itypej = List_Cell(jmol2+1)
 
                 call get_dist(XJ,YJ,ZJ, pos_A_x,pos_A_y,pos_A_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_A,DY_A,DZ_A, RSQ_A, dist_A)
-                call eval_pair_energy_single_angular(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, 0, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                call eval_pair_energy_single_angular(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, t_A_old, itypej, bool_tor, a, pi, dospi, sigma_tor, &
                                                     Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
                                                     sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
                                                     Vpot_Matrix, Ntor_angle, en1, is_ov)
                 if (is_ov == 1) ov = 1
                 e_old = e_old + en1
-                call eval_pair_energy_single_angular(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, 1, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                call eval_pair_energy_single_angular(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, t_A_new, itypej, bool_tor, a, pi, dospi, sigma_tor, &
                                                     Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
                                                     sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
                                                     Vpot_Matrix, Ntor_angle, en2, is_ov)
@@ -3749,13 +3818,13 @@ attributes(device) subroutine evaluate_cell_interactions( &
                 e_new = e_new + en2
 
                 call get_dist(XJ,YJ,ZJ, pos_B_x,pos_B_y,pos_B_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_B,DY_B,DZ_B, RSQ_B, dist_B)
-                call eval_pair_energy_single_angular(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, 1, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                call eval_pair_energy_single_angular(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, t_B_old, itypej, bool_tor, a, pi, dospi, sigma_tor, &
                                                     Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
                                                     sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
                                                     Vpot_Matrix, Ntor_angle, en1, is_ov)
                 if (is_ov == 1) ov = 1
                 e_old = e_old + en1
-                call eval_pair_energy_single_angular(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, 0, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                call eval_pair_energy_single_angular(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, t_B_new, itypej, bool_tor, a, pi, dospi, sigma_tor, &
                                                     Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
                                                     sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
                                                     Vpot_Matrix, Ntor_angle, en2, is_ov)
@@ -3782,13 +3851,13 @@ attributes(device) subroutine evaluate_cell_interactions( &
                   itypej = List_Cell(jmol2 + 1)
 
                   call get_dist(XJ,YJ,ZJ, pos_A_x,pos_A_y,pos_A_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_A,DY_A,DZ_A, RSQ_A, dist_A)
-                  call eval_pair_energy_single_angular(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, 0, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                  call eval_pair_energy_single_angular(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, t_A_old, itypej, bool_tor, a, pi, dospi, sigma_tor, &
                                                       Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
                                                       sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
                                                       Vpot_Matrix, Ntor_angle, en1, is_ov)
                   if (is_ov == 1) ov = 1
                   e_old = e_old + en1
-                  call eval_pair_energy_single_angular(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, 1, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                  call eval_pair_energy_single_angular(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, t_A_new, itypej, bool_tor, a, pi, dospi, sigma_tor, &
                                                       Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
                                                       sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
                                                       Vpot_Matrix, Ntor_angle, en2, is_ov)
@@ -3796,13 +3865,13 @@ attributes(device) subroutine evaluate_cell_interactions( &
                   e_new = e_new + en2
 
                   call get_dist(XJ,YJ,ZJ, pos_B_x,pos_B_y,pos_B_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_B,DY_B,DZ_B, RSQ_B, dist_B)
-                  call eval_pair_energy_single_angular(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, 1, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                  call eval_pair_energy_single_angular(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, t_B_old, itypej, bool_tor, a, pi, dospi, sigma_tor, &
                                                       Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
                                                       sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
                                                       Vpot_Matrix, Ntor_angle, en1, is_ov)
                   if (is_ov == 1) ov = 1
                   e_old = e_old + en1
-                  call eval_pair_energy_single_angular(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, 0, itypej, bool_tor, a, pi, dospi, sigma_tor, &
+                  call eval_pair_energy_single_angular(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, t_B_new, itypej, bool_tor, a, pi, dospi, sigma_tor, &
                                                       Ntypes, Npatches_max, Ndim, Ntor_max, Npatches, patch, ref_tor, &
                                                       sigma_jon, sigma_LJ, epsilon_LJ, rangeP, VL0, XOP, tor_angle, &
                                                       Vpot_Matrix, Ntor_angle, en2, is_ov)
@@ -3825,8 +3894,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
             if (ov == 0) then
               DE = real(e_new - e_old, dkind)
               if (DE <= 0.0_wp .or. curand_uniform(RND_state(Indx_Rnd)) <= exp(-beta * real(DE, wp))) then
-                List_Cell(indx_atm_aux2 + idx_A_local*2 + 1) = 1
-                List_Cell(indx_atm_aux2 + idx_B_local*2 + 1) = 0
+                List_Cell(indx_atm_aux2 + idx_A_local*2 + 1) = t_A_new
+                List_Cell(indx_atm_aux2 + idx_B_local*2 + 1) = t_B_new
                 Nswap_ac(Indx_Cell) = Nswap_ac(Indx_Cell) + 1
                 Delta_energy(Indx_Cell) = Delta_energy(Indx_Cell) + DE
               end if
@@ -3891,6 +3960,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
     real(wp), shared :: entot_old(0:NTHREAD-1), entot_new(0:NTHREAD-1)
     integer, shared :: overlap_aux(0:NTHREAD-1)
     integer :: count_A1, count_B1, count_A2, count_B2, target_A, target_B, cur_A, cur_B, t, ov
+    integer :: species_A, species_B
 
     a = 1000.0_wp; pi = acos(-1.0_wp); dospi = 2.0_wp*pi
     indx_rnd = blockIdx%x - 1; Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2); Nl02 = Nl0/2; Nl12 = Nl1/2; Nl22 = Nl2/2
@@ -3921,18 +3991,29 @@ attributes(device) subroutine evaluate_cell_interactions( &
         indx_atm_aux_2  = Indx_Cell_2 * Nat_Cell_Max * 7; indx_atm_aux2_2 = Indx_Cell_2 * Nat_Cell_Max * 2
 
         if (indx_thread == 0) then
+          if (Ntypes == 2) then
+            species_A = 0
+            species_B = 1
+          else
+            species_A = int(Ntypes * curand_uniform(RND_state(Indx_Rnd)))
+            if (species_A >= Ntypes) species_A = Ntypes - 1
+            species_B = int((Ntypes - 1) * curand_uniform(RND_state(Indx_Rnd)))
+            if (species_B >= species_A) species_B = species_B + 1
+            if (species_B >= Ntypes) species_B = Ntypes - 1
+          end if
+
           count_A1 = 0; count_B1 = 0
           do l = 0, Nat_Cell_1 - 1
             t = List_Cell(indx_atm_aux2_1 + l*2 + 1)
-            if (t == 0) count_A1 = count_A1 + 1
-            if (t == 1) count_B1 = count_B1 + 1
+            if (t == species_A) count_A1 = count_A1 + 1
+            if (t == species_B) count_B1 = count_B1 + 1
           end do
 
           count_A2 = 0; count_B2 = 0
           do l = 0, Nat_Cell_2 - 1
             t = List_Cell(indx_atm_aux2_2 + l*2 + 1)
-            if (t == 0) count_A2 = count_A2 + 1
-            if (t == 1) count_B2 = count_B2 + 1
+            if (t == species_A) count_A2 = count_A2 + 1
+            if (t == species_B) count_B2 = count_B2 + 1
           end do
 
           coin = curand_uniform(RND_state(Indx_Rnd))
@@ -3945,7 +4026,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               cur_A = 0; idx_A_local = -1
               do l = 0, Nat_Cell_1 - 1
-                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == 0) then
+                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == species_A) then
                   if (cur_A == target_A) idx_A_local = l
                   cur_A = cur_A + 1
                 end if
@@ -3953,7 +4034,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               cur_B = 0; idx_B_local = -1
               do l = 0, Nat_Cell_2 - 1
-                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == 1) then
+                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == species_B) then
                   if (cur_B == target_B) idx_B_local = l
                   cur_B = cur_B + 1
                 end if
@@ -3961,8 +4042,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               if (idx_A_local >= 0 .and. idx_B_local >= 0) then
                 can_swap = 1
-                t_A_old = 0; t_A_new = 1
-                t_B_old = 1; t_B_new = 0
+                t_A_old = species_A; t_A_new = species_B
+                t_B_old = species_B; t_B_new = species_A
                 pos_A_x = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7)
                 pos_A_y = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 1)
                 pos_A_z = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 2)
@@ -3994,7 +4075,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               cur_A = 0; idx_A_local = -1
               do l = 0, Nat_Cell_1 - 1
-                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == 1) then
+                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == species_B) then
                   if (cur_A == target_A) idx_A_local = l
                   cur_A = cur_A + 1
                 end if
@@ -4002,7 +4083,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               cur_B = 0; idx_B_local = -1
               do l = 0, Nat_Cell_2 - 1
-                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == 0) then
+                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == species_A) then
                   if (cur_B == target_B) idx_B_local = l
                   cur_B = cur_B + 1
                 end if
@@ -4010,8 +4091,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               if (idx_A_local >= 0 .and. idx_B_local >= 0) then
                 can_swap = 1
-                t_A_old = 1; t_A_new = 0
-                t_B_old = 0; t_B_new = 1
+                t_A_old = species_B; t_A_new = species_A
+                t_B_old = species_A; t_B_new = species_B
                 pos_A_x = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7)
                 pos_A_y = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 1)
                 pos_A_z = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 2)
@@ -4217,6 +4298,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
     integer :: indx_thread, indx_rnd_x, indx_rnd_y, indx_rnd_z, jcell_x, jcell_y, jcell_z, i
     integer, shared :: Indx_Cell, Nat_Cell_ijk
     integer, shared :: idx_A_local, idx_B_local, can_swap
+    integer, shared :: t_A_old, t_A_new, t_B_old, t_B_new
     real(wp) :: DX_A, DY_A, DZ_A, DX_B, DY_B, DZ_B, DX, DY, DZ
     real(wp) :: dist_A, dist_B, RSQ_A, RSQ_B, dist, RSQ, H11, H12, H13, H21, H22, H23, H31, H32, H33
     real(wp) :: dx_neigh, dy_neigh, dz_neigh, XJ, YJ, ZJ, en1, en2, e_old, e_new
@@ -4229,6 +4311,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
     real(wp), shared :: entot_old(0:NTHREAD-1), entot_new(0:NTHREAD-1)
     integer, shared :: overlap_aux(0:NTHREAD-1)
     integer :: count_A, count_B, target_A, target_B, cur_A, cur_B, t, ov
+    integer :: species_A, species_B
 
     pi = acos(-1.0_wp)
     indx_rnd = blockIdx%x - 1; Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2); Nl02 = Nl0/2; Nl12 = Nl1/2; Nl22 = Nl2/2
@@ -4249,11 +4332,24 @@ attributes(device) subroutine evaluate_cell_interactions( &
         indx_atm_aux  = Indx_Cell * Nat_Cell_Max * 7; indx_atm_aux2 = Indx_Cell * Nat_Cell_Max * 2
 
         if (indx_thread == 0) then
+          if (Ntypes == 2) then
+            species_A = 0
+            species_B = 1
+          else
+            species_A = int(Ntypes * curand_uniform(RND_state(Indx_Rnd)))
+            if (species_A >= Ntypes) species_A = Ntypes - 1
+            species_B = int((Ntypes - 1) * curand_uniform(RND_state(Indx_Rnd)))
+            if (species_B >= species_A) species_B = species_B + 1
+            if (species_B >= Ntypes) species_B = Ntypes - 1
+          end if
+          t_A_old = species_A; t_A_new = species_B
+          t_B_old = species_B; t_B_new = species_A
+
           count_A = 0; count_B = 0
           do l = 0, Nat_Cell_ijk - 1
             t = List_Cell(indx_atm_aux2 + l*2 + 1)
-            if (t == 0) count_A = count_A + 1
-            if (t == 1) count_B = count_B + 1
+            if (t == species_A) count_A = count_A + 1
+            if (t == species_B) count_B = count_B + 1
           end do
 
           if (count_A > 0 .and. count_B > 0) then
@@ -4264,7 +4360,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
             cur_A = 0; idx_A_local = -1
             do l = 0, Nat_Cell_ijk - 1
-              if (List_Cell(indx_atm_aux2 + l*2 + 1) == 0) then
+              if (List_Cell(indx_atm_aux2 + l*2 + 1) == species_A) then
                 if (cur_A == target_A) idx_A_local = l
                 cur_A = cur_A + 1
               end if
@@ -4272,7 +4368,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
             cur_B = 0; idx_B_local = -1
             do l = 0, Nat_Cell_ijk - 1
-              if (List_Cell(indx_atm_aux2 + l*2 + 1) == 1) then
+              if (List_Cell(indx_atm_aux2 + l*2 + 1) == species_B) then
                 if (cur_B == target_B) idx_B_local = l
                 cur_B = cur_B + 1
               end if
@@ -4315,12 +4411,12 @@ attributes(device) subroutine evaluate_cell_interactions( &
             ! 1. Mutual interaction between A and B
             call get_dist(pos_B_x, pos_B_y, pos_B_z, pos_A_x, pos_A_y, pos_A_z, &
                           H11,H12,H13,H21,H22,H23,H31,H32,H33, DX, DY, DZ, RSQ, dist)
-            call eval_pair_energy_single_sitesite(DX, DY, DZ, dist, RSQ, R_A, R_B, 0, 1, pi, &
+            call eval_pair_energy_single_sitesite(DX, DY, DZ, dist, RSQ, R_A, R_B, t_A_old, t_B_old, pi, &
                                                  sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
                                                  Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en1, is_ov)
             if (is_ov == 1) ov = 1
             e_old = e_old + en1
-            call eval_pair_energy_single_sitesite(DX, DY, DZ, dist, RSQ, R_A, R_B, 1, 0, pi, &
+            call eval_pair_energy_single_sitesite(DX, DY, DZ, dist, RSQ, R_A, R_B, t_A_new, t_B_new, pi, &
                                                  sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
                                                  Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en2, is_ov)
             if (is_ov == 1) ov = 1
@@ -4336,24 +4432,24 @@ attributes(device) subroutine evaluate_cell_interactions( &
                 itypej = List_Cell(jmol2+1)
 
                 call get_dist(XJ,YJ,ZJ, pos_A_x,pos_A_y,pos_A_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_A,DY_A,DZ_A, RSQ_A, dist_A)
-                call eval_pair_energy_single_sitesite(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, 0, itypej, pi, &
+                call eval_pair_energy_single_sitesite(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, t_A_old, itypej, pi, &
                                                      sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
                                                      Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en1, is_ov)
                 if (is_ov == 1) ov = 1
                 e_old = e_old + en1
-                call eval_pair_energy_single_sitesite(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, 1, itypej, pi, &
+                call eval_pair_energy_single_sitesite(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, t_A_new, itypej, pi, &
                                                      sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
                                                      Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en2, is_ov)
                 if (is_ov == 1) ov = 1
                 e_new = e_new + en2
 
                 call get_dist(XJ,YJ,ZJ, pos_B_x,pos_B_y,pos_B_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_B,DY_B,DZ_B, RSQ_B, dist_B)
-                call eval_pair_energy_single_sitesite(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, 1, itypej, pi, &
+                call eval_pair_energy_single_sitesite(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, t_B_old, itypej, pi, &
                                                      sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
                                                      Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en1, is_ov)
                 if (is_ov == 1) ov = 1
                 e_old = e_old + en1
-                call eval_pair_energy_single_sitesite(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, 0, itypej, pi, &
+                call eval_pair_energy_single_sitesite(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, t_B_new, itypej, pi, &
                                                      sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
                                                      Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en2, is_ov)
                 if (is_ov == 1) ov = 1
@@ -4379,24 +4475,24 @@ attributes(device) subroutine evaluate_cell_interactions( &
                   itypej = List_Cell(jmol2 + 1)
 
                   call get_dist(XJ,YJ,ZJ, pos_A_x,pos_A_y,pos_A_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_A,DY_A,DZ_A, RSQ_A, dist_A)
-                  call eval_pair_energy_single_sitesite(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, 0, itypej, pi, &
+                  call eval_pair_energy_single_sitesite(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, t_A_old, itypej, pi, &
                                                        sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
                                                        Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en1, is_ov)
                   if (is_ov == 1) ov = 1
                   e_old = e_old + en1
-                  call eval_pair_energy_single_sitesite(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, 1, itypej, pi, &
+                  call eval_pair_energy_single_sitesite(DX_A, DY_A, DZ_A, dist_A, RSQ_A, R_A, R2, t_A_new, itypej, pi, &
                                                        sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
                                                        Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en2, is_ov)
                   if (is_ov == 1) ov = 1
                   e_new = e_new + en2
 
                   call get_dist(XJ,YJ,ZJ, pos_B_x,pos_B_y,pos_B_z, H11,H12,H13,H21,H22,H23,H31,H32,H33, DX_B,DY_B,DZ_B, RSQ_B, dist_B)
-                  call eval_pair_energy_single_sitesite(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, 1, itypej, pi, &
+                  call eval_pair_energy_single_sitesite(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, t_B_old, itypej, pi, &
                                                        sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
                                                        Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en1, is_ov)
                   if (is_ov == 1) ov = 1
                   e_old = e_old + en1
-                  call eval_pair_energy_single_sitesite(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, 0, itypej, pi, &
+                  call eval_pair_energy_single_sitesite(DX_B, DY_B, DZ_B, dist_B, RSQ_B, R_B, R2, t_B_new, itypej, pi, &
                                                        sigp_factor, Rcp_factor, Rc_factor, Ntypes, Npatches_max, Ndim, &
                                                        Npatches, patch, rangeP, sigma_LJ, epsilon_LJ, VL0, Vpot_Matrix, en2, is_ov)
                   if (is_ov == 1) ov = 1
@@ -4418,8 +4514,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
             if (ov == 0) then
               DE = real(e_new - e_old, dkind)
               if (DE <= 0.0_wp .or. curand_uniform(RND_state(Indx_Rnd)) <= exp(-beta * real(DE, wp))) then
-                List_Cell(indx_atm_aux2 + idx_A_local*2 + 1) = 1
-                List_Cell(indx_atm_aux2 + idx_B_local*2 + 1) = 0
+                List_Cell(indx_atm_aux2 + idx_A_local*2 + 1) = t_A_new
+                List_Cell(indx_atm_aux2 + idx_B_local*2 + 1) = t_B_new
                 Nswap_ac(Indx_Cell) = Nswap_ac(Indx_Cell) + 1
                 Delta_energy(Indx_Cell) = Delta_energy(Indx_Cell) + DE
               end if
@@ -4484,6 +4580,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
     real(wp), shared :: entot_old(0:NTHREAD-1), entot_new(0:NTHREAD-1)
     integer, shared :: overlap_aux(0:NTHREAD-1)
     integer :: count_A1, count_B1, count_A2, count_B2, target_A, target_B, cur_A, cur_B, t, ov
+    integer :: species_A, species_B
 
     pi = acos(-1.0_wp)
     indx_rnd = blockIdx%x - 1; Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2); Nl02 = Nl0/2; Nl12 = Nl1/2; Nl22 = Nl2/2
@@ -4514,18 +4611,29 @@ attributes(device) subroutine evaluate_cell_interactions( &
         indx_atm_aux_2  = Indx_Cell_2 * Nat_Cell_Max * 7; indx_atm_aux2_2 = Indx_Cell_2 * Nat_Cell_Max * 2
 
         if (indx_thread == 0) then
+          if (Ntypes == 2) then
+            species_A = 0
+            species_B = 1
+          else
+            species_A = int(Ntypes * curand_uniform(RND_state(Indx_Rnd)))
+            if (species_A >= Ntypes) species_A = Ntypes - 1
+            species_B = int((Ntypes - 1) * curand_uniform(RND_state(Indx_Rnd)))
+            if (species_B >= species_A) species_B = species_B + 1
+            if (species_B >= Ntypes) species_B = Ntypes - 1
+          end if
+
           count_A1 = 0; count_B1 = 0
           do l = 0, Nat_Cell_1 - 1
             t = List_Cell(indx_atm_aux2_1 + l*2 + 1)
-            if (t == 0) count_A1 = count_A1 + 1
-            if (t == 1) count_B1 = count_B1 + 1
+            if (t == species_A) count_A1 = count_A1 + 1
+            if (t == species_B) count_B1 = count_B1 + 1
           end do
 
           count_A2 = 0; count_B2 = 0
           do l = 0, Nat_Cell_2 - 1
             t = List_Cell(indx_atm_aux2_2 + l*2 + 1)
-            if (t == 0) count_A2 = count_A2 + 1
-            if (t == 1) count_B2 = count_B2 + 1
+            if (t == species_A) count_A2 = count_A2 + 1
+            if (t == species_B) count_B2 = count_B2 + 1
           end do
 
           coin = curand_uniform(RND_state(Indx_Rnd))
@@ -4538,7 +4646,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               cur_A = 0; idx_A_local = -1
               do l = 0, Nat_Cell_1 - 1
-                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == 0) then
+                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == species_A) then
                   if (cur_A == target_A) idx_A_local = l
                   cur_A = cur_A + 1
                 end if
@@ -4546,7 +4654,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               cur_B = 0; idx_B_local = -1
               do l = 0, Nat_Cell_2 - 1
-                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == 1) then
+                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == species_B) then
                   if (cur_B == target_B) idx_B_local = l
                   cur_B = cur_B + 1
                 end if
@@ -4554,8 +4662,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               if (idx_A_local >= 0 .and. idx_B_local >= 0) then
                 can_swap = 1
-                t_A_old = 0; t_A_new = 1
-                t_B_old = 1; t_B_new = 0
+                t_A_old = species_A; t_A_new = species_B
+                t_B_old = species_B; t_B_new = species_A
                 pos_A_x = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7)
                 pos_A_y = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 1)
                 pos_A_z = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 2)
@@ -4587,7 +4695,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               cur_A = 0; idx_A_local = -1
               do l = 0, Nat_Cell_1 - 1
-                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == 1) then
+                if (List_Cell(indx_atm_aux2_1 + l*2 + 1) == species_B) then
                   if (cur_A == target_A) idx_A_local = l
                   cur_A = cur_A + 1
                 end if
@@ -4595,7 +4703,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               cur_B = 0; idx_B_local = -1
               do l = 0, Nat_Cell_2 - 1
-                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == 0) then
+                if (List_Cell(indx_atm_aux2_2 + l*2 + 1) == species_A) then
                   if (cur_B == target_B) idx_B_local = l
                   cur_B = cur_B + 1
                 end if
@@ -4603,8 +4711,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
 
               if (idx_A_local >= 0 .and. idx_B_local >= 0) then
                 can_swap = 1
-                t_A_old = 1; t_A_new = 0
-                t_B_old = 0; t_B_new = 1
+                t_A_old = species_B; t_A_new = species_A
+                t_B_old = species_A; t_B_new = species_B
                 pos_A_x = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7)
                 pos_A_y = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 1)
                 pos_A_z = Sphere_Cell(indx_atm_aux_1 + idx_A_local*7 + 2)
@@ -5234,7 +5342,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
     integer :: nblock, TOTAL_THREADS, i, ierror
     real(dkind) :: Total_energy
 
-    if (Npart_types /= 2) return
+    if (Npart_types < 2) return
 
     patch_radial_factor_dev = patch_radial_factor
 
@@ -5323,7 +5431,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
     integer :: nblock, TOTAL_THREADS, i, ierror
     real(dkind) :: Total_energy
 
-    if (Npart_types /= 2) return
+    if (Npart_types < 2) return
 
     patch_radial_factor_dev = patch_radial_factor
 

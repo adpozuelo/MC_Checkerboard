@@ -140,7 +140,7 @@ Input configuration files use Fortran 90 namelists divided into functional block
 - `temp0`, `temp1`: Initial and final reduced temperatures (supports linear thermal annealing).
 - `npt`: Enables isobaric-isothermal ensemble ($NpT$).
 - `pres`: Target reduced pressure $P^*$.
-- `swap_moves`: Enables GPU checkerboard identity swap moves for binary mixtures (`.true.` / `.false.`).
+- `swap_moves`: Enables GPU checkerboard identity swap moves for multicomponent mixtures ($N_{\text{species}} \ge 2$) (`.true.` / `.false.`).
 - `Nswap`: Number of swap sub-passes executed per swap attempt (default: 1).
 - `Nswapf`: Cadence (in sweeps) of identity swap attempts (default: 1).
 

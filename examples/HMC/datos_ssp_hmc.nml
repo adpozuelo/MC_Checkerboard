@@ -52,7 +52,7 @@
   pres         = 0.1,          ! Reduced pressure P* (for NpT ensemble)
   seed         = 345,          ! Random number generator seed
 
-  ! --- Binary Mixture GPU Identity Swap Moves (A <-> B) ---
+  ! --- Multicomponent Mixture GPU Identity Swap Moves ---
   swap_moves   = .false.,      ! Enable GPU checkerboard identity swap moves (.true. / .false.)
   Nswap        = 1,            ! Number of swap sub-passes executed per swap step
   Nswapf       = 1             ! Frequency (in sweeps) of identity swap attempts

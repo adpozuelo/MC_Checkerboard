@@ -26,7 +26,7 @@ Lennard-Jones reduced units are used. Potentials are truncated and shifted at ra
 
 - **GPU Acceleration**: CUDA Fortran implementation with checkerboard parallelization [1]
 - **Multiple Potentials**: Hard-sphere (HS, including non-additive mixtures), Lennard-Jones (LJ) mixtures, tabulated potentials (LAMMPS potential tables for isotropic n-component mixtures), and patchy (LJG / SSP) models
-- **GPU-Accelerated Identity Swaps**: Massively parallel identity swap moves ($A \leftrightarrow B$) for binary mixtures across all potential models (Hard Spheres, Lennard-Jones/table, angular patchy, and site-site patchy) leveraging checkerboard cellular decomposition and long-range sublattice swaps [5]
+- **GPU-Accelerated Identity Swaps**: Massively parallel identity swap moves for multicomponent mixtures ($N_{\text{species}} \ge 2$, with trial species pairs chosen uniformly at random) across all potential models (Hard Spheres, Lennard-Jones/table, angular patchy, and site-site patchy) leveraging checkerboard cellular decomposition and long-range sublattice swaps [5]
 - **Anisotropic Interactions**: Lennard-Jones core with angular (patch-patch) and torsional terms
 - **Multiple Ensembles**: Supports both NVT (canonical) and NpT (isothermal-isobaric)
 - **Aggregation Volume Bias MC (AVBMC)**: Advanced cluster swap moves (association & dissociation) [3] with Configurable Rosenbluth (CBMC) bulk probing scheme and $O(1)$ single-particle cell list updates
@@ -217,9 +217,9 @@ The namelist filename passed as the first command-line argument to `mc_gpu.exe` 
 - `avbmc_k_trials` - Number of trial positions ($K$) generated in the bulk for Configurable Rosenbluth (CBMC) bulk volume probing (default: `10`)
 - `avbmc_max_trials` - Maximum number of pair attempts per AVBMC step to bound execution time for large systems (default: `50`)
 
-### Identity Swap Moves (Binary Mixtures)
-- `swap_moves` - Enable GPU-accelerated identity swap moves ($A \leftrightarrow B$) (`.true.` / `.false.`, default: `.false.`). Supported for all interaction potentials: Hard Spheres (`HS`), Lennard-Jones (`LJ`), Tabulated potentials (`TABLE`), Angular Patchy (`LJG`), and Site-Site Patchy (`SSP`).
-  > **Note / Consistency Requirement:** Identity swap moves require binary mixtures (`Npart_types = 2`). Setting `swap_moves = .true.` with $N_{\text{part\_types}} \ne 2$ will trigger an immediate fatal error and cleanly terminate the simulation during input initialization.
+### Identity Swap Moves (Multicomponent Mixtures)
+- `swap_moves` - Enable GPU-accelerated identity swap moves (`.true.` / `.false.`, default: `.false.`). Supported for multicomponent mixtures ($N_{\text{part\_types}} \ge 2$) across all interaction potentials: Hard Spheres (`HS`), Lennard-Jones (`LJ`), Tabulated potentials (`TABLE`), Angular Patchy (`LJG`), and Site-Site Patchy (`SSP`). In multicomponent systems ($N_{\text{species}} > 2$), the two distinct species involved in each swap attempt are chosen uniformly at random.
+  > **Note / Consistency Requirement:** Identity swap moves require at least two species (`Npart_types >= 2`). Setting `swap_moves = .true.` with $N_{\text{part\_types}} < 2$ will trigger an immediate fatal error and cleanly terminate the simulation during input initialization.
 - `Nswap` - Number of swap sub-passes executed per swap step (default: `1`). Each sub-pass performs 8 checkerboard subset intra-cell sweeps and 4 long-range cross-cell sweeps.
 - `Nswapf` - Frequency (in MC sweeps) of identity swap moves (default: `1`, i.e., swap moves attempted every sweep when `swap_moves = .true.`).
 - **Adaptive Swap Throttling**: When active, the main simulation controller monitors the rolling swap acceptance rate ($P_{\text{swap}}$). If $P_{\text{swap}}$ drops below $0.00005$ due to high-density compositional jamming, `Nswapf` is automatically throttled to `100` sweeps (saving GPU compute time) and automatically restored to `1` if $P_{\text{swap}}$ recovers.
@@ -277,9 +277,9 @@ To achieve maximum precision even at high packing densities near the equation of
 1. **Fine Shell Resolution & Log-Linear Contact Fit**: Pair separations are histogrammed into 10 fine shells of width $\delta_{ab} = 0.0025\,\sigma_{ab}$ right at contact ($r \in [\sigma_{ab},\, 1.025\,\sigma_{ab})$). The contact value $g_{ab}(\sigma_{ab}^+)$ is obtained via a Log-Linear least-squares fit ($\ln g(r) = a + b(r - \sigma_{ab})$), matching the physical exponential decay of pair correlations near contact.
 2. **Block Time-Accumulation (NpT / NVT Compatible)**: Pair distance counts and box volume are accumulated periodically across all MC cycles within each `Nsave` window (`Accumulate_HS_Virial_Histogram`). The reported $P_{\text{virial}}$ is computed from the window-averaged contact distribution $\langle g_{ab}(\sigma_{ab}^+) \rangle$ and average volume $\langle V \rangle$, reducing statistical counting noise by $\sim 3.16\times$.
 
-#### GPU Checkerboard Identity Swaps (Binary Mixtures, All Potentials)
+#### GPU Checkerboard Identity Swaps (Multicomponent Mixtures, All Potentials)
 
-In dense multicomponent fluid mixtures, traditional single-particle translation moves frequently encounter severe sampling bottlenecks caused by local steric cages (compositional jamming), resulting in sluggish structural relaxation and slow convergence. Identity swap moves ($A \leftrightarrow B$) [5] overcome this barrier by exchanging particle species identities without displacing atomic center-of-mass positions, dramatically accelerating phase space exploration and thermodynamic equilibration.
+In dense multicomponent fluid mixtures ($N_{\text{species}} \ge 2$), traditional single-particle translation moves frequently encounter severe sampling bottlenecks caused by local steric cages (compositional jamming), resulting in sluggish structural relaxation and slow convergence. Identity swap moves ($S_A \leftrightarrow S_B$) [5] overcome this barrier by exchanging particle species identities without displacing atomic center-of-mass positions, dramatically accelerating phase space exploration and thermodynamic equilibration. For mixtures with more than two species ($N_{\text{species}} > 2$), two distinct species $S_A$ and $S_B$ are selected uniformly at random for each trial swap.
 
 **Supported Potential Models:**
 - **Hard Spheres (`HS`)**: Overlap rejection test with athermal detailed balance.
@@ -290,7 +290,7 @@ In dense multicomponent fluid mixtures, traditional single-particle translation 
 **Checkerboard Parallelization Strategy:**
 1. **Intra-Cell Identity Swaps (`subsweep_HS_swap`, `subsweep_LJ_swap`, `subsweep_angular_swap`, `subsweep_sitesite_swap`)**:
    - In each of the 8 cellular checkerboard subsets, all active cells are separated by $\ge 1$ buffer cell from each other, ensuring completely conflict-free parallel execution.
-   - For every active cell possessing both species ($n_A \ge 1$ and $n_B \ge 1$), a candidate pair $(a \in A, b \in B)$ is chosen.
+   - For every active cell containing at least two particles, two distinct species $(S_A, S_B)$ are selected at random. If particles of both species are present ($n_A \ge 1$ and $n_B \ge 1$), a candidate pair $(a \in S_A, b \in S_B)$ is chosen uniformly.
    - GPU warp threads concurrently test the central cell and all 26 neighboring cells for energy change $\Delta E = E_{\text{new}} - E_{\text{old}}$ (or hard-core overlaps under HS).
    - Because orientations differ between particles $a$ and $b$, their mutual pair interaction $u(a, b)$ is evaluated both before and after the swap:
      $$\Delta E_{ab} = u(a_{\text{new}}, b_{\text{new}}) - u(a_{\text{old}}, b_{\text{old}})$$
@@ -300,12 +300,12 @@ In dense multicomponent fluid mixtures, traditional single-particle translation 
 2. **Long-Range Cross-Cell Identity Swaps (`subsweep_HS_cross_swap`, `subsweep_LJ_cross_swap`, `subsweep_angular_cross_swap`, `subsweep_sitesite_cross_swap`)**:
    - Spatially separated cell pairs $(C_1, C_2)$ situated at $(j_x, j_y, j_z)$ and $(j_x + N_{lx}/2, j_y + N_{ly}/2, j_z + N_{lz}/2)$ are paired across opposite halves of the box ($\text{separation} \ge L/2 > R_c$).
    - Because their 26-neighborhoods are completely disjoint, both local neighborhoods are evaluated in parallel.
-   - A symmetric coin toss ($0 \leftrightarrow 1$ vs $1 \leftrightarrow 0$) selects swap direction to ensure microscopic reversibility.
+   - A symmetric coin toss selects swap direction ($S_A \to S_B$ in cell 1 and $S_B \to S_A$ in cell 2, or vice versa) to ensure microscopic reversibility.
    - Acceptance satisfies exact detailed balance via the Hastings factor and Boltzmann weight:
      $$\alpha = \min\left(1, \frac{n_{A,1}\, n_{B,2}}{(n_{B,1} + 1)(n_{A,2} + 1)}\, e^{-\beta\,\Delta E}\right)$$
 3. **Energy Accumulation & Detailed Balance**:
    - Running simulation energy `En_tot` is updated on the host and GPU directly from the accepted kernel energy differences ($\Delta E$), maintaining strict energy conservation without drift.
-   - Preserves exact global species stoichiometry ($N_A, N_B = \text{const}$).
+   - Preserves exact global species stoichiometry ($\sum N_s = \text{const}$).
    - Achieves sustained throughputs of $\sim 400,000\text{--}500,000$ swap attempts/second on modern GPUs with near-zero computational overhead.
 
 #### Mathematical Formulation of LJ
@@ -550,8 +550,8 @@ For a complete record of all versions and features, see [Changelog.md](Changelog
   - Validated against LAMMPS Mie 50-49 binary fluid mixture benchmark with $< 0.001\%$ energy agreement.
 
 - **V2.5** (August 2026) GPU-Accelerated Identity Swaps, Non-Additive Hard-Sphere Potential & Virial Pressure
-  - **GPU Checkerboard Identity Swaps**: Massively parallel identity swap moves ($A \leftrightarrow B$) for binary mixtures using intra-cell checkerboard warp evaluation (`subsweep_HS_swap`) and long-range disjoint cross-cell swaps (`subsweep_HS_cross_swap`) with exact Hastings detailed balance.
-  - **Sanity Checks & Consistency**: Strict input validation enforcing `Npart_types = 2` and `model = 'HS'` with fatal error termination on unsupported configurations.
+  - **GPU Checkerboard Identity Swaps**: Massively parallel identity swap moves for multicomponent mixtures ($N_{\text{species}} \ge 2$, with uniform random species pair selection) using intra-cell checkerboard warp evaluation and long-range disjoint cross-cell swaps with exact Hastings detailed balance across all potential models.
+  - **Sanity Checks & Consistency**: Strict input validation enforcing `Npart_types >= 2` with fatal error termination on unsupported configurations.
   - **Contact Overlap Trap Fix**: Resolved exact-contact self-displacement rejection in Hard Sphere CUDA subsweep kernel.
   - **Hard-Sphere (HS) Potential & Virial Pressure**: Athermal HS potential (`pot_int = -1`) for additive/non-additive mixtures, multicomponent contact virial pressure extrapolation (`HS_Virial_Pressure`), and NetCDF stress embedding.
   - **Namelist Parameters**: Added `swap_moves` and `Nswap` to `&MC_Params` and updated `examples/HS/datos.nml`.

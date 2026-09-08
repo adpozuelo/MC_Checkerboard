@@ -388,7 +388,7 @@ contains
                            lammps_skin, lammps_thermo, lammps_gpu
         use Cell
         use utils, only: c_green, c_red, c_reset
-        use cuda_fortran, only : cudaEvent, cudaEventCreate, cudaEventRecord, cudaEventSynchronize, cudaEventElapsedTime, cudaEventDestroy
+        use cudafor, only : cudaEvent, cudaEventCreate, cudaEventRecord, cudaEventSynchronize, cudaEventElapsedTime, cudaEventDestroy
         implicit none
         integer, intent(in) :: istep
         

@@ -354,8 +354,8 @@ Program MC_CB_GPU
          vec(:)  = vec_shift ( int(rnd*size(vec_shift,1))+1, :)
          Call Shift_Cells(vec,disp)
 
-         ! Perform Identity Swap moves on GPU if enabled (binary mixtures, all potentials)
-         If (swap_moves .and. Npart_types == 2 .and. mod(I, Nswapf) == 0) Then
+         ! Perform Identity Swap moves on GPU if enabled (multicomponent mixtures, all potentials)
+         If (swap_moves .and. Npart_types >= 2 .and. mod(I, Nswapf) == 0) Then
             Do k_swap = 1, Nswap
                Call MCswap_Checkerboard()
             End Do

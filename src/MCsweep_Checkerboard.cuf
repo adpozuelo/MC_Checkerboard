@@ -225,7 +225,7 @@ End Subroutine Convert_CB_RU
 ! SUBROUTINE: MCswap_Checkerboard
 ! ==============================================================================
 ! DESCRIPTION:
-!   Performs identity swap moves for binary mixtures on the GPU taking full
+!   Performs identity swap moves for multicomponent mixtures on the GPU taking full
 !   advantage of the checkerboard domain decomposition.
 !   - Intra-cell swaps: Tested across all 8 checkerboard subsets in parallel.
 !   - Long-range cross-cell swaps: Tested between distant paired disjoint cells.
@@ -246,7 +246,7 @@ Subroutine MCswap_Checkerboard()
      Integer, Dimension(0:Ndim-1) :: Offset
      Real(wp)   :: rnd
 
-      If (.not. swap_moves .or. Npart_types /= 2) Return
+      If (.not. swap_moves .or. Npart_types < 2) Return
 
      ! 1. Intra-cell swaps across all 8 checkerboard subsets
      Do I = 1, Nset_Cell

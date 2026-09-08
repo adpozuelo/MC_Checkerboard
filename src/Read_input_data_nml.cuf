@@ -351,14 +351,14 @@ Subroutine Read_Input_Data
    write(*,'(A,F10.4)') '  -> Max Trans Displacement:  ', hmax
    If (pot_int > 0) write(*,'(A,F10.4)') '  -> Max Rot Displacement:    ', omax
    If (swap_moves) Then
-      If (Npart_types /= 2) Then
-         write(*,'(/A,"*** Fatal error: Identity swap moves are currently only supported for binary mixtures (Npart_types = 2). Found Npart_types = ", I0, "***",A)') &
+      If (Npart_types < 2) Then
+         write(*,'(/A,"*** Fatal error: Identity swap moves require at least 2 particle species (Npart_types >= 2). Found Npart_types = ", I0, "***",A)') &
             c_red, Npart_types, c_reset
          stop 1
       End If
       If (Nswap < 1) Nswap = 1
       If (Nswapf < 1) Nswapf = 1
-      write(*,'(A)') c_green // '  -> Identity Swap Moves:     ENABLED (Binary Checkerboard GPU)' // c_reset
+      write(*,'(A)') c_green // '  -> Identity Swap Moves:     ENABLED (Checkerboard GPU)' // c_reset
       write(*,'(A,A)')          '     - Potential model:       ', trim(model)
       write(*,'(A,I6)')         '     - Swap trials per cycle: ', Nswap
       write(*,'(A,I6)')         '     - Swap move frequency:   ', Nswapf
