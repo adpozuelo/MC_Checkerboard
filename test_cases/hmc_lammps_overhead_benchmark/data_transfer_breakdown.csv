@@ -1,0 +1,9 @@
+Phase_ID,Description,Time_ms,Fraction_Percent,Mechanism
+T1_CB_to_Host,GPU Checkerboard to Host (Convert_CB_RU),    0.102,,GPU-Host Memory
+T2_Patch_Gen,Rigid Body to 5N Atomic Sites,    0.190,,Geometric Mapping
+T3_Disk_Write,ASCII File Serialization (lammps_hmc.data),   47.865,,Disk File I/O
+T4_Disk_Read,LAMMPS Text Parsing (read_data),   75.010,,Disk File I/O
+T5_Scatter,In-Memory Direct Coordinates (scatter_atoms),    0.164,,In-Memory API
+T6_Gather,In-Memory Coordinate Retrieval (gather_atoms),    0.264,,In-Memory API
+T7_Patch_Recon,Triad Projection to Quaternion & Center,    0.509,,Geometric Mapping
+T8_Host_to_CB,Update Checkerboard & Host to GPU Upload,    3.419,,GPU-Host Memory

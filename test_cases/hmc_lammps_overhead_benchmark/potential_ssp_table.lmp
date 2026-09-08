@@ -1,0 +1,11 @@
+pair_style table linear 100000
+pair_coeff 1 1 salr_lmp11.dat SALR_LMP11     2.244922161102
+pair_coeff 1 2 salr_lmp12.dat SALR_LMP12     0.336736619473
+pair_coeff 1 3 salr_lmp13.dat SALR_LMP13     2.244922161102
+pair_coeff 1 4 salr_lmp14.dat SALR_LMP14     0.336736619473
+pair_coeff 2 2 salr_lmp22.dat SALR_LMP22     0.336736619473
+pair_coeff 2 3 salr_lmp23.dat SALR_LMP23     0.336736619473
+pair_coeff 2 4 salr_lmp24.dat SALR_LMP24     0.336736619473
+pair_coeff 3 3 salr_lmp33.dat SALR_LMP33     2.244922161102
+pair_coeff 3 4 salr_lmp34.dat SALR_LMP34     0.336736619473
+pair_coeff 4 4 salr_lmp44.dat SALR_LMP44     0.336736619473

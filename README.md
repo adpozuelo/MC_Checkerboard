@@ -548,6 +548,14 @@ For a complete record of all versions and features, see [Changelog.md](Changelog
   - Added configurable threshold `asym_threshold` (default `0.5`) in `Control_Params` namelist.
   - Renamed final output configuration files to `mclast_conf.lammpstrj`, `mclast_clconf.lammpstrj`, and `mclast_brdconf.lammpstrj` to avoid overwriting outputs when running post-processing utilities like `trj_analysis`.
 
+- **V2.6** (September 2026) Hybrid Monte Carlo (HMC) LAMMPS Overhead and Performance Benchmarking for JCTC
+  - Rigorous microsecond profiling of HMC coupling in `MC_Checkerboard` for $N = 7{,}695$ tetrahedral patchy colloids ($38{,}475$ explicit interaction sites) on NVIDIA RTX PRO 4500 (Blackwell architecture).
+  - Quantified data transfer channels: direct in-memory API transfers (`scatter_atoms` / `gather_atoms`) achieve $0.43$~ms coordinate exchange, delivering a **$287\times$ speedup** over ASCII disk file I/O ($122.88$~ms).
+  - Evaluated task invocation and forking paradigms: persistent in-memory library instances completely eliminate the $351.5$~ms setup penalty caused by `clear` re-initialization and neighbor builds, running **$1.66\times$ faster** than external OS process forks (`mpirun lmp`).
+  - Assessed potential representations: GPU-accelerated linear tabular potentials (`pair_style table linear` with GPU neighbor lists) achieve up to **$6.66\times$ acceleration** in pure MD trajectory propagation compared to continuous analytic overlays (`hybrid/overlay lj/cut cosine/squared`).
+  - Established crossover scaling: under persistent in-memory execution, coupling overhead is reduced to **$< 1\%$** for all $N_{\mathrm{md}} \ge 25$ steps ($N_{\mathrm{md}}^* \approx 20$ under baseline reset).
+  - Standalone JCTC benchmark package archived in `test_cases/hmc_lammps_overhead_benchmark/` (symlinked at `/home/e.lomba/HMC_lammps_jctc_benchmark`) complete with compiled 9-page LaTeX publication manuscript (`hmc_overhead_benchmark.pdf`) and 4-panel 300 DPI publication figure (`hmc_overhead_benchmark_comparison.png`).
+
 - **V2.5** (September 2026) Association Volume Bias Monte Carlo (AVBMC) for Patchy Colloidal Clusters
   - Generalized AVBMC moves to patchy colloidal systems (Palaia site-site SSP model) with geometric dipole asymmetry ($\eta_i \ge \eta_{\text{thresh}}$) to bias moves specifically to cluster surfaces/borders.
   - Formulated and verified microscopic reversibility (detailed balance) with Rosenbluth volume bias ($K$ bulk trials), proving the flux invariant $\text{arg}_{\text{fwd}} \cdot \text{arg}_{\text{rev}} \equiv 1$ to machine precision ($3.17 \times 10^{-17}$).

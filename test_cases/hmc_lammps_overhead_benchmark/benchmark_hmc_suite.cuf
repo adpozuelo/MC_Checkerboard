@@ -1,0 +1,575 @@
+! ==============================================================================
+! BENCHMARK HMC SUITE: Overhead of Data Transfer, Task Forking, and Tabular Potentials
+! Designed for rigorous quantitative profiling for JCTC submission.
+! ==============================================================================
+program benchmark_hmc_suite
+    use, intrinsic :: iso_c_binding
+    use liblammps
+    use set_precision
+    use configuration
+    use potential
+    use rundata
+    use Cell
+    use utils
+    use Tools
+    use cuda_fortran
+    use lammps_hmc_wrapper, hmc_rot_matrix => rot_matrix
+    implicit none
+
+    ! Profiling timer variables
+    real(wp) :: t0, t1, t2
+    real(wp) :: t_cb_to_host, t_patch_gen, t_disk_write, t_disk_read
+    real(wp) :: t_inmem_scatter, t_inmem_gather, t_patch_recon, t_host_to_cb_gpu
+    real(wp) :: t_lmp_clear, t_lmp_setup, t_lmp_run0, t_lmp_md, t_fork_total
+    
+    ! LAMMPS instance and handles
+    ! type(lammps) :: lmp (already in wrapper)
+    character(len=32) :: args(14)
+    character(len=512) :: cmd
+    integer :: total_atoms, n_types, total_sites, i, j, k, l, it, idx, n_patches
+    real(wp) :: R_rot(3,3), PX, PY, PZ, p_x, p_y, p_z, sigma_ii
+    real(c_double), allocatable :: pos_real(:)
+    real(wp) :: u_x_0(3), u_y_0(3), u_z_0(3)
+    real(wp) :: u_x_p(3), u_y_p(3), u_z_p(3)
+    real(wp) :: px0, py0, pz0, px1, py1, pz1
+    real(wp) :: q_new(4)
+    integer :: nmd_values(7), n_nmd, i_nmd, nmd
+    real(wp) :: t_md_analytic(7), t_reset_analytic(7), t_persist_analytic(7), t_fork_analytic(7)
+    real(wp) :: t_md_table(7), t_reset_table(7), t_persist_table(7), t_fork_table(7)
+    integer :: rep, n_reps
+    real(wp) :: sum_cb_to_host, sum_patch_gen, sum_disk_write, sum_disk_read
+    real(wp) :: sum_scatter, sum_gather, sum_patch_recon, sum_host_to_cb_gpu
+    real(wp) :: sum_clear_a, sum_setup_a, sum_run0_a
+    real(wp) :: sum_clear_t, sum_setup_t, sum_run0_t
+    integer :: dev_count, dev_id
+    integer :: exit_code
+
+    nmd_values = (/ 0, 10, 25, 50, 100, 200, 500 /)
+    n_nmd = 7
+    n_reps = 5
+
+    write(*,'(A)') c_blue // '========================================================================================' // c_reset
+    write(*,'(A)') c_cyan // '          HYBRID MC_CB-GPU/LAMMPS COMPREHENSIVE PROFILER & BENCHMARK                    ' // c_reset
+    write(*,'(A)') c_cyan // '                     (JCTC Rigorous Profiling Suite)                                    ' // c_reset
+    write(*,'(A)') c_blue // '========================================================================================' // c_reset
+
+    ! --------------------------------------------------------------------------
+    ! 1. Initialize GPU and Core Simulation Data Structures
+    ! --------------------------------------------------------------------------
+    call get_command_argument(1, input_filename)
+    if (len_trim(input_filename) == 0) input_filename = "datos.nml"
+
+    dev_id = 0
+    call gpucount(dev_count)
+    call choosegpu(dev_id)
+    write(*,'(A, I2, A, I2)') c_green // ' >>> Active GPU: ', dev_id, ' of ', dev_count, c_reset
+
+    write(*,'(A, A)') c_yellow // ' >>> Reading Simulation Parameters from: ' // trim(input_filename), c_reset
+    Call Read_input_data
+    Call load_table_potentials
+    Call Read_init_conf
+
+    total_sites = natoms
+    if (pot_int == 2) then
+       do i = 0, natoms - 1
+          total_sites = total_sites + Nrb_sites(itype(i))
+       end do
+    end if
+
+    Call Get_Inverse_matrix
+    Call Convert_Box_Units
+    Call Initialize_variables
+    Call Initialize_checkerboard
+    NCell_max = Ntot_Cell * 10
+    Call CB_system_energy_gpu(init)
+
+    n_types = 2 * Npart_types
+    total_atoms = total_sites
+    allocate(pos_real(3 * total_atoms))
+
+    write(*,'(A, I8, A, I8, A)') c_green // ' >>> System initialized: ', natoms, ' colloids -> ', total_atoms, ' total interaction sites' // c_reset
+    write(*,'(A, 3F10.4)') '     Box dimensions: ', Box(0), Box(1), Box(2)
+
+    ! Pre-generate potential files
+    call write_lammps_analytic_file()
+    call write_lammps_table_file()
+
+    ! --------------------------------------------------------------------------
+    ! 2. Micro-Benchmark: Data Transfer & Geometry Mapping Layers
+    ! --------------------------------------------------------------------------
+    write(*,*)
+    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
+    write(*,'(A)') c_cyan // ' [BENCHMARK 1] DATA TRANSFER & GEOMETRIC REPRESENTATION CONVERSION (N = 7695, 38475 sites)' // c_reset
+    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
+
+    sum_cb_to_host = 0.0_wp
+    sum_patch_gen = 0.0_wp
+    sum_disk_write = 0.0_wp
+    sum_host_to_cb_gpu = 0.0_wp
+    sum_patch_recon = 0.0_wp
+
+    do rep = 1, n_reps
+        ! A. GPU -> Host Cellular de-aggregation
+        call cpu_time(t0)
+        call Convert_CB_RU()
+        call cpu_time(t1)
+        sum_cb_to_host = sum_cb_to_host + (t1 - t0)
+
+        ! B. Rigid-body mapping: (R, q) -> 5N explicit sites in pos_real
+        call cpu_time(t0)
+        idx = 0
+        do i = 1, natoms
+            it = itype(i-1)
+            idx = idx + 1
+            pos_real(3*(idx-1) + 1) = R(3*(i-1))*Box(0)
+            pos_real(3*(idx-1) + 2) = R(3*(i-1)+1)*Box(1)
+            pos_real(3*(idx-1) + 3) = R(3*(i-1)+2)*Box(2)
+            
+            n_patches = Nrb_sites(it)
+            if (n_patches > 0) then
+                call hmc_rot_matrix(q(4*(i-1)), q(4*(i-1)+1), q(4*(i-1)+2), q(4*(i-1)+3), R_rot)
+                sigma_ii = sigma_LJ(it * Npart_types + it)
+                do j = 0, n_patches - 1
+                    PX = patch(Nrb_sites_max*ndim*it + j*ndim)
+                    PY = patch(Nrb_sites_max*ndim*it + j*ndim + 1)
+                    PZ = patch(Nrb_sites_max*ndim*it + j*ndim + 2)
+                    p_x = patch_radial_factor * sigma_ii * (R_rot(1,1)*PX + R_rot(1,2)*PY + R_rot(1,3)*PZ)
+                    p_y = patch_radial_factor * sigma_ii * (R_rot(2,1)*PX + R_rot(2,2)*PY + R_rot(2,3)*PZ)
+                    p_z = patch_radial_factor * sigma_ii * (R_rot(3,1)*PX + R_rot(3,2)*PY + R_rot(3,3)*PZ)
+                    
+                    idx = idx + 1
+                    pos_real(3*(idx-1) + 1) = R(3*(i-1))*Box(0) + p_x
+                    pos_real(3*(idx-1) + 2) = R(3*(i-1)+1)*Box(1) + p_y
+                    pos_real(3*(idx-1) + 3) = R(3*(i-1)+2)*Box(2) + p_z
+                end do
+            end if
+        end do
+        call cpu_time(t1)
+        sum_patch_gen = sum_patch_gen + (t1 - t0)
+
+        ! C. Formatted ASCII file writing (lammps_hmc.data, 38475 atoms)
+        call cpu_time(t0)
+        open(unit=99, file='lammps_hmc.data', status='replace')
+        write(99, '("LAMMPS data file for Hybrid MC")')
+        write(99, '(I10, " atoms")') total_atoms
+        write(99, '(I10, " atom types")') n_types
+        write(99, *)
+        write(99, '(F18.8, F18.8, " xlo xhi")') 0.0_wp, Box(0)
+        write(99, '(F18.8, F18.8, " ylo yhi")') 0.0_wp, Box(1)
+        write(99, '(F18.8, F18.8, " zlo zhi")') 0.0_wp, Box(2)
+        write(99, *)
+        write(99, '("Masses")')
+        write(99, *)
+        do i = 0, Npart_types - 1
+            write(99, '(I5, F10.4)') 2*i + 1, 1.0_wp
+            write(99, '(I5, F10.4)') 2*i + 2, 0.02_wp
+        end do
+        write(99, *)
+        write(99, '("Atoms")')
+        write(99, *)
+        idx = 0
+        do i = 1, natoms
+            it = itype(i-1)
+            idx = idx + 1
+            write(99, '(I10, I10, I5, F6.2, 3F18.8)') &
+                idx, i, 2*it + 1, 0.0_wp, pos_real(3*(idx-1)+1), pos_real(3*(idx-1)+2), pos_real(3*(idx-1)+3)
+            n_patches = Nrb_sites(it)
+            do j = 0, n_patches - 1
+                idx = idx + 1
+                write(99, '(I10, I10, I5, F6.2, 3F18.8)') &
+                    idx, i, 2*it + 2, 0.0_wp, pos_real(3*(idx-1)+1), pos_real(3*(idx-1)+2), pos_real(3*(idx-1)+3)
+            end do
+        end do
+        close(99)
+        call cpu_time(t1)
+        sum_disk_write = sum_disk_write + (t1 - t0)
+
+        ! D. Inverse geometric reconstruction: 5N sites -> (R, q)
+        call cpu_time(t0)
+        idx = 0
+        do i = 1, natoms
+            it = itype(i-1)
+            idx = idx + 1
+            R(3*(i-1))   = pos_real(3*(idx-1) + 1) / Box(0)
+            R(3*(i-1)+1) = pos_real(3*(idx-1) + 2) / Box(1)
+            R(3*(i-1)+2) = pos_real(3*(idx-1) + 3) / Box(2)
+            n_patches = Nrb_sites(it)
+            if (n_patches > 0) then
+                px0 = patch(Nrb_sites_max*ndim*it)
+                py0 = patch(Nrb_sites_max*ndim*it + 1)
+                pz0 = patch(Nrb_sites_max*ndim*it + 2)
+                px1 = patch(Nrb_sites_max*ndim*it + ndim)
+                py1 = patch(Nrb_sites_max*ndim*it + ndim + 1)
+                pz1 = patch(Nrb_sites_max*ndim*it + ndim + 2)
+                u_x_0 = (/ px0, py0, pz0 /) / sqrt(px0*px0 + py0*py0 + pz0*pz0)
+                u_y_0 = (/ px1, py1, pz1 /)
+                u_y_0 = u_y_0 - dot_product(u_y_0, u_x_0) * u_x_0
+                u_y_0 = u_y_0 / sqrt(dot_product(u_y_0, u_y_0))
+                u_z_0 = (/ u_x_0(2)*u_y_0(3) - u_x_0(3)*u_y_0(2), &
+                           u_x_0(3)*u_y_0(1) - u_x_0(1)*u_y_0(3), &
+                           u_x_0(1)*u_y_0(2) - u_x_0(2)*u_y_0(1) /)
+                u_x_p = (/ pos_real(3*idx + 1) - pos_real(3*(idx-1) + 1), &
+                           pos_real(3*idx + 2) - pos_real(3*(idx-1) + 2), &
+                           pos_real(3*idx + 3) - pos_real(3*(idx-1) + 3) /)
+                u_x_p(1) = u_x_p(1) - Box(0) * anint(u_x_p(1) / Box(0))
+                u_x_p(2) = u_x_p(2) - Box(1) * anint(u_x_p(2) / Box(1))
+                u_x_p(3) = u_x_p(3) - Box(2) * anint(u_x_p(3) / Box(2))
+                u_x_p = u_x_p / sqrt(dot_product(u_x_p, u_x_p))
+                u_y_p = (/ pos_real(3*(idx+1) + 1) - pos_real(3*(idx-1) + 1), &
+                           pos_real(3*(idx+1) + 2) - pos_real(3*(idx-1) + 2), &
+                           pos_real(3*(idx+1) + 3) - pos_real(3*(idx-1) + 3) /)
+                u_y_p(1) = u_y_p(1) - Box(0) * anint(u_y_p(1) / Box(0))
+                u_y_p(2) = u_y_p(2) - Box(1) * anint(u_y_p(2) / Box(1))
+                u_y_p(3) = u_y_p(3) - Box(2) * anint(u_y_p(3) / Box(2))
+                u_y_p = u_y_p - dot_product(u_y_p, u_x_p) * u_x_p
+                u_y_p = u_y_p / sqrt(dot_product(u_y_p, u_y_p))
+                u_z_p = (/ u_x_p(2)*u_y_p(3) - u_x_p(3)*u_y_p(2), &
+                           u_x_p(3)*u_y_p(1) - u_x_p(1)*u_y_p(3), &
+                           u_x_p(1)*u_y_p(2) - u_x_p(2)*u_y_p(1) /)
+                do k = 1, 3
+                    do l = 1, 3
+                        R_rot(k, l) = u_x_p(k)*u_x_0(l) + u_y_p(k)*u_y_0(l) + u_z_p(k)*u_z_0(l)
+                    end do
+                end do
+                call matrix_to_quaternion(R_rot, q_new)
+                q(4*(i-1))   = q_new(1)
+                q(4*(i-1)+1) = q_new(2)
+                q(4*(i-1)+2) = q_new(3)
+                q(4*(i-1)+3) = q_new(4)
+                idx = idx + n_patches
+            end if
+        end do
+        call cpu_time(t1)
+        sum_patch_recon = sum_patch_recon + (t1 - t0)
+
+        ! E. Host -> GPU Cellular re-aggregation
+        call cpu_time(t0)
+        call Update_checkerboard(Nl_Cell)
+        block
+            use cell, only : Sphere_Cell, List_Cell, Nat_Cell, DR_Cell, Map_Cell
+            use cuda_fortran, only : Sphere_Celldev, List_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Map_Cell_dev, hdev
+            Sphere_Celldev = Sphere_Cell
+            List_Cell_dev = List_Cell
+            Nat_Cell_dev = Nat_Cell
+            DR_Cell_dev = DR_Cell
+            Map_Cell_dev = Map_Cell
+            hdev = h
+        end block
+        call cpu_time(t1)
+        sum_host_to_cb_gpu = sum_host_to_cb_gpu + (t1 - t0)
+    end do
+
+    t_cb_to_host       = sum_cb_to_host / real(n_reps, wp)
+    t_patch_gen        = sum_patch_gen / real(n_reps, wp)
+    t_disk_write       = sum_disk_write / real(n_reps, wp)
+    t_patch_recon      = sum_patch_recon / real(n_reps, wp)
+    t_host_to_cb_gpu   = sum_host_to_cb_gpu / real(n_reps, wp)
+
+    write(*,'(A, F9.3, A)') '  [T1] GPU CB -> Host (Convert_CB_RU)       : ', t_cb_to_host * 1000.0_wp, ' ms'
+    write(*,'(A, F9.3, A)') '  [T2] Rigid Body -> 5N Sites (Patch Gen)   : ', t_patch_gen * 1000.0_wp, ' ms'
+    write(*,'(A, F9.3, A)') '  [T3] Disk ASCII Write (lammps_hmc.data)   : ', t_disk_write * 1000.0_wp, ' ms'
+    write(*,'(A, F9.3, A)') '  [T4] 5N Sites -> Rigid Body (Quaternion)  : ', t_patch_recon * 1000.0_wp, ' ms'
+    write(*,'(A, F9.3, A)') '  [T5] Host -> GPU CB (Update + Transfer)   : ', t_host_to_cb_gpu * 1000.0_wp, ' ms'
+
+    ! --------------------------------------------------------------------------
+    ! 3. Micro-Benchmark: LAMMPS In-Memory vs Disk File I/O & Setup
+    ! --------------------------------------------------------------------------
+    write(*,*)
+    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
+    write(*,'(A)') c_cyan // ' [BENCHMARK 2] LAMMPS IN-MEMORY API VS DISK FILE I/O & TASK RESET' // c_reset
+    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
+
+    ! Initialize LAMMPS instance (Analytic mode)
+    args(1) = "liblammps"
+    args(2) = "-screen"; args(3) = "none"
+    args(4) = "-log";    args(5) = "none"
+    args(6) = "-pk";    args(7) = "gpu"; args(8) = "1"
+    args(9) = "gpuID";  args(10) = "0"
+    args(11) = "neigh"; args(12) = "no"
+    args(13) = "-sf";   args(14) = "gpu"
+    lmp = lammps(args)
+
+    ! Measure LAMMPS read_data from disk
+    call cpu_time(t0)
+    call lmp%command("units lj")
+    call lmp%command("atom_style full")
+    call lmp%command("boundary p p p")
+    call lmp%command("read_data lammps_hmc.data")
+    call cpu_time(t1)
+    t_disk_read = t1 - t0
+    write(*,'(A, F9.3, A)') '  [T6] Disk ASCII Read (read_data parser)   : ', t_disk_read * 1000.0_wp, ' ms'
+
+    call lmp%command("timestep 0.0025")
+    call lmp%command("include potential_ssp_analytic.lmp")
+    call lmp%command("pair_modify shift yes")
+    call lmp%command("fix hmc_rigid all rigid/nve molecule")
+    call lmp%command("compute hmc_ke all ke")
+    call lmp%command("compute hmc_pe all pe")
+    call lmp%command("velocity all create 0.15 12345 loop geom")
+    call lmp%command("run 0")
+
+    ! Measure in-memory scatter_atoms
+    sum_scatter = 0.0_wp
+    sum_gather  = 0.0_wp
+    do rep = 1, n_reps
+        call cpu_time(t0)
+        call lmp%scatter_atoms("x", pos_real)
+        call cpu_time(t1)
+        sum_scatter = sum_scatter + (t1 - t0)
+
+        call cpu_time(t0)
+        call lmp%gather_atoms("x", 3, pos_real)
+        call cpu_time(t1)
+        sum_gather = sum_gather + (t1 - t0)
+    end do
+    t_inmem_scatter = sum_scatter / real(n_reps, wp)
+    t_inmem_gather  = sum_gather / real(n_reps, wp)
+
+    write(*,'(A, F9.3, A)') '  [T7] In-Memory Scatter (scatter_atoms)    : ', t_inmem_scatter * 1000.0_wp, ' ms'
+    write(*,'(A, F9.3, A)') '  [T8] In-Memory Gather (gather_atoms)      : ', t_inmem_gather * 1000.0_wp, ' ms'
+    write(*,'(A, F9.1, A)') c_green // '  >>> In-Memory API Speedup over Disk I/O  : ', (t_disk_write + t_disk_read)/(t_inmem_scatter + t_inmem_gather), 'x faster!' // c_reset
+
+    ! Measure LAMMPS 'clear' command time
+    sum_clear_a = 0.0_wp
+    sum_setup_a = 0.0_wp
+    sum_run0_a  = 0.0_wp
+    do rep = 1, n_reps
+        call cpu_time(t0)
+        call lmp%command("clear")
+        call cpu_time(t1)
+        sum_clear_a = sum_clear_a + (t1 - t0)
+
+        call cpu_time(t0)
+        call lmp%command("units lj")
+        call lmp%command("atom_style full")
+        call lmp%command("boundary p p p")
+        call lmp%command("read_data lammps_hmc.data")
+        call lmp%command("timestep 0.0025")
+        call lmp%command("include potential_ssp_analytic.lmp")
+        call lmp%command("pair_modify shift yes")
+        call lmp%command("fix hmc_rigid all rigid/nve molecule")
+        call lmp%command("compute hmc_ke all ke")
+        call lmp%command("compute hmc_pe all pe")
+        call lmp%command("velocity all create 0.15 12345 loop geom")
+        call cpu_time(t1)
+        sum_setup_a = sum_setup_a + (t1 - t0)
+
+        call cpu_time(t0)
+        call lmp%command("run 0")
+        call cpu_time(t1)
+        sum_run0_a = sum_run0_a + (t1 - t0)
+    end do
+    t_lmp_clear = sum_clear_a / real(n_reps, wp)
+    t_lmp_setup = sum_setup_a / real(n_reps, wp)
+    t_lmp_run0  = sum_run0_a / real(n_reps, wp)
+
+    write(*,'(A, F9.3, A)') '  [T9] LAMMPS clear command (Reset)         : ', t_lmp_clear * 1000.0_wp, ' ms'
+    write(*,'(A, F9.3, A)') '  [T10] Setup & Force-Field Parsing         : ', t_lmp_setup * 1000.0_wp, ' ms'
+    write(*,'(A, F9.3, A)') '  [T11] Run 0 (Init Forces, GPU & Neigh)    : ', t_lmp_run0 * 1000.0_wp, ' ms'
+
+    ! Close analytic LAMMPS
+    call lmp%close()
+
+    ! --------------------------------------------------------------------------
+    ! 4. Trajectory Scaling Benchmark: ANALYTIC POTENTIAL
+    ! --------------------------------------------------------------------------
+    write(*,*)
+    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
+    write(*,'(A)') c_cyan // ' [BENCHMARK 3] TRAJECTORY SCALING: ANALYTIC POTENTIAL (neigh no)' // c_reset
+    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
+
+    ! Re-open for persistent and reset sweeps
+    args(12) = "no"
+    lmp = lammps(args)
+    call lmp%command("units lj")
+    call lmp%command("atom_style full")
+    call lmp%command("boundary p p p")
+    call lmp%command("read_data lammps_hmc.data")
+    call lmp%command("timestep 0.0025")
+    call lmp%command("include potential_ssp_analytic.lmp")
+    call lmp%command("pair_modify shift yes")
+    call lmp%command("fix hmc_rigid all rigid/nve molecule")
+    call lmp%command("compute hmc_ke all ke")
+    call lmp%command("compute hmc_pe all pe")
+    call lmp%command("velocity all create 0.15 12345 loop geom")
+    call lmp%command("run 0")
+
+    do i_nmd = 1, n_nmd
+        nmd = nmd_values(i_nmd)
+        write(cmd, '(A, I0)') "run ", nmd
+        
+        ! Pure MD time (in persistent state)
+        call cpu_time(t0)
+        call lmp%command(cmd)
+        call cpu_time(t1)
+        t_md_analytic(i_nmd) = t1 - t0
+
+        ! Persistent step time: t_cb_to_host + t_patch_gen + t_scatter + t_md + t_gather + t_patch_recon + t_host_to_cb_gpu
+        t_persist_analytic(i_nmd) = t_cb_to_host + t_patch_gen + t_inmem_scatter + t_md_analytic(i_nmd) + &
+                                    t_inmem_gather + t_patch_recon + t_host_to_cb_gpu
+
+        ! Reset step time (Baseline): t_cb_to_host + t_patch_gen + t_disk_write + t_lmp_clear + t_lmp_setup + &
+        !                             t_lmp_run0 + t_md_analytic + t_inmem_gather + t_patch_recon + t_host_to_cb_gpu
+        t_reset_analytic(i_nmd) = t_cb_to_host + t_patch_gen + t_disk_write + t_lmp_clear + t_lmp_setup + &
+                                  t_lmp_run0 + t_md_analytic(i_nmd) + t_inmem_gather + t_patch_recon + t_host_to_cb_gpu
+
+        write(*,'(A, I4, A, F8.3, A, F8.3, A, F8.3, A, F5.1, A)') &
+            '  Nmd = ', nmd, ' | Pure MD: ', t_md_analytic(i_nmd), ' s | Persistent: ', t_persist_analytic(i_nmd), &
+            ' s | Reset (Base): ', t_reset_analytic(i_nmd), ' s | Reset Ovhd: ', &
+            (1.0_wp - t_md_analytic(i_nmd)/max(0.0001_wp, t_reset_analytic(i_nmd))) * 100.0_wp, '%'
+    end do
+    call lmp%close()
+
+    ! --------------------------------------------------------------------------
+    ! 5. Trajectory Scaling Benchmark: TABULATED POTENTIAL (neigh yes)
+    ! --------------------------------------------------------------------------
+    write(*,*)
+    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
+    write(*,'(A)') c_cyan // ' [BENCHMARK 4] TRAJECTORY SCALING: TABULATED POTENTIAL (neigh yes)' // c_reset
+    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
+
+    args(12) = "yes"
+    lmp = lammps(args)
+    call lmp%command("units lj")
+    call lmp%command("atom_style full")
+    call lmp%command("boundary p p p")
+    call lmp%command("read_data lammps_hmc.data")
+    call lmp%command("timestep 0.0025")
+    call lmp%command("include potential_ssp_table.lmp")
+    call lmp%command("pair_modify shift yes")
+    call lmp%command("fix hmc_rigid all rigid/nve molecule")
+    call lmp%command("compute hmc_ke all ke")
+    call lmp%command("compute hmc_pe all pe")
+    call lmp%command("velocity all create 0.15 12345 loop geom")
+    call lmp%command("run 0")
+
+    do i_nmd = 1, n_nmd
+        nmd = nmd_values(i_nmd)
+        write(cmd, '(A, I0)') "run ", nmd
+        
+        ! Pure MD time (in persistent state)
+        call cpu_time(t0)
+        call lmp%command(cmd)
+        call cpu_time(t1)
+        t_md_table(i_nmd) = t1 - t0
+
+        ! Persistent step time
+        t_persist_table(i_nmd) = t_cb_to_host + t_patch_gen + t_inmem_scatter + t_md_table(i_nmd) + &
+                                 t_inmem_gather + t_patch_recon + t_host_to_cb_gpu
+
+        ! Reset step time (Baseline)
+        t_reset_table(i_nmd) = t_cb_to_host + t_patch_gen + t_disk_write + t_lmp_clear + t_lmp_setup + &
+                               t_lmp_run0 + t_md_table(i_nmd) + t_inmem_gather + t_patch_recon + t_host_to_cb_gpu
+
+        write(*,'(A, I4, A, F8.3, A, F8.3, A, F8.3, A, F5.1, A)') &
+            '  Nmd = ', nmd, ' | Pure MD: ', t_md_table(i_nmd), ' s | Persistent: ', t_persist_table(i_nmd), &
+            ' s | Reset (Base): ', t_reset_table(i_nmd), ' s | Reset Ovhd: ', &
+            (1.0_wp - t_md_table(i_nmd)/max(0.0001_wp, t_reset_table(i_nmd))) * 100.0_wp, '%'
+    end do
+    call lmp%close()
+
+    ! --------------------------------------------------------------------------
+    ! 6. Micro-Benchmark: External Process Forking vs In-Process Library
+    ! --------------------------------------------------------------------------
+    write(*,*)
+    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
+    write(*,'(A)') c_cyan // ' [BENCHMARK 5] EXTERNAL PROCESS FORKING VS IN-PROCESS LIBRARY INVOCATION' // c_reset
+    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
+
+    ! Generate external LAMMPS scripts for forking benchmark
+    open(unit=98, file='run_fork_analytic.lmp', status='replace')
+    write(98, '(A)') "units lj"
+    write(98, '(A)') "atom_style full"
+    write(98, '(A)') "boundary p p p"
+    write(98, '(A)') "read_data lammps_hmc.data"
+    write(98, '(A)') "timestep 0.0025"
+    write(98, '(A)') "include potential_ssp_analytic.lmp"
+    write(98, '(A)') "pair_modify shift yes"
+    write(98, '(A)') "fix hmc_rigid all rigid/nve molecule"
+    write(98, '(A)') "compute hmc_ke all ke"
+    write(98, '(A)') "compute hmc_pe all pe"
+    write(98, '(A)') "velocity all create 0.15 12345 loop geom"
+    write(98, '(A)') "run 50"
+    close(98)
+
+    open(unit=98, file='run_fork_table.lmp', status='replace')
+    write(98, '(A)') "units lj"
+    write(98, '(A)') "atom_style full"
+    write(98, '(A)') "boundary p p p"
+    write(98, '(A)') "read_data lammps_hmc.data"
+    write(98, '(A)') "timestep 0.0025"
+    write(98, '(A)') "include potential_ssp_table.lmp"
+    write(98, '(A)') "pair_modify shift yes"
+    write(98, '(A)') "fix hmc_rigid all rigid/nve molecule"
+    write(98, '(A)') "compute hmc_ke all ke"
+    write(98, '(A)') "compute hmc_pe all pe"
+    write(98, '(A)') "velocity all create 0.15 12345 loop geom"
+    write(98, '(A)') "run 50"
+    close(98)
+
+    ! Measure external process fork for Analytic (Nmd=50)
+    cmd = "$OPAL_PREFIX/bin/mpirun -np 1 /home/e.lomba/lammps_latest/build/lmp -in run_fork_analytic.lmp -pk gpu 1 gpuID 0 neigh no -sf gpu -screen none -log none"
+    call cpu_time(t0)
+    call execute_command_line(trim(cmd), exitstat=exit_code)
+    call cpu_time(t1)
+    t_fork_total = t1 - t0
+    write(*,'(A, F8.3, A)') '  External Process Fork (Analytic, Nmd=50)  : ', t_fork_total, ' s'
+    write(*,'(A, F8.3, A)') '  Library with Reset    (Analytic, Nmd=50)  : ', t_reset_analytic(4), ' s'
+    write(*,'(A, F8.3, A)') '  Library Persistent    (Analytic, Nmd=50)  : ', t_persist_analytic(4), ' s'
+    write(*,'(A, F6.2, A)') c_green // '  >>> Library Persistent vs Fork Speedup    : ', t_fork_total / t_persist_analytic(4), 'x faster!' // c_reset
+
+    ! Measure external process fork for Table (Nmd=50)
+    cmd = "$OPAL_PREFIX/bin/mpirun -np 1 /home/e.lomba/lammps_latest/build/lmp -in run_fork_table.lmp -pk gpu 1 gpuID 0 neigh yes -sf gpu -screen none -log none"
+    call cpu_time(t0)
+    call execute_command_line(trim(cmd), exitstat=exit_code)
+    call cpu_time(t1)
+    t_fork_total = t1 - t0
+    write(*,'(A, F8.3, A)') '  External Process Fork (Table,    Nmd=50)  : ', t_fork_total, ' s'
+    write(*,'(A, F8.3, A)') '  Library with Reset    (Table,    Nmd=50)  : ', t_reset_table(4), ' s'
+    write(*,'(A, F8.3, A)') '  Library Persistent    (Table,    Nmd=50)  : ', t_persist_table(4), ' s'
+    write(*,'(A, F6.2, A)') c_green // '  >>> Library Persistent vs Fork Speedup    : ', t_fork_total / t_persist_table(4), 'x faster!' // c_reset
+
+    ! --------------------------------------------------------------------------
+    ! 7. Export Benchmark CSV Tables for Analysis & Publication Plots
+    ! --------------------------------------------------------------------------
+    ! CSV 1: Data transfer breakdown
+    open(unit=95, file='data_transfer_breakdown.csv', status='replace')
+    write(95, '(A)') "Phase_ID,Description,Time_ms,Fraction_Percent,Mechanism"
+    write(95, '(A, F9.3, A)') "T1_CB_to_Host,GPU Checkerboard to Host (Convert_CB_RU),", t_cb_to_host*1000.0_wp, ",,GPU-Host Memory"
+    write(95, '(A, F9.3, A)') "T2_Patch_Gen,Rigid Body to 5N Atomic Sites,", t_patch_gen*1000.0_wp, ",,Geometric Mapping"
+    write(95, '(A, F9.3, A)') "T3_Disk_Write,ASCII File Serialization (lammps_hmc.data),", t_disk_write*1000.0_wp, ",,Disk File I/O"
+    write(95, '(A, F9.3, A)') "T4_Disk_Read,LAMMPS Text Parsing (read_data),", t_disk_read*1000.0_wp, ",,Disk File I/O"
+    write(95, '(A, F9.3, A)') "T5_Scatter,In-Memory Direct Coordinates (scatter_atoms),", t_inmem_scatter*1000.0_wp, ",,In-Memory API"
+    write(95, '(A, F9.3, A)') "T6_Gather,In-Memory Coordinate Retrieval (gather_atoms),", t_inmem_gather*1000.0_wp, ",,In-Memory API"
+    write(95, '(A, F9.3, A)') "T7_Patch_Recon,Triad Projection to Quaternion & Center,", t_patch_recon*1000.0_wp, ",,Geometric Mapping"
+    write(95, '(A, F9.3, A)') "T8_Host_to_CB,Update Checkerboard & Host to GPU Upload,", t_host_to_cb_gpu*1000.0_wp, ",,GPU-Host Memory"
+    close(95)
+
+    ! CSV 2: Trajectory scaling analytic
+    open(unit=95, file='trajectory_scaling_analytic.csv', status='replace')
+    write(95, '(A)') "Nmd,Time_PureMD_s,Time_Persistent_s,Time_ResetBase_s,Overhead_Reset_Pct,Overhead_Persist_Pct"
+    do i_nmd = 1, n_nmd
+        write(95, '(I6, ",", F12.6, ",", F12.6, ",", F12.6, ",", F8.2, ",", F8.2)') &
+            nmd_values(i_nmd), t_md_analytic(i_nmd), t_persist_analytic(i_nmd), t_reset_analytic(i_nmd), &
+            (1.0_wp - t_md_analytic(i_nmd)/max(0.0001_wp, t_reset_analytic(i_nmd))) * 100.0_wp, &
+            (1.0_wp - t_md_analytic(i_nmd)/max(0.0001_wp, t_persist_analytic(i_nmd))) * 100.0_wp
+    end do
+    close(95)
+
+    ! CSV 3: Trajectory scaling table
+    open(unit=95, file='trajectory_scaling_table.csv', status='replace')
+    write(95, '(A)') "Nmd,Time_PureMD_s,Time_Persistent_s,Time_ResetBase_s,Overhead_Reset_Pct,Overhead_Persist_Pct"
+    do i_nmd = 1, n_nmd
+        write(95, '(I6, ",", F12.6, ",", F12.6, ",", F12.6, ",", F8.2, ",", F8.2)') &
+            nmd_values(i_nmd), t_md_table(i_nmd), t_persist_table(i_nmd), t_reset_table(i_nmd), &
+            (1.0_wp - t_md_table(i_nmd)/max(0.0001_wp, t_reset_table(i_nmd))) * 100.0_wp, &
+            (1.0_wp - t_md_table(i_nmd)/max(0.0001_wp, t_persist_table(i_nmd))) * 100.0_wp
+    end do
+    close(95)
+
+    write(*,*)
+    write(*,'(A)') c_green // ' >>> ALL BENCHMARKS COMPLETED AND CSV LOGS EXPORTED SUCCESSFULLY!' // c_reset
+    write(*,'(A)') c_blue // '========================================================================================' // c_reset
+
+    deallocate(pos_real)
+end program benchmark_hmc_suite
