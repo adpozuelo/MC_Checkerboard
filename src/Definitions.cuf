@@ -72,8 +72,13 @@ MODULE rundata
    use set_precision
    implicit none
     Integer :: istep_ini,istep_fin                      ! Initial and final MC step numbers
-    Integer :: Nmc_hmc = 0, Nmd_hmc = 0                 ! HMC steps parameters
+    Logical :: lammps = .false.                         ! Master flag for hybrid LAMMPS moves (.false. by default)
+    Integer :: Nmc_hmc = 0, Nmd_hmc = 50                ! HMC steps parameters (frequency and MD steps)
     Real(wp) :: tstep_hmc = 0.0025_wp                   ! HMC timestep parameter
+    Real(wp) :: lammps_skin = 0.3_wp                    ! LAMMPS neighbor skin distance
+    Integer :: lammps_thermo = 0                        ! LAMMPS thermo output reporting cadence (0 = disabled)
+    Logical :: lammps_gpu = .true.                      ! LAMMPS GPU acceleration package flag
+    Integer :: lammps_gpuid = -1                        ! LAMMPS GPU device ID (-1 = auto/same as devNum)
     Integer :: ntrans, ntrans_ac, nrot, nrot_ac         ! Translation and rotation move counters
    Integer :: no_mc_real                               ! Number of non-empty cells
    Integer :: nvol_accept, iscale, nvol, Nvolf = 1     ! Volume move acceptance, scaling mode, and volume move frequency (Nvolf)

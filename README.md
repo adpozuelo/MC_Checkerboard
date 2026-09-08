@@ -224,6 +224,27 @@ The namelist filename passed as the first command-line argument to `mc_gpu.exe` 
 - `Nswapf` - Frequency (in MC sweeps) of identity swap moves (default: `1`, i.e., swap moves attempted every sweep when `swap_moves = .true.`).
 - **Adaptive Swap Throttling**: When active, the main simulation controller monitors the rolling swap acceptance rate ($P_{\text{swap}}$). If $P_{\text{swap}}$ drops below $0.00005$ due to high-density compositional jamming, `Nswapf` is automatically throttled to `100` sweeps (saving GPU compute time) and automatically restored to `1` if $P_{\text{swap}}$ recovers.
 
+### Hybrid Monte Carlo (HMC) & LAMMPS Moves
+- `lammps` - Master logical switch in `&Control_Params` to enable hybrid Monte Carlo moves driven by in-memory LAMMPS molecular dynamics (`.true.` / `.false.`, default: `.false.`).
+  > **Potential Model Compatibility:** Hybrid LAMMPS moves are supported for Tabulated potentials (`model = 'TABLE'`) and Site-Site Patchy potentials (`model = 'SSP'`). An initial verification check is performed during initialization: if `lammps = .true.` is specified for Hard Spheres (`HS`), Lennard-Jones (`LJ`), or Angular Patchy (`LJG`) potentials, an explicit warning is printed to stdout and LAMMPS moves are safely disabled (`lammps = .false.`, `Nmc_hmc = 0`).
+
+#### The `&Lammps_Params` Namelist
+Internal LAMMPS molecular dynamics parameters can be optionally configured via the dedicated `&Lammps_Params` namelist block:
+```fortran
+&Lammps_Params
+  timestep          = 0.001,      ! Integration timestep for MD trajectory segments (alias: tstep_hmc, default: 0.0025)
+  Nmd               = 50,         ! Number of MD steps executed per HMC trajectory (alias: Nmd_hmc, default: 50)
+  hmc_freq          = 10,         ! Cadence (in MC sweeps) of HMC trial moves (alias: Nmc_hmc, default: 10)
+  neigh_skin        = 0.3,        ! LAMMPS neighbor list skin distance in real units (default: 0.3)
+  thermo_freq       = 0,          ! Frequency of LAMMPS internal thermodynamic logging (0 = disabled, default: 0)
+  use_gpu           = .true.,     ! Accelerate LAMMPS MD via GPU package (-pk gpu 1) (.true. / .false., default: .true.)
+  gpu_id            = -1,         ! Specific GPU device index (-1 = inherit MC_Checkerboard device ID, default: -1)
+  table_lammps      = .true.,     ! Force tabulated force representation in LAMMPS (default: .true. for TABLE)
+  table_file_lammps = 'pot'       ! Prefix/filename for LAMMPS potential tables (defaults to table_file_mc if empty)
+/
+```
+All parameters are optional and have hard-coded defaults. In restart checkpoints (`input-restart.nml`), the active `&Lammps_Params` block is automatically preserved alongside `lammps = T` in `&Control_Params`.
+
 ### Thermodynamic Parameters
 - `temp0`, `temp1` - Initial and final temperatures (Kelvin)
 - `pres` - Pressure (NpT ensemble)
@@ -549,6 +570,9 @@ For a complete record of all versions and features, see [Changelog.md](Changelog
   - Renamed final output configuration files to `mclast_conf.lammpstrj`, `mclast_clconf.lammpstrj`, and `mclast_brdconf.lammpstrj` to avoid overwriting outputs when running post-processing utilities like `trj_analysis`.
 
 - **V2.6** (September 2026) Hybrid Monte Carlo (HMC) LAMMPS Overhead and Performance Benchmarking for JCTC
+  - Generalized HMC LAMMPS moves to plain tabulated potentials (`model = 'TABLE'`) with point particles using `fix nve` on GPU with exact table metadata matching.
+  - Implemented compatibility protection: initial verification automatically disables LAMMPS moves for `HS`, `LJ`, and `LJG` with an explanatory notification.
+  - Added principal namelist logical control `lammps` (default `.false.`) in `&Control_Params` and comprehensive `&Lammps_Params` namelist for configuring internal LAMMPS parameters (`timestep`, `Nmd`, `hmc_freq`, `neigh_skin`, `thermo_freq`, `use_gpu`, `gpu_id`, `table_lammps`, `table_file_lammps`).
   - Rigorous microsecond profiling of HMC coupling in `MC_Checkerboard` for $N = 7{,}695$ tetrahedral patchy colloids ($38{,}475$ explicit interaction sites) on NVIDIA RTX PRO 4500 (Blackwell architecture).
   - Quantified data transfer channels: direct in-memory API transfers (`scatter_atoms` / `gather_atoms`) achieve $0.43$~ms coordinate exchange, delivering a **$287\times$ speedup** over ASCII disk file I/O ($122.88$~ms).
   - Evaluated task invocation and forking paradigms: persistent in-memory library instances completely eliminate the $351.5$~ms setup penalty caused by `clear` re-initialization and neighbor builds, running **$1.66\times$ faster** than external OS process forks (`mpirun lmp`).

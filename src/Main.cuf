@@ -118,7 +118,7 @@ Program MC_CB_GPU
 
    write(*,'(A)') c_blue // '========================================================================================' // c_reset
    write(*,'(A)') c_cyan // '                          HYBRID MC_CB-GPU/LAMMPS SIMULATION ENGINE                            ' // c_reset
-   write(*,'(A)') c_cyan // '                                   Version 2.5                                        ' // c_reset
+   write(*,'(A)') c_cyan // '                                   Version 2.6                                        ' // c_reset
    write(*,'(A)') c_blue // '========================================================================================' // c_reset
    write(*,'(A,I4,A,I2.2,A,I2.2,A,I2.2,A,I2.2,A,I2.2,A)') c_green // ' >>> Run started on: ', &
       dt_values(1), '-', dt_values(2), '-', dt_values(3), ' at ', &
@@ -146,6 +146,9 @@ Program MC_CB_GPU
    ! --------------------------------------------------------------------------
    write(*,'(A)') c_yellow // ' >>> Initializing System and Reading Data...' // c_reset
    Call Read_input_data
+   if (argc < 3 .and. lammps_gpuid >= 0) then
+      lammps_devNum = lammps_gpuid
+   end if
    Call load_table_potentials
    Call Read_init_conf
 
@@ -189,7 +192,7 @@ Program MC_CB_GPU
    ! Initialize checkerboard cell decomposition & GPU Energy
    ! --------------------------------------------------------------------------
    Call Initialize_checkerboard
-   if (Nmc_hmc > 0) call init_hmc_lammps(lammps_devNum)
+   if (lammps .and. Nmc_hmc > 0) call init_hmc_lammps(lammps_devNum)
    NCell_max=Ntot_Cell*10
 
    call cpu_time(start)
@@ -324,7 +327,7 @@ Program MC_CB_GPU
    Do I = 1+istep_ini, istep_ini+Neq+istep_fin
 
       ! Perform MC sweep or Hybrid MC step
-      if (Nmc_hmc > 0 .and. mod(I, Nmc_hmc) == 0) then
+      if (lammps .and. Nmc_hmc > 0 .and. mod(I, Nmc_hmc) == 0) then
          call execute_hmc_step(I)
          call cpu_time(last_cpu_time)
          istat = cudaEventRecord(startEvent, 0)
@@ -738,7 +741,7 @@ Program MC_CB_GPU
    If (pot_int /= -1) write(*,'(A,f18.8,A,es11.4)') c_yellow // ' >>> Final energy evaluated with GPU = ' // c_reset, En_tot, &
                                                     ' | Drift = ', abs(En_tot - En_tot_old)
 
-   if (Nmc_hmc > 0) call close_hmc_lammps()
+   if (lammps .and. Nmc_hmc > 0) call close_hmc_lammps()
    Call clusters_dealloc()
    Call limpio
    write(*,'(A)') c_green // ' >>> Simulation completely finished. GPU memory cleaned.' // c_reset

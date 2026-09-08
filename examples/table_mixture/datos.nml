@@ -12,6 +12,7 @@
   imovie         = .false.,    ! Enable trajectory output (.true. / .false.)
   traj_format    = 'plain',    ! Trajectory output format: 'plain' (text), 'netcdf' (binary), or 'both'
   Npart_types    = 2,          ! Number of particle species in system (2 for binary mixture)
+  lammps         = .false.,    ! Enable hybrid LAMMPS HMC moves (.true. / .false., default: .false.)
   Ecpu_check     = .true.      ! Enable CPU energy check
 /
 
@@ -40,3 +41,18 @@
   table_mc      = .true.,      ! Enable MC table potential evaluations
   table_file_mc = 'pot',       ! Prefix for potential table files (pot11.dat, pot12.dat, pot22.dat)
 /
+
+! ==============================================================================
+! HYBRID MONTE CARLO (HMC) LAMMPS PARAMETERS (Optional, active when lammps=.true.)
+! ==============================================================================
+! &Lammps_Params
+!   timestep          = 0.001,   ! Integration timestep for MD trajectory segments (alias: tstep_hmc)
+!   Nmd               = 10,      ! Number of MD steps executed per HMC trajectory (alias: Nmd_hmc)
+!   hmc_freq          = 5,       ! Cadence (in MC sweeps) of HMC trial moves (alias: Nmc_hmc)
+!   neigh_skin        = 0.3,     ! LAMMPS neighbor list skin distance
+!   thermo_freq       = 0,       ! LAMMPS thermo print frequency (0 = disabled)
+!   use_gpu           = .true.,  ! Enable LAMMPS GPU acceleration package
+!   table_lammps      = .true.,  ! Force tabulated force representation in LAMMPS
+!   table_file_lammps = 'pot'    ! Table file prefix
+! /
+

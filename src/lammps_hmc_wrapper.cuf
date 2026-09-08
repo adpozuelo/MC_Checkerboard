@@ -19,12 +19,13 @@ module lammps_hmc_wrapper
 contains
 
     subroutine init_hmc_lammps(lammps_gpu_id)
-        use potential, only : table_lammps
-        use rundata, only : pot_int
+        use potential, only : table_lammps, table_file_lammps, table_file_mc
+        use rundata, only : pot_int, model, lammps_gpu
         integer, intent(in) :: lammps_gpu_id
         character(len=32) :: args(14)
         if (.not. hmc_initialized) then
-            if (table_lammps) then
+            if (table_lammps .or. trim(model) == 'TABLE' .or. trim(model) == 'table') then
+                table_lammps = .true.
                 call write_lammps_table_file()
             else if (pot_int == 2) then
                 call write_lammps_analytic_file()
@@ -32,26 +33,34 @@ contains
             
             lammps_gpu_id_global = lammps_gpu_id
             
-            args(1) = "liblammps"
-            args(2) = "-screen"
-            args(3) = "lammps_screen.log"
-            args(4) = "-log"
-            args(5) = "lammps_run.log"
-            args(6) = "-pk"
-            args(7) = "gpu"
-            args(8) = "1"
-            args(9) = "gpuID"
-            write(args(10), '(I0)') lammps_gpu_id_global
-            args(11) = "neigh"
-            if (table_lammps) then
-                args(12) = "yes"
+            if (lammps_gpu) then
+                args(1) = "liblammps"
+                args(2) = "-screen"
+                args(3) = "lammps_screen.log"
+                args(4) = "-log"
+                args(5) = "lammps_run.log"
+                args(6) = "-pk"
+                args(7) = "gpu"
+                args(8) = "1"
+                args(9) = "gpuID"
+                write(args(10), '(I0)') lammps_gpu_id_global
+                args(11) = "neigh"
+                if (table_lammps .or. trim(model) == 'TABLE' .or. trim(model) == 'table') then
+                    args(12) = "yes"
+                else
+                    args(12) = "no"
+                end if
+                args(13) = "-sf"
+                args(14) = "gpu"
+                lmp = lammps(args)
             else
-                args(12) = "no"
+                args(1) = "liblammps"
+                args(2) = "-screen"
+                args(3) = "lammps_screen.log"
+                args(4) = "-log"
+                args(5) = "lammps_run.log"
+                lmp = lammps(args(1:5))
             end if
-            args(13) = "-sf"
-            args(14) = "gpu"
-            
-            lmp = lammps(args)
             hmc_initialized = .true.
         end if
     end subroutine init_hmc_lammps
@@ -59,61 +68,133 @@ contains
     subroutine close_hmc_lammps()
         implicit none
         if (hmc_initialized) then
-            call lmp%close()
+            call lmp%close(.true.)
             hmc_initialized = .false.
         end if
     end subroutine close_hmc_lammps
 
-    subroutine read_table_metadata(filename, keyword, n_pts, rmax)
+    subroutine uppercase_str(str)
+        implicit none
+        character(len=*), intent(inout) :: str
+        integer :: i, c
+        do i = 1, len_trim(str)
+            c = ichar(str(i:i))
+            if (c >= 97 .and. c <= 122) str(i:i) = char(c - 32)
+        end do
+    end subroutine uppercase_str
+
+    subroutine parse_table_n_line(line, n_pts, rmax, rmax_str)
         use set_precision
         implicit none
-        character(len=*), intent(in) :: filename, keyword
+        character(len=*), intent(in) :: line
         integer, intent(out) :: n_pts
         real(wp), intent(out) :: rmax
-        integer :: unit_id, ierr, pos, n_val, k
-        character(len=256) :: line, temp_str, rest_str
+        character(len=*), intent(out), optional :: rmax_str
+        character(len=256) :: temp_str, rest_str, token1, token2
+        integer :: pos, n_val, ierr
         real(wp) :: rmin_val, rmax_val
-        logical :: found
         
         n_pts = 1000
-        rmax = 2.5449241_wp
-        unit_id = 97
-        open(unit=unit_id, file=filename, status='old', action='read', iostat=ierr)
-        if (ierr /= 0) return
-        
-        found = .false.
-        do while (.not. found)
-            read(unit_id, '(A)', iostat=ierr) line
-            if (ierr /= 0) exit
-            if (len_trim(line) > 0 .and. line(1:1) /= '#' .and. line(1:1) /= ' ' .and. index(line, 'N ') /= 1) then
-                if (index(line, trim(keyword)) > 0) then
-                    found = .true.
-                end if
-            end if
-        end do
-        
-        if (found) then
-            read(unit_id, '(A)', iostat=ierr) line
-            if (ierr == 0) then
-                pos = index(line, 'N')
+        rmax = 2.5_wp
+        if (present(rmax_str)) rmax_str = "2.5"
+        pos = index(line, 'N')
+        if (pos == 0) pos = index(line, 'n')
+        if (pos > 0) then
+            temp_str = adjustl(line(pos+1:))
+            read(temp_str, *, iostat=ierr) n_val
+            if (ierr == 0) n_pts = n_val
+            pos = verify(temp_str, ' 0123456789')
+            if (pos > 0) then
+                rest_str = adjustl(temp_str(pos:))
+                pos = verify(rest_str, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ')
                 if (pos > 0) then
-                    temp_str = line(pos+1:)
-                    read(temp_str, *) n_val
-                    n_pts = n_val
-                    pos = verify(temp_str, ' 0123456789')
-                    if (pos > 0) then
-                        rest_str = temp_str(pos:)
-                        do k = 1, len_trim(rest_str)
-                            if (index('0123456789.eE+- ', rest_str(k:k)) == 0) then
-                                rest_str(k:k) = ' '
-                            end if
-                        end do
-                        read(rest_str, *) rmin_val, rmax_val
-                        rmax = rmax_val
+                    read(rest_str(pos:), *, iostat=ierr) token1, token2
+                    if (ierr == 0) then
+                        read(token1, *, iostat=ierr) rmin_val
+                        read(token2, *, iostat=ierr) rmax_val
+                        if (ierr == 0) then
+                            rmax = rmax_val
+                            if (present(rmax_str)) rmax_str = trim(token2)
+                        end if
                     end if
                 end if
             end if
         end if
+    end subroutine parse_table_n_line
+
+    subroutine read_table_metadata(filename, keyword, n_pts, rmax, rmax_str)
+        use set_precision
+        implicit none
+        character(len=*), intent(in) :: filename
+        character(len=*), intent(inout) :: keyword
+        integer, intent(out) :: n_pts
+        real(wp), intent(out) :: rmax
+        character(len=*), intent(out), optional :: rmax_str
+        integer :: unit_id, ierr, pos
+        character(len=256) :: line, last_kw, kw_target, kw_upper
+        logical :: found, match
+        
+        n_pts = 1000
+        rmax = 2.5_wp
+        if (present(rmax_str)) rmax_str = "2.5"
+        unit_id = 97
+        open(unit=unit_id, file=trim(filename), status='old', action='read', iostat=ierr)
+        if (ierr /= 0) return
+
+        kw_target = trim(keyword)
+        call uppercase_str(kw_target)
+        
+        found = .false.
+        last_kw = ""
+        do
+            read(unit_id, '(A)', iostat=ierr) line
+            if (ierr /= 0) exit
+            line = adjustl(line)
+            if (len_trim(line) == 0 .or. line(1:1) == '#') cycle
+            
+            if (line(1:2) /= 'N ' .and. line(1:2) /= 'n ' .and. line(1:2) /= 'N' .and. line(1:2) /= 'n') then
+                last_kw = trim(line)
+            else
+                match = .false.
+                if (len_trim(kw_target) == 0) then
+                    match = .true.
+                else
+                    kw_upper = trim(last_kw)
+                    call uppercase_str(kw_upper)
+                    if (index(kw_upper, trim(kw_target)) > 0 .or. index(trim(kw_target), trim(kw_upper)) > 0) then
+                        match = .true.
+                    end if
+                end if
+                
+                if (match) then
+                    found = .true.
+                    keyword = trim(last_kw)
+                    call parse_table_n_line(line, n_pts, rmax, rmax_str)
+                    exit
+                end if
+            end if
+        end do
+        
+        ! If specific keyword wasn't matched, fallback to first section in file
+        if (.not. found) then
+            rewind(unit_id)
+            last_kw = ""
+            do
+                read(unit_id, '(A)', iostat=ierr) line
+                if (ierr /= 0) exit
+                line = adjustl(line)
+                if (len_trim(line) == 0 .or. line(1:1) == '#') cycle
+                if (line(1:2) /= 'N ' .and. line(1:2) /= 'n ') then
+                    last_kw = trim(line)
+                else
+                    found = .true.
+                    keyword = trim(last_kw)
+                    call parse_table_n_line(line, n_pts, rmax, rmax_str)
+                    exit
+                end if
+            end do
+        end if
+        
         close(unit_id)
     end subroutine read_table_metadata
 
@@ -121,58 +202,86 @@ contains
     ! SUBROUTINE: write_lammps_table_file
     ! ==============================================================================
     ! DESCRIPTION:
-    !   Generates the external LAMMPS potential script 'potential_ssp_table.lmp'.
+    !   Generates the external LAMMPS potential scripts 'potential_table.lmp'
+    !   and 'potential_ssp_table.lmp'.
     !   It parses the table files to calculate the maximum table size and 
     !   writes the pair_style and pair_coeff lines for loading tabulated 
     !   forces dynamically during MD runs.
     ! ==============================================================================
     subroutine write_lammps_table_file()
         use set_precision
-        use potential, only : table_file_lammps, Npart_types
-        use rundata, only : pot_int
+        use potential, only : table_file_lammps, table_file_mc, Npart_types
+        use rundata, only : pot_int, model
         implicit none
-        integer :: unit_id, ierr, num_lmp_types, i_lmp, j_lmp, k_ch, n_pts, max_N
+        integer :: unit_id, ierr, num_lmp_types, i_lmp, j_lmp, n_pts, max_N, cand_idx, num_candidates
         character(len=8) :: t1_str, t2_str
-        character(len=256) :: keyword, filename, keyword_prefix
-        logical :: is_single_file_lmp, file_exists
-        real(wp) :: cutoff
-
-        unit_id = 96
-        open(unit=unit_id, file="potential_ssp_table.lmp", status="replace", action="write", iostat=ierr)
-        if (ierr /= 0) then
-            print *, "Error: Could not open potential_ssp_table.lmp for writing"
-            stop
-        end if
+        character(len=256) :: keyword, filename, cand_file, candidates(16)
+        character(len=256) :: actual_files(16, 16), actual_keywords(16, 16)
+        character(len=64) :: actual_cutoffs_str(16, 16)
+        real(wp) :: cutoffs(16, 16)
+        logical :: file_exists, pair_found(16, 16)
 
         num_lmp_types = merge(2*Npart_types, Npart_types, pot_int == 2)
-        is_single_file_lmp = (index(table_file_lammps, '.dat') > 0 .or. &
-                              index(table_file_lammps, '.table') > 0 .or. &
-                              index(table_file_lammps, '.txt') > 0)
-
-        ! Find max_N
+        pair_found = .false.
         max_N = 0
+
+        ! Pass 1: find files and metadata for all pairs
         do i_lmp = 1, num_lmp_types
             do j_lmp = i_lmp, num_lmp_types
                 write(t1_str, '(I0)') i_lmp
                 write(t2_str, '(I0)') j_lmp
                 
-                if (is_single_file_lmp) then
-                    filename = trim(table_file_lammps)
-                    write(keyword, '(I0, A, I0)') i_lmp, '_', j_lmp
-                else
-                    filename = trim(table_file_lammps) // trim(t1_str) // trim(t2_str) // '.dat'
-                    keyword_prefix = trim(table_file_lammps)
-                    do k_ch = 1, len_trim(keyword_prefix)
-                        if (ichar(keyword_prefix(k_ch:k_ch)) >= 97 .and. ichar(keyword_prefix(k_ch:k_ch)) <= 122) then
-                            keyword_prefix(k_ch:k_ch) = char(ichar(keyword_prefix(k_ch:k_ch)) - 32)
-                        end if
-                    end do
-                    keyword = trim(keyword_prefix) // trim(t1_str) // trim(t2_str)
+                num_candidates = 0
+                if (len_trim(table_file_lammps) > 0) then
+                    num_candidates = num_candidates + 1
+                    candidates(num_candidates) = trim(table_file_lammps) // trim(t1_str) // trim(t2_str) // '.dat'
+                    num_candidates = num_candidates + 1
+                    candidates(num_candidates) = trim(table_file_lammps) // trim(t1_str) // trim(t2_str)
+                    num_candidates = num_candidates + 1
+                    candidates(num_candidates) = trim(table_file_lammps) // '_' // trim(t1_str) // '_' // trim(t2_str) // '.dat'
+                    num_candidates = num_candidates + 1
+                    candidates(num_candidates) = trim(table_file_lammps)
                 end if
-                
-                inquire(file=filename, exist=file_exists)
-                if (file_exists) then
-                    call read_table_metadata(filename, keyword, n_pts, cutoff)
+                if (len_trim(table_file_mc) > 0) then
+                    num_candidates = num_candidates + 1
+                    candidates(num_candidates) = trim(table_file_mc) // trim(t1_str) // trim(t2_str) // '.dat'
+                    num_candidates = num_candidates + 1
+                    candidates(num_candidates) = trim(table_file_mc) // trim(t1_str) // trim(t2_str)
+                    num_candidates = num_candidates + 1
+                    candidates(num_candidates) = trim(table_file_mc) // '_' // trim(t1_str) // '_' // trim(t2_str) // '.dat'
+                    num_candidates = num_candidates + 1
+                    candidates(num_candidates) = trim(table_file_mc)
+                end if
+                num_candidates = num_candidates + 1
+                candidates(num_candidates) = 'pot' // trim(t1_str) // trim(t2_str) // '.dat'
+                num_candidates = num_candidates + 1
+                candidates(num_candidates) = 'table' // trim(t1_str) // trim(t2_str) // '.dat'
+                num_candidates = num_candidates + 1
+                candidates(num_candidates) = 'table_' // trim(t1_str) // '_' // trim(t2_str) // '.dat'
+                num_candidates = num_candidates + 1
+                candidates(num_candidates) = 'table.dat'
+                num_candidates = num_candidates + 1
+                candidates(num_candidates) = 'pot.dat'
+
+                filename = ""
+                do cand_idx = 1, num_candidates
+                    cand_file = candidates(cand_idx)
+                    inquire(file=trim(cand_file), exist=file_exists)
+                    if (file_exists) then
+                        filename = trim(cand_file)
+                        exit
+                    end if
+                end do
+
+                if (len_trim(filename) > 0) then
+                    write(keyword, '(I0, A, I0)') i_lmp, '_', j_lmp
+                    call read_table_metadata(filename, keyword, n_pts, cutoffs(i_lmp, j_lmp), actual_cutoffs_str(i_lmp, j_lmp))
+                    if (pot_int == 2) then
+                        cutoffs(i_lmp, j_lmp) = cutoffs(i_lmp, j_lmp) - 2.0e-6_wp
+                    end if
+                    actual_files(i_lmp, j_lmp) = trim(filename)
+                    actual_keywords(i_lmp, j_lmp) = trim(keyword)
+                    pair_found(i_lmp, j_lmp) = .true.
                     max_N = max(max_N, n_pts)
                 end if
             end do
@@ -180,39 +289,34 @@ contains
 
         if (max_N == 0) max_N = 100000
 
-        write(unit_id, '(A, I0)') "pair_style table linear ", max_N
+        ! Write to potential_table.lmp and potential_ssp_table.lmp
+        do unit_id = 95, 96
+            if (unit_id == 95) then
+                open(unit=unit_id, file="potential_table.lmp", status="replace", action="write", iostat=ierr)
+            else
+                open(unit=unit_id, file="potential_ssp_table.lmp", status="replace", action="write", iostat=ierr)
+            end if
+            if (ierr /= 0) cycle
 
-        ! Second pass: write pair_coeff lines
-        do i_lmp = 1, num_lmp_types
-            do j_lmp = i_lmp, num_lmp_types
-                write(t1_str, '(I0)') i_lmp
-                write(t2_str, '(I0)') j_lmp
-                
-                if (is_single_file_lmp) then
-                    filename = trim(table_file_lammps)
-                    write(keyword, '(I0, A, I0)') i_lmp, '_', j_lmp
-                else
-                    filename = trim(table_file_lammps) // trim(t1_str) // trim(t2_str) // '.dat'
-                    keyword_prefix = trim(table_file_lammps)
-                    do k_ch = 1, len_trim(keyword_prefix)
-                        if (ichar(keyword_prefix(k_ch:k_ch)) >= 97 .and. ichar(keyword_prefix(k_ch:k_ch)) <= 122) then
-                            keyword_prefix(k_ch:k_ch) = char(ichar(keyword_prefix(k_ch:k_ch)) - 32)
+            write(unit_id, '(A, I0)') "pair_style table linear ", max_N
+
+            do i_lmp = 1, num_lmp_types
+                do j_lmp = i_lmp, num_lmp_types
+                    if (pair_found(i_lmp, j_lmp)) then
+                        if (pot_int == 2) then
+                            write(unit_id, '(A, I0, A, I0, A, A, A, A, A, F18.12)') &
+                                "pair_coeff ", i_lmp, " ", j_lmp, " ", trim(actual_files(i_lmp, j_lmp)), &
+                                " ", trim(actual_keywords(i_lmp, j_lmp)), " ", cutoffs(i_lmp, j_lmp)
+                        else
+                            write(unit_id, '(A, I0, A, I0, A, A, A, A, A, A)') &
+                                "pair_coeff ", i_lmp, " ", j_lmp, " ", trim(actual_files(i_lmp, j_lmp)), &
+                                " ", trim(actual_keywords(i_lmp, j_lmp)), " ", trim(actual_cutoffs_str(i_lmp, j_lmp))
                         end if
-                    end do
-                    keyword = trim(keyword_prefix) // trim(t1_str) // trim(t2_str)
-                end if
-                
-                inquire(file=filename, exist=file_exists)
-                if (file_exists) then
-                    call read_table_metadata(filename, keyword, n_pts, cutoff)
-                    cutoff = cutoff - 2.0e-6_wp
-                    write(unit_id, '(A, I0, A, I0, A, A, A, A, A, F18.12)') &
-                        "pair_coeff ", i_lmp, " ", j_lmp, " ", trim(filename), &
-                        " ", trim(keyword), " ", cutoff
-                end if
+                    end if
+                end do
             end do
+            close(unit_id)
         end do
-        close(unit_id)
     end subroutine write_lammps_table_file
 
     ! ==============================================================================
@@ -280,7 +384,8 @@ contains
         use set_precision
         use configuration
         use potential
-        use rundata
+        use rundata, only: pot_int, model, temp, seed, Nmc_hmc, Nmd_hmc, tstep_hmc, &
+                           lammps_skin, lammps_thermo, lammps_gpu
         use Cell
         use utils, only: c_green, c_red, c_reset
         use cuda_fortran, only : cudaEvent, cudaEventCreate, cudaEventRecord, cudaEventSynchronize, cudaEventElapsedTime, cudaEventDestroy
@@ -312,9 +417,9 @@ contains
         call cpu_time(hmc_cpu_start)
         hmc_istat = cudaEventRecord(hmc_start_event, 0)
         
-        ! 1. Check if model is SSP or LJ
-        if (trim(model) /= 'SSP' .and. trim(model) /= 'LJ') then
-            write(*,*) " [HMC Error] HMC strategy is only available for SSP and LJ models."
+        ! 1. Check if model is SSP or TABLE
+        if (trim(model) /= 'SSP' .and. trim(model) /= 'TABLE' .and. trim(model) /= 'table') then
+            write(*,*) " [HMC Error] HMC strategy is only available for SSP and TABLE models."
             stop
         end if
 
@@ -325,7 +430,7 @@ contains
             do i = 1, natoms
                 total_atoms = total_atoms + Nrb_sites(itype(i-1))
             end do
-        else ! LJ
+        else ! TABLE
             n_types = Npart_types
             total_atoms = natoms
         end if
@@ -401,32 +506,33 @@ contains
         write(cmd, '(A, F15.7)') "timestep ", tstep_hmc
         call lmp%command(cmd)
 
+        if (lammps_skin > 0.0_wp) then
+            write(cmd, '(A, F12.6, A)') "neighbor ", lammps_skin, " bin"
+            call lmp%command(cmd)
+        end if
+
         ! Force field coefficients
-        if (table_lammps) then
-            call lmp%command("include potential_ssp_table.lmp")
-            call lmp%command("pair_modify shift yes")
+        if (table_lammps .or. trim(model) == 'TABLE' .or. trim(model) == 'table') then
             if (pot_int == 2) then
+                call lmp%command("include potential_ssp_table.lmp")
+                call lmp%command("pair_modify shift yes")
                 call lmp%command("fix hmc_rigid all rigid/nve molecule")
             else
+                call lmp%command("include potential_table.lmp")
+                call lmp%command("pair_modify shift yes")
                 call lmp%command("fix hmc_nve all nve")
             end if
-        else if (pot_int == 2) then ! SSP
+        else if (pot_int == 2) then ! SSP analytic
             call lmp%command("include potential_ssp_analytic.lmp")
             call lmp%command("pair_modify shift yes")
             call lmp%command("fix hmc_rigid all rigid/nve molecule")
-        else ! LJ
-            write(cmd, '(A, F12.6)') "pair_style lj/cut ", rangepp
+        end if
+
+        if (lammps_thermo > 0) then
+            write(cmd, '(A, I8)') "thermo ", lammps_thermo
             call lmp%command(cmd)
-            do i = 0, Npart_types - 1
-                do j = 0, Npart_types - 1
-                    write(cmd, '(A, I5, A, I5, A, F15.7, A, F15.7, A, F15.7)') &
-                        "pair_coeff ", i+1, " ", j+1, " ", epsilon_LJ(i*Npart_types+j), " ", &
-                        sigma_LJ(i*Npart_types+j), " ", rangep(i*Npart_types+j)
-                    call lmp%command(cmd)
-                end do
-            end do
-            call lmp%command("pair_modify shift yes")
-            call lmp%command("fix hmc_nve all nve")
+        else
+            call lmp%command("thermo 0")
         end if
 
         ! Define computes for kinetic and potential energy extraction
@@ -465,6 +571,9 @@ contains
                     R(3*(i-1)) = pos_real(3*(idx-1) + 1) / Box(0)
                     R(3*(i-1)+1) = pos_real(3*(idx-1) + 2) / Box(1)
                     R(3*(i-1)+2) = pos_real(3*(idx-1) + 3) / Box(2)
+                    R(3*(i-1))   = R(3*(i-1))   - floor(R(3*(i-1)))
+                    R(3*(i-1)+1) = R(3*(i-1)+1) - floor(R(3*(i-1)+1))
+                    R(3*(i-1)+2) = R(3*(i-1)+2) - floor(R(3*(i-1)+2))
                     
                     n_patches = Nrb_sites(it)
                     if (n_patches > 0) then
@@ -523,11 +632,14 @@ contains
                         idx = idx + n_patches
                     end if
                 end do
-            else ! LJ
+            else ! TABLE
                 do i = 1, natoms
-                    R(3*(i-1)) = pos_real(3*(i-1) + 1) / Box(0)
+                    R(3*(i-1))   = pos_real(3*(i-1) + 1) / Box(0)
                     R(3*(i-1)+1) = pos_real(3*(i-1) + 2) / Box(1)
                     R(3*(i-1)+2) = pos_real(3*(i-1) + 3) / Box(2)
+                    R(3*(i-1))   = R(3*(i-1))   - floor(R(3*(i-1)))
+                    R(3*(i-1)+1) = R(3*(i-1)+1) - floor(R(3*(i-1)+1))
+                    R(3*(i-1)+2) = R(3*(i-1)+2) - floor(R(3*(i-1)+2))
                 end do
             end if
 

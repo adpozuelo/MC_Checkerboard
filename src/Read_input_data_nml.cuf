@@ -25,8 +25,22 @@ Subroutine Write_Input_File(istep)
    Write(21,*) "  Nrestart = ", Nrestart, ","
    Write(21,*) "  imovie = ", imovie, ","
    Write(21,*) "  traj_format = '", trim(traj_format), "',"
-   Write(21,*) "  Npart_types = ", Npart_types
+   Write(21,*) "  Npart_types = ", Npart_types, ","
+   Write(21,*) "  lammps = ", lammps
    Write(21,*) "/"
+
+   if (lammps) then
+      write(21,*) "&Lammps_Params"
+      write(21,*) "  timestep = ", tstep_hmc, ","
+      write(21,*) "  Nmd = ", Nmd_hmc, ","
+      write(21,*) "  hmc_freq = ", Nmc_hmc, ","
+      write(21,*) "  table_lammps = ", table_lammps, ","
+      if (len_trim(table_file_lammps) > 0) write(21,*) "  table_file_lammps = '", trim(table_file_lammps), "',"
+      write(21,*) "  neigh_skin = ", lammps_skin, ","
+      write(21,*) "  thermo_freq = ", lammps_thermo, ","
+      write(21,*) "  use_gpu = ", lammps_gpu
+      write(21,*) "/"
+   end if
 
    ! --- Write Namelist: MC_Params ---
    Write(21,*) "&MC_Params"
@@ -190,8 +204,9 @@ Subroutine Read_Input_Data
    !   energy_border_ratio: Ratio for energy-based border identification (default 0.5)
    !   avbmc_k_trials: Number of Rosenbluth trial positions (K) in bulk (default 10)
    !   avbmc_max_trials: Cap on maximum AVBMC pair attempts per step (default 50)
+   !   lammps: .true. / .false. (Enable hybrid LAMMPS HMC moves, .false. by default)
    Namelist /Control_Params/ istep_ini, istep_fin, Neq, Nmove, Nsave, Ndump, Nrestart, imovie, traj_format, Npart_types, Ecpu_check, data_file, &
-                              rcl, minPts, asym_threshold, ncluster, cluster_types, Nmc_hmc, Nmd_hmc, tstep_hmc, avbmc, &
+                              rcl, minPts, asym_threshold, ncluster, cluster_types, lammps, Nmc_hmc, Nmd_hmc, tstep_hmc, avbmc, &
                               border_criterion, energy_threshold, energy_border_ratio, use_energy_ratio, avbmc_k_trials, avbmc_max_trials
     ! MC_Params include:
     !   Nvolf: Frequency (in MC sweeps) of NpT volume moves (default 1)
@@ -203,12 +218,30 @@ Subroutine Read_Input_Data
                                 sigp_factor, Rcp_factor, Rc_factor, epsp_factor, patch_radial_factor, &
                                 table_mc, table_lammps, table_file_mc, table_file_lammps
 
+   ! Lammps_Params namelist for internal LAMMPS simulation and HMC parameters
+   ! Local/alias variables for Lammps_Params namelist
+   real(wp) :: timestep
+   integer :: Nmd, hmc_freq, thermo_freq, gpu_id, ios_lmp
+   real(wp) :: neigh_skin
+   logical :: use_gpu
+
+   Namelist /Lammps_Params/ lammps, timestep, tstep_hmc, Nmd, Nmd_hmc, hmc_freq, Nmc_hmc, &
+                            table_lammps, table_file_lammps, neigh_skin, &
+                            thermo_freq, use_gpu, gpu_id
+
    traj_format = 'netcdf'; data_file = 'data.atoms'
    imovie = .false.; displ_update = .false.; npt = .false.; Nvolf = 1; swap_moves = .false.; Nswap = 1; Nswapf = 1
    sigp_factor = 0.1_wp; Rcp_factor = 0.3_wp; Rc_factor = 2.0_wp; epsp_factor = -1.0_wp; patch_radial_factor = 0.5_wp
    rcl = 1.8_wp; minPts = 3; asym_threshold = 0.5_wp; ncluster = 0; cluster_types(:) = -1; avbmc = .false.
    border_criterion = 'asymmetry'; energy_threshold = -2.0_wp; energy_border_ratio = 0.5_wp; use_energy_ratio = .false.
-   Nmc_hmc = 0; Nmd_hmc = 0; tstep_hmc = 0.0025_wp
+   lammps = .false.
+   timestep = -1.0_wp; tstep_hmc = 0.0025_wp
+   Nmd = -1; Nmd_hmc = 50
+   hmc_freq = -1; Nmc_hmc = 0
+   neigh_skin = 0.3_wp
+   thermo_freq = 0
+   use_gpu = .true.
+   gpu_id = -1
    table_mc = .false.; table_lammps = .false.
    table_file_mc = ""; table_file_lammps = ""
    ! Temperature defaults (HS mixtures do not require temperature as input)
@@ -218,6 +251,40 @@ Subroutine Read_Input_Data
    Read(20, NML=Control_Params)
    Read(20, NML=MC_Params)
    Read(20, NML=Potential_Params)
+
+   rewind(20)
+   read(20, NML=Lammps_Params, iostat=ios_lmp)
+   rewind(20)
+
+   ! Synchronize LAMMPS parameters from Lammps_Params namelist aliases
+   if (timestep > 0.0_wp) tstep_hmc = timestep
+   if (Nmd > 0) Nmd_hmc = Nmd
+   if (hmc_freq > 0) Nmc_hmc = hmc_freq
+
+   lammps_skin = neigh_skin
+   lammps_thermo = thermo_freq
+   lammps_gpu = use_gpu
+   lammps_gpuid = gpu_id
+
+   ! Backward compatibility: if Nmc_hmc was given > 0, activate lammps
+   if (Nmc_hmc > 0 .and. .not. lammps) then
+      lammps = .true.
+   end if
+
+   ! If lammps is enabled, ensure Nmc_hmc has a positive frequency
+   if (lammps .and. Nmc_hmc <= 0) then
+      if (hmc_freq > 0) then
+         Nmc_hmc = hmc_freq
+      else
+         Nmc_hmc = 10
+      end if
+   end if
+
+   ! If lammps is disabled, ensure Nmc_hmc is 0
+   if (.not. lammps) then
+      Nmc_hmc = 0
+   end if
+
    if (trim(model)=='HS') then
       pot_int = -1
    else if (trim(model)=='LJ') then
@@ -235,6 +302,28 @@ Subroutine Read_Input_Data
    end if
    if (table_mc .and. pot_int /= 2) then
       pot_int = 0
+   end if
+
+   ! Initial check: LAMMPS moves are only supported for TABLE and SSP models.
+   ! Disable them with a clear warning for HS, LJ, and LJG potentials.
+   if (lammps) then
+      if (trim(model) == 'HS' .or. trim(model) == 'LJ' .or. trim(model) == 'LJG') then
+         write(*,'(/A,"*** [LAMMPS Check] Hybrid LAMMPS moves are disabled for ", A, " potentials. ***",A)') &
+            c_yellow, trim(model), c_reset
+         write(*,'(A,"*** Hybrid LAMMPS moves are only supported for TABLE and SSP models. Disabling LAMMPS moves. ***",A/)') &
+            c_yellow, c_reset
+         flush(6)
+         lammps = .false.
+         Nmc_hmc = 0
+      end if
+   end if
+
+   ! For TABLE potential with LAMMPS enabled, activate table_lammps and inherit table_file
+   if (lammps .and. (trim(model) == 'TABLE' .or. trim(model) == 'table')) then
+      table_lammps = .true.
+      if (len_trim(table_file_lammps) == 0 .and. len_trim(table_file_mc) > 0) then
+         table_file_lammps = table_file_mc
+      end if
    end if
   
 
@@ -290,6 +379,29 @@ Subroutine Read_Input_Data
       End If
    Else
       write(*,'(A)') c_yellow // '  -> AVBMC Moves:             DISABLED' // c_reset
+   End If
+   If (lammps) Then
+      write(*,'(A)') c_green // '  -> Hybrid LAMMPS Moves:     ENABLED' // c_reset
+      write(*,'(A,A)')          '     - Potential Model:       ', trim(model)
+      write(*,'(A,I6)')         '     - HMC Move Frequency:    ', Nmc_hmc
+      write(*,'(A,I6)')         '     - MD Trajectory Length:  ', Nmd_hmc
+      write(*,'(A,F10.5)')      '     - MD Timestep:           ', tstep_hmc
+      write(*,'(A,F10.4)')      '     - Neighbor Skin:         ', lammps_skin
+      if (table_lammps .or. trim(model) == 'TABLE' .or. trim(model) == 'table') then
+         write(*,'(A)')         '     - Force Representation:  TABULATED (pair_style table linear)'
+         if (len_trim(table_file_lammps) > 0) then
+            write(*,'(A,A)')    '     - Table Source:          ', trim(table_file_lammps)
+         end if
+      else
+         write(*,'(A)')         '     - Force Representation:  ANALYTIC (hybrid/overlay)'
+      end if
+      if (lammps_gpu) then
+         write(*,'(A)')         '     - LAMMPS Acceleration:   GPU (package gpu)'
+      else
+         write(*,'(A)')         '     - LAMMPS Acceleration:   CPU'
+      end if
+   Else
+      write(*,'(A)') c_yellow // '  -> Hybrid LAMMPS Moves:     DISABLED' // c_reset
    End If
    
    write(*,'(A)') ''
@@ -440,12 +552,14 @@ Subroutine Read_Input_Data
          stop 1
       End If
    Else
-       Do 
-          Read(20, '(A)', IOSTAT=ios) line
-          If (ios /= 0) Exit
-          If (index(line, 'TOPOLOGY') > 0) Exit
-       End Do
-       Read(20,*) (Nrb_sites(J),J=0,Npart_types-1)
+        Do 
+           Read(20, '(A)', IOSTAT=ios) line
+           If (ios /= 0) Exit
+           line = adjustl(line)
+           if (line(1:1) == '!' .or. line(1:1) == '#') cycle
+           If (index(line, 'TOPOLOGY') > 0) Exit
+        End Do
+        Read(20,*) (Nrb_sites(J),J=0,Npart_types-1)
 
       Do i = 0, Npart_types-1
           If (Nrb_sites(i) > Nrb_sites_max) stop ' [FATAL ERROR] Particle type exceeds maximum patches'
