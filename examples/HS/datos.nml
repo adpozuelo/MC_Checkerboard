@@ -11,7 +11,8 @@
   Nrestart    = 5000,       ! Frequency (in sweeps) for saving restart checkpoints
   imovie      = .true.,     ! Enable trajectory output (.true. / .false.)
   traj_format = 'both',     ! Trajectory output format: 'plain' (text), 'netcdf' (binary), or 'both'
-  Npart_types = 2           ! Number of particle species in system (2 for binary mixture)
+  Npart_types = 2,          ! Number of particle species in system (2 for binary mixture)
+  lammps      = .false.     ! Master switch: Enable hybrid LAMMPS HMC moves (disabled for HS)
 /
 
 ! ==============================================================================
@@ -29,7 +30,7 @@
   seed         = 345,       ! Random number generator seed
   
   ! --- Binary Mixture GPU Identity Swap Moves (A <-> B) ---
-  ! Note: Exclusively supported for binary Hard-Sphere mixtures (Npart_types = 2 and model = 'HS')
+  ! Identity swap moves are supported for binary mixtures (Npart_types = 2) across all potential models
   swap_moves   = .false.,   ! Enable GPU checkerboard identity swap moves (.true. / .false.)
   Nswap        = 5,         ! Number of swap sub-passes executed per swap step (default: 1)
   Nswapf       = 1          ! Frequency (in sweeps) of identity swap attempts (default: 1)

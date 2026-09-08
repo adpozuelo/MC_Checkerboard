@@ -1,52 +1,88 @@
+! ==============================================================================
+! MONTE CARLO SIMULATION CONTROL PARAMETERS
+! ==============================================================================
 &Control_Params
-  istep_ini = 0,
-  istep_fin = 1000,
-  Neq = 0,
-  Nmove = 20,
-  Nsave = 40,
-  Ndump = 100,
-  Nrestart = 500,
-  imovie = .true.,
-  data_file = 'data.beg',
-  traj_format = 'netcdf',
-  Npart_types = 2,
-  Ecpu_check = .true.,
-  ncluster = 100,
-  rcl = 2.5,
-  minPts = 7,
-  cluster_types = 1, 3,
-  Nmc_hmc = 200,
-  Nmd_hmc = 100
+  istep_ini      = 0,          ! Initial step number (0 for new simulation, >0 for restart)
+  istep_fin      = 1000,       ! Total number of MC sweeps (steps) to execute
+  Neq            = 0,          ! Number of equilibration sweeps before accumulating averages
+  Nmove          = 20,         ! Trial moves per particle attempted in each MC sweep (10 trans + 10 rot)
+  Nsave          = 40,         ! Frequency (in sweeps) for writing progress stdout & block averages
+  Ndump          = 100,        ! Frequency (in sweeps) for writing trajectory frames
+  Nrestart       = 500,        ! Frequency (in sweeps) for saving restart checkpoints
+  imovie         = .true.,     ! Enable trajectory output (.true. / .false.)
+  data_file      = 'data.beg', ! Initial atomic configuration file (LAMMPS data format)
+  traj_format    = 'netcdf',   ! Trajectory output format: 'plain' (text), 'netcdf' (binary), or 'both'
+  Npart_types    = 2,          ! Number of particle species in system (2 for binary mixture)
+  Ecpu_check     = .true.,     ! Enable CPU energy validation check at start and completion
+  ncluster       = 100,        ! Frequency (in sweeps) for executing DBSCAN cluster analysis
+  rcl            = 2.5,        ! Radial neighbor connectivity threshold for DBSCAN clustering
+  minPts         = 7,          ! Minimum neighbor particles to classify a core cluster particle
+  cluster_types  = 1, 3,       ! Particle species selected for cluster detection analysis
+  lammps         = .true.,     ! Master switch: Enable hybrid LAMMPS HMC moves (.true. / .false.)
+  Nmc_hmc        = 200,        ! Cadence (in MC sweeps) of HMC trial moves (alias: hmc_freq)
+  Nmd_hmc        = 100         ! Number of MD steps per HMC trajectory segment (alias: Nmd)
 /
+
+! ==============================================================================
+! HYBRID MONTE CARLO (HMC) LAMMPS PARAMETERS
+! ==============================================================================
+&Lammps_Params
+  timestep          = 0.001,   ! MD integration timestep in reduced units (alias: tstep_hmc)
+  Nmd               = 100,     ! Number of MD integration steps per HMC segment (alias: Nmd_hmc)
+  hmc_freq          = 200,     ! Cadence (in MC sweeps) of HMC trial moves (alias: Nmc_hmc)
+  neigh_skin        = 0.3,     ! LAMMPS neighbor list skin distance
+  thermo_freq       = 0,       ! LAMMPS thermo print frequency (0 = disabled)
+  use_gpu           = .true.,  ! Enable LAMMPS GPU acceleration package (-pk gpu 1 -sf gpu)
+  table_lammps      = .true.,  ! Force tabulated forces in LAMMPS (pair_style table linear)
+  table_file_lammps = 'salr_lmp' ! Prefix for tabulated LAMMPS force files (salr_lmp*.dat)
+/
+
+! ==============================================================================
+! MONTE CARLO SAMPLING & THERMODYNAMIC PARAMETERS
+! ==============================================================================
 &MC_Params
-  hmax = 0.5,
-  omax = 0.5,
-  vmax = 0.1, 0.1, 0.1,
-  displ_update = .true.,
-  temp0 = 0.15,
-  temp1 = 0.15,
-  npt = .false.,
-  iscale = 0,
-  pres = 0.1,
-  seed = 345
+  hmax         = 0.5,          ! Maximum particle translation step size (in units of sigma)
+  omax         = 0.5,          ! Maximum particle rotation step size (in radians)
+  vmax         = 0.1, 0.1, 0.1,! Maximum box edge length displacement (Lx, Ly, Lz) for NpT moves
+  displ_update = .true.,       ! Enable automatic adjustment of hmax/omax/vmax (~40% acceptance)
+  temp0        = 0.15,         ! Initial reduced temperature T0* = kB*T/epsilon
+  temp1        = 0.15,         ! Final reduced temperature T1*
+  npt          = .false.,      ! Isobaric-isothermal ensemble (.true. for NpT, .false. for NVT)
+  iscale       = 0,            ! Isotropic box scaling flag (0 = independent Lx,Ly,Lz, 1 = isotropic)
+  pres         = 0.1,          ! Reduced pressure P* (for NpT ensemble)
+  seed         = 345,          ! Random number generator seed
+
+  ! --- Binary Mixture GPU Identity Swap Moves (A <-> B) ---
+  swap_moves   = .false.,      ! Enable GPU checkerboard identity swap moves (.true. / .false.)
+  Nswap        = 1,            ! Number of swap sub-passes executed per swap step
+  Nswapf       = 1             ! Frequency (in sweeps) of identity swap attempts
 /
+
+! ==============================================================================
+! POTENTIAL MODEL SELECTION & SSP PALAIA MODEL PARAMETERS (TABULATED)
+! ==============================================================================
 &Potential_Params
-  model = 'SSP',
-  sigma_jon_aux = -0.3,
-  sigma_tor_jon = 0.0,
-  rangepp = 2.5,
-  Bool_tor = 0,
-  sigp_factor = 0.1,
-  Rcp_factor = 0.3,
-  Rc_factor = 2.0,
-  epsp_factor = 0.2,
-  table_mc = .true.,
-  table_lammps = .true.,
-  table_file_mc = 'salr_mc',
-  table_file_lammps = 'salr_lmp'
+  model             = 'SSP',   ! Potential model: 'SSP' (Site-Site Patchy Palaia model)
+  sigma_jon_aux     = -0.3,    ! Angular patch interaction width parameter
+  sigma_tor_jon     = 0.0,     ! Torsional patch interaction width parameter
+  rangepp           = 2.5,     ! Radial potential cutoff distance in units of sigma
+  Bool_tor          = 0,       ! Enable torsional patch alignment (1 = active, 0 = disabled)
+  sigp_factor       = 0.1,     ! Patch radius scaling factor r_patch = sigp_factor * Rc
+  Rcp_factor        = 0.3,     ! Patch interaction cutoff scaling factor Rcp = Rcp_factor * Rc
+  Rc_factor         = 2.0,     ! Colloid core tail cutoff scaling factor R_tail = Rc_factor * Rc
+  epsp_factor       = 0.2,     ! Colloid core attractive tail depth eps_tail
+  table_mc          = .true.,  ! Enable MC tabulated potential evaluations on GPU
+  table_lammps      = .true.,  ! Enable LAMMPS tabulated force calculations
+  table_file_mc     = 'salr_mc', ! Prefix for MC potential table files (salr_mc*.dat)
+  table_file_lammps = 'salr_lmp' ! Prefix for LAMMPS potential table files (salr_lmp*.dat)
 /
+
+! ==============================================================================
+! TOPOLOGY AND PATCH GEOMETRY DATA
+! ==============================================================================
 --- TOPOLOGY AND PATCH GEOMETRY DATA ---
-          4           4
+          4           4        ! Number of patches for Species 1 (4) and Species 2 (4) (tetrahedral)
+! Patch orientation vectors and symmetry axes: px py pz vop_x vop_y vop_z bool_tor
   0.57735027  0.57735027  0.57735027  0.70710678 -0.70710678  0.00000000     0
   0.57735027 -0.57735027 -0.57735027  0.70710678  0.70710678  0.00000000     0
  -0.57735027  0.57735027 -0.57735027  0.70710678  0.70710678  0.00000000     0
@@ -55,6 +91,8 @@
   0.57735027 -0.57735027 -0.57735027  0.70710678  0.70710678  0.00000000     0
  -0.57735027  0.57735027 -0.57735027  0.70710678  0.70710678  0.00000000     0
  -0.57735027 -0.57735027  0.57735027  0.70710678 -0.70710678  0.00000000     0
+
+! Patch-patch pairwise interaction matrix Vpot(alpha, beta) (8 x 8)
 -- vpot matrix --
  0.00 0.00 0.00 0.00 1.00 1.00 1.00 1.00
  0.00 0.00 0.00 0.00 1.00 1.00 1.00 1.00
@@ -64,9 +102,13 @@
  1.00 1.00 1.00 1.00 0.00 0.00 0.00 0.00
  1.00 1.00 1.00 1.00 0.00 0.00 0.00 0.00
  1.00 1.00 1.00 1.00 0.00 0.00 0.00 0.00
+
+! Patch angular interaction width parameters sigmas_ang for each species
 -- sigmas_ang --
  0.300 0.300 0.300 0.300
  0.300 0.300 0.300 0.300
+
+! Colloid core diameter parameters sigma_LJ (2 x 2 matrix)
 -- sigma_LJ --
  1.000 1.000
  1.000 1.000

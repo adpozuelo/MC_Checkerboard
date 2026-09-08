@@ -11,7 +11,8 @@
   Nrestart    = 100,        ! Frequency (in sweeps) for saving restart checkpoints
   imovie      = .true.,     ! Enable trajectory output (.true. / .false.)
   traj_format = 'both',     ! Trajectory output format: 'plain' (text), 'netcdf' (binary), or 'both'
-  Npart_types = 1           ! Number of particle species in system
+  Npart_types = 1,          ! Number of particle species in system
+  lammps      = .false.     ! Master switch: Enable hybrid LAMMPS HMC moves (disabled for LJG)
 /
 
 ! ==============================================================================

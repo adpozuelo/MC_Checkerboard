@@ -30,7 +30,13 @@
   Nvolf        = 1,            ! Frequency (in sweeps) of NpT volume change attempts
   iscale       = 0,            ! Isotropic box scaling flag (0 = independent Lx,Ly,Lz, 1 = isotropic)
   pres         = 0.1,          ! Reduced pressure P*
-  seed         = 12345         ! Random number generator seed
+  seed         = 12345,        ! Random number generator seed
+
+  ! --- Binary Mixture GPU Identity Swap Moves (A <-> B) ---
+  ! Identity swap moves are supported for binary mixtures (Npart_types = 2) across all potential models
+  swap_moves   = .false.,      ! Enable GPU checkerboard identity swap moves (.true. / .false.)
+  Nswap        = 1,            ! Number of swap sub-passes executed per swap step
+  Nswapf       = 1             ! Frequency (in sweeps) of identity swap attempts
 /
 
 ! ==============================================================================

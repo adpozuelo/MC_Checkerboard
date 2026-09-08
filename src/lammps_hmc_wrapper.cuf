@@ -642,22 +642,8 @@ contains
                     R(3*(i-1)+2) = R(3*(i-1)+2) - floor(R(3*(i-1)+2))
                 end do
             end if
-
-            call Update_checkerboard(Nl_Cell)
-            
-            ! Sync to GPU
-            block
-                use cell, only : Sphere_Cell, List_Cell, Nat_Cell, DR_Cell, Map_Cell
-                use cuda_fortran, only : Sphere_Celldev, List_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Map_Cell_dev, hdev
-                use properties, only : en_tot
-                Sphere_Celldev = Sphere_Cell
-                List_Cell_dev = List_Cell
-                Nat_Cell_dev = Nat_Cell
-                DR_Cell_dev = DR_Cell
-                Map_Cell_dev = Map_Cell
-                hdev = h
-                en_tot = E_final_pe
-            end block
+            call repopulate_checkerboard_cells()
+            call CB_system_energy_GPU(1)
         end if
         
         hmc_istat = cudaEventRecord(hmc_stop_event, 0)
