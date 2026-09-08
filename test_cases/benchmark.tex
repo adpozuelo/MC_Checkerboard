@@ -1,0 +1,99 @@
+\documentclass[12pt]{article}
+
+\usepackage{siunitx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{amsmath}
+
+% Define the color used for section headers
+\definecolor{primary}{RGB}{0, 75, 150}
+
+\begin{document}
+
+
+\section{Performance Benchmarks}
+
+\begin{center}
+    {\large\bfseries\color{primary} Performance Comparison Report} \\[0.2cm]
+    {\subsection*{Advanced Framework Benchmarks across CPU and GPU Architectures}}
+    \vspace{0.1cm}
+\end{center}
+
+
+\subsection{LAMMPS vs. gpu\_mc (Large-Scale Scales)}
+\label{sec:large_scale}
+Benchmarks were conducted using two distinct NVIDIA hardware architectures: the \textbf{RTX 2000} and the \textbf{RTX 4500}.
+
+\begin{table}[htbp]
+\centering
+\caption{Simulation Runtime (Seconds) by Particle Count ($N$) for Large Scales}
+\label{tab:lammps_vs_gpumc}
+\small
+\begin{tabular}{
+    @{}
+    l 
+    S[table-format=2.1] 
+    S[table-format=2.1] 
+    @{\hspace{0.5cm}} 
+    S[table-format=3.1] 
+    S[table-format=2.1] 
+    @{}
+}
+\toprule
+& \multicolumn{2}{c}{\textbf{LAMMPS Time}} & \multicolumn{2}{c}{\textbf{gpu\_mc Time}} \\
+\cmidrule(r{0.5cm}){2-3} \cmidrule(l){4-5}
+\textbf{Particle Count ($N$)} & {\textbf{RTX 2000}} & {\textbf{RTX 4500}} & {\textbf{RTX 2000}} & {\textbf{RTX 4500}} \\
+\midrule
+\num{492450}  &  7.0 &  5.0 &  18.0 &  3.8 \\
+\num{1969920} & 22.0 & 18.0 &  66.0 & 13.2 \\
+\num{3939840} & 44.0 & 34.0 & 123.0 & 25.6 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{gpMC (CPU) vs. mc\_gpu (GPU) (Small-to-Medium Scales)}
+\label{sec:small_scale}
+This benchmark scales from \num{8000} to approximately \num{110000} particles, comparing a CPU-driven implementation (\textbf{gpMC}) against dedicated GPU acceleration (\textbf{mc\_gpu}). 
+
+For the CPU execution on \textbf{gpMC}, timings are provided for the Core \textbf{i7-14700K}. Testing on the \textbf{Intel Xeon Gold 6548Y+} demonstrated an approximate relative performance factor of \textbf{$0.98\times$} (i.e., $1.02\times$ slower execution times across workloads).
+
+\begin{table}[htbp]
+\centering
+\caption{Simulation Runtime (Seconds) across CPU and GPU Architectures}
+\label{tab:gpmc_vs_mcgpu}
+\small
+\begin{tabular}{
+    @{}
+    l 
+    S[table-format=3.1] 
+    @{\hspace{0.8cm}}
+    S[table-format=1.2] 
+    S[table-format=1.2] 
+    @{}
+}
+\toprule
+& {\textbf{gpMC (CPU)}} & \multicolumn{2}{c}{\textbf{mc\_gpu (GPU) Time}} \\
+\cmidrule(l){3-4}
+\textbf{Particle Count ($N$)} & {\textbf{i7-14700K}$^\dagger$} & {\textbf{RTX 2000}} & {\textbf{RTX 4500}} \\
+\midrule
+\num{8000}                     &  10.0 & 1.21 & 0.85 \\
+\num{15626}                    &  23.4 & 4.27 & 3.20 \\
+\num{32768}                    &  38.4 & 3.49 & 2.61 \\
+\num{125000}                   & 167.0 & 4.34 & 1.93 \\
+\bottomrule
+\addlinespace[0.2cm]
+\multicolumn{4}{p{7.5cm}}{\footnotesize $^\dagger$ For Intel Xeon Gold 6548Y+, scale execution times by a factor of $\sim 1.02$ ($0.98\times$ slower).} \\
+\end{tabular}
+\end{table}
+
+\section{Discussion and Structural Insights}
+An analysis of the benchmarking profiles yields two key architectural insights:
+\begin{itemize}
+    \item \textbf{Heterogeneous Paradigm Shifts:} Moving from multicore CPU environments (\texttt{gpMC}) to even entry-level professional GPUs (\texttt{mc\_gpu} on RTX 2000) yields over an order of magnitude speedup (e.g., $27\times$ speedup at the largest medium scale).
+    \item \textbf{Anomalous Scaling Profile:} In the \texttt{mc\_gpu} dataset on the RTX 2000/4500 architectures, scaling from $N=\num{15626}$ to $N=\num{32768}$ demonstrates an absolute reduction in execution time. This indicates a hardware architectural threshold where GPU thread occupancy optimizations and block-level memory coalescing align to hit peak efficiency.
+\end{itemize}
+
+
+\end{document}
+

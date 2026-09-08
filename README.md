@@ -536,7 +536,7 @@ Computing resources provided by CSIC.
 
 For a complete record of all versions and features, see [Changelog.md](Changelog.md).
 
-- **V2.8** (September 2026) Generalized Identity Swap Moves for All Potential Models
+- **V2.8.0** (September 2026) Generalized Identity Swap Moves for All Potential Models
   - Extended GPU checkerboard identity swap moves ($A \leftrightarrow B$) from hard spheres to all interaction models: Lennard-Jones/table (`LJ`, `TABLE`), angular patchy (`LJG`), and site-site patchy (`SSP`).
   - Added dedicated CUDA device kernels (`subsweep_LJ_swap`, `subsweep_LJ_cross_swap`, `subsweep_angular_swap`, `subsweep_angular_cross_swap`, `subsweep_sitesite_swap`, `subsweep_sitesite_cross_swap`) with quaternion-based orientation preservation and pairwise energy evaluations.
   - Implemented CPU reference routine `calc_swap_energy_cpu` in `src/energy.cuf` and automated unit test suite `src/test_swap_energy.cuf` validating exact energy conservation and overlap checks across all four interaction models.
