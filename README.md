@@ -571,7 +571,10 @@ For a complete record of all versions and features, see [Changelog.md](Changelog
   - Added configurable threshold `asym_threshold` (default `0.5`) in `Control_Params` namelist.
   - Renamed final output configuration files to `mclast_conf.lammpstrj`, `mclast_clconf.lammpstrj`, and `mclast_brdconf.lammpstrj` to avoid overwriting outputs when running post-processing utilities like `trj_analysis`.
 
-- **V2.6** (September 2026) Hybrid Monte Carlo (HMC) LAMMPS Overhead and Performance Benchmarking for JCTC
+- **V2.6** (September 2026) Hybrid Monte Carlo (HMC) LAMMPS Overhead, Persistent Memory Wrapper, and Performance Benchmarking for JCTC
+  - Recoded the production LAMMPS wrapper (`src/lammps_hmc_wrapper.cuf`) with **persistent in-memory architecture**: system topology, GPU neighbor lists, and potential styles are initialized once (`setup_lammps_system`) and held in memory across all HMC trials. Per-trial disk I/O, `clear`, and ASCII file re-parsing are completely eliminated.
+  - State communication between `MC_Checkerboard` and LAMMPS is executed via direct memory injection (`scatter_atoms("x")` / `gather_atoms("x")`), achieving sub-millisecond coordinate synchronization.
+  - Implemented robust rigid-body handling across periodic boundaries for patchy models (`pot_int == 2`): dynamically resets atom image flags and rebinds `fix rigid/nve molecule` to prevent unwrap drift or overlaps across successive trials.
   - Generalized HMC LAMMPS moves to plain tabulated potentials (`model = 'TABLE'`) with point particles using `fix nve` on GPU with exact table metadata matching.
   - Implemented compatibility protection: initial verification automatically disables LAMMPS moves for `HS`, `LJ`, and `LJG` with an explanatory notification.
   - Added principal namelist logical control `lammps` (default `.false.`) in `&Control_Params` and comprehensive `&Lammps_Params` namelist for configuring internal LAMMPS parameters (`timestep`, `Nmd`, `hmc_freq`, `neigh_skin`, `thermo_freq`, `use_gpu`, `gpu_id`, `table_lammps`, `table_file_lammps`).

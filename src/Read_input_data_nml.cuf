@@ -574,6 +574,14 @@ Subroutine Read_Input_Data
          If( Nrb_sites(J) >= 2 ) Then 
             Do I = 0, Nrb_sites(J)-1
                Indx2 = Indx + I*Ndim
+               Do
+                  Read(20, '(A)', IOSTAT=ios) line
+                  If (ios /= 0) Exit
+                  line = adjustl(line)
+                  If (len_trim(line) == 0 .or. line(1:1) == '!' .or. line(1:1) == '#') Cycle
+                  Backspace(20)
+                  Exit
+               End Do
                Read(20,'(3F12.8)',advance='no')  px,py,pz
                norm= sqrt(px*px+py*py+pz*pz)
                patch( Indx2 ) =Px/norm; patch( Indx2+1 ) =Py/norm; patch( Indx2+2 ) =Pz/norm
@@ -589,6 +597,14 @@ Subroutine Read_Input_Data
             End Do
           ElseIf( Nrb_sites(J) == 1) Then
                 Indx2 = Indx
+                Do
+                   Read(20, '(A)', IOSTAT=ios) line
+                   If (ios /= 0) Exit
+                   line = adjustl(line)
+                   If (len_trim(line) == 0 .or. line(1:1) == '!' .or. line(1:1) == '#') Cycle
+                   Backspace(20)
+                   Exit
+                End Do
                 Read(20,'(3F12.8)') px, py, pz
                 norm = sqrt(px*px+py*py+pz*pz)
                 patch( Indx2 ) = px/norm

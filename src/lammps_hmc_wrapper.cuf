@@ -14,7 +14,11 @@ module lammps_hmc_wrapper
 
     type(lammps) :: lmp
     logical :: hmc_initialized = .false.
+    logical :: lmp_system_loaded = .false.
+    real(wp) :: lmp_cached_box(0:2) = 0.0_wp
     integer :: lammps_gpu_id_global = 0
+    real(c_double), allocatable, target :: pos_real(:)
+    integer(c_int), allocatable, target :: atom_types_lmp(:)
 
 contains
 
@@ -70,6 +74,9 @@ contains
         if (hmc_initialized) then
             call lmp%close(.true.)
             hmc_initialized = .false.
+            lmp_system_loaded = .false.
+            if (allocated(pos_real)) deallocate(pos_real)
+            if (allocated(atom_types_lmp)) deallocate(atom_types_lmp)
         end if
     end subroutine close_hmc_lammps
 
@@ -380,50 +387,36 @@ contains
     end subroutine write_lammps_analytic_file
 
 
-    subroutine execute_hmc_step(istep)
+    ! ==============================================================================
+    ! SUBROUTINE: setup_lammps_system
+    ! ==============================================================================
+    ! DESCRIPTION:
+    !   Initializes the persistent in-memory LAMMPS simulation state.
+    !   Writes lammps_hmc.data once to establish topology (atom IDs, molecule IDs,
+    !   masses, box bounds), parses potential scripts, sets up integration fixes
+    !   (fix rigid/nve or fix nve), and defines computes.
+    !   Subsequent HMC trial steps reuse this persistent memory state via
+    !   in-memory scatter_atoms/gather_atoms without resetting or re-parsing files.
+    ! ==============================================================================
+    subroutine setup_lammps_system()
         use set_precision
         use configuration
         use potential
         use rundata, only: pot_int, model, temp, seed, Nmc_hmc, Nmd_hmc, tstep_hmc, &
                            lammps_skin, lammps_thermo, lammps_gpu
-        use Cell
-        use utils, only: c_green, c_red, c_reset
-        use cudafor, only : cudaEvent, cudaEventCreate, cudaEventRecord, cudaEventSynchronize, cudaEventElapsedTime, cudaEventDestroy
         implicit none
-        integer, intent(in) :: istep
-        
-        integer :: i, j, k, l, it, idx, total_atoms, n_patches, n_types
-        character(len=512) :: cmd
+        integer :: i, j, it, idx, n_patches, n_types, total_atoms
         real(wp) :: R_rot(3,3), PX, PY, PZ, p_x, p_y, p_z, sigma_ii
-        real(c_double) :: E_initial, E_final, E_initial_pe, E_final_pe, E_final_ke
-        real(wp) :: rnd_val
-        real(c_double), allocatable :: pos_real(:)
-        real(wp) :: u_x_0(3), u_y_0(3), u_z_0(3)
-        real(wp) :: u_x_p(3), u_y_p(3), u_z_p(3)
-        real(wp) :: px0, py0, pz0, px1, py1, pz1
-        real(wp) :: q_new(4), norm_q
-        integer :: seed_hmc
-        real(wp) :: hmc_cpu_start, hmc_cpu_end, hmc_cpu_time
-        type(cudaEvent) :: hmc_start_event, hmc_stop_event
-        real(4) :: hmc_gpu_time_ms
-        integer :: hmc_istat
-        logical :: accepted
-        
-        ! Synchronize flat regular coordinate arrays from GPU checkerboard cells
-        call Convert_CB_RU()
-        
-        hmc_istat = cudaEventCreate(hmc_start_event)
-        hmc_istat = cudaEventCreate(hmc_stop_event)
-        call cpu_time(hmc_cpu_start)
-        hmc_istat = cudaEventRecord(hmc_start_event, 0)
-        
-        ! 1. Check if model is SSP or TABLE
-        if (trim(model) /= 'SSP' .and. trim(model) /= 'TABLE' .and. trim(model) /= 'table') then
-            write(*,*) " [HMC Error] HMC strategy is only available for SSP and TABLE models."
-            stop
-        end if
+        character(len=512) :: cmd
 
-        ! 2. Count total atoms and types
+        if (.not. hmc_initialized) call init_hmc_lammps(lammps_gpu_id_global)
+
+        ! Cache box dimensions
+        lmp_cached_box(0) = Box(0)
+        lmp_cached_box(1) = Box(1)
+        lmp_cached_box(2) = Box(2)
+
+        ! 1. Count total atoms and types
         if (pot_int == 2) then ! SSP
             n_types = 2 * Npart_types
             total_atoms = natoms
@@ -435,7 +428,54 @@ contains
             total_atoms = natoms
         end if
 
-        ! 3. Write lammps_hmc.data file
+        ! 2. Allocate persistent in-memory buffers
+        if (allocated(pos_real)) deallocate(pos_real)
+        allocate(pos_real(3 * total_atoms))
+
+        if (allocated(atom_types_lmp)) deallocate(atom_types_lmp)
+        allocate(atom_types_lmp(total_atoms))
+
+        ! 3. Populate initial coordinates and atom types
+        idx = 0
+        if (pot_int == 2) then
+            do i = 1, natoms
+                it = itype(i-1)
+                idx = idx + 1
+                pos_real(3*(idx-1) + 1) = R(3*(i-1))*Box(0)
+                pos_real(3*(idx-1) + 2) = R(3*(i-1)+1)*Box(1)
+                pos_real(3*(idx-1) + 3) = R(3*(i-1)+2)*Box(2)
+                atom_types_lmp(idx) = int(2*it + 1, c_int)
+
+                n_patches = Nrb_sites(it)
+                if (n_patches > 0) then
+                    call rot_matrix(q(4*(i-1)), q(4*(i-1)+1), q(4*(i-1)+2), q(4*(i-1)+3), R_rot)
+                    sigma_ii = sigma_LJ(it * Npart_types + it)
+                    do j = 0, n_patches - 1
+                        PX = patch(Nrb_sites_max*ndim*it + j*ndim)
+                        PY = patch(Nrb_sites_max*ndim*it + j*ndim + 1)
+                        PZ = patch(Nrb_sites_max*ndim*it + j*ndim + 2)
+                        p_x = patch_radial_factor * sigma_ii * (R_rot(1,1)*PX + R_rot(1,2)*PY + R_rot(1,3)*PZ)
+                        p_y = patch_radial_factor * sigma_ii * (R_rot(2,1)*PX + R_rot(2,2)*PY + R_rot(2,3)*PZ)
+                        p_z = patch_radial_factor * sigma_ii * (R_rot(3,1)*PX + R_rot(3,2)*PY + R_rot(3,3)*PZ)
+
+                        idx = idx + 1
+                        pos_real(3*(idx-1) + 1) = R(3*(i-1))*Box(0) + p_x
+                        pos_real(3*(idx-1) + 2) = R(3*(i-1)+1)*Box(1) + p_y
+                        pos_real(3*(idx-1) + 3) = R(3*(i-1)+2)*Box(2) + p_z
+                        atom_types_lmp(idx) = int(2*it + 2, c_int)
+                    end do
+                end if
+            end do
+        else
+            do i = 1, natoms
+                pos_real(3*(i-1) + 1) = R(3*(i-1))*Box(0)
+                pos_real(3*(i-1) + 2) = R(3*(i-1)+1)*Box(1)
+                pos_real(3*(i-1) + 3) = R(3*(i-1)+2)*Box(2)
+                atom_types_lmp(i) = int(itype(i-1) + 1, c_int)
+            end do
+        end if
+
+        ! 4. Write initial lammps_hmc.data file to establish topology
         open(unit=99, file='lammps_hmc.data', status='replace')
         write(99, '("LAMMPS data file for Hybrid MC")')
         write(99, '(I10, " atoms")') total_atoms
@@ -467,38 +507,24 @@ contains
                 it = itype(i-1)
                 idx = idx + 1
                 write(99, '(I10, I10, I5, F6.2, 3F18.8)') &
-                    idx, i, 2*it + 1, 0.0_wp, R(3*(i-1))*Box(0), R(3*(i-1)+1)*Box(1), R(3*(i-1)+2)*Box(2)
-                
+                    idx, i, 2*it + 1, 0.0_wp, pos_real(3*(idx-1)+1), pos_real(3*(idx-1)+2), pos_real(3*(idx-1)+3)
                 n_patches = Nrb_sites(it)
-                if (n_patches > 0) then
-                    call rot_matrix(q(4*(i-1)), q(4*(i-1)+1), q(4*(i-1)+2), q(4*(i-1)+3), R_rot)
-                    sigma_ii = sigma_LJ(it * Npart_types + it)
-                    do j = 0, n_patches - 1
-                        PX = patch(Nrb_sites_max*ndim*it + j*ndim)
-                        PY = patch(Nrb_sites_max*ndim*it + j*ndim + 1)
-                        PZ = patch(Nrb_sites_max*ndim*it + j*ndim + 2)
-                        p_x = patch_radial_factor * sigma_ii * (R_rot(1,1)*PX + R_rot(1,2)*PY + R_rot(1,3)*PZ)
-                        p_y = patch_radial_factor * sigma_ii * (R_rot(2,1)*PX + R_rot(2,2)*PY + R_rot(2,3)*PZ)
-                        p_z = patch_radial_factor * sigma_ii * (R_rot(3,1)*PX + R_rot(3,2)*PY + R_rot(3,3)*PZ)
-                        
-                        idx = idx + 1
-                        write(99, '(I10, I10, I5, F6.2, 3F18.8)') &
-                            idx, i, 2*it + 2, 0.0_wp, R(3*(i-1))*Box(0) + p_x, R(3*(i-1)+1)*Box(1) + p_y, R(3*(i-1)+2)*Box(2) + p_z
-                    end do
-                end if
+                do j = 0, n_patches - 1
+                    idx = idx + 1
+                    write(99, '(I10, I10, I5, F6.2, 3F18.8)') &
+                        idx, i, 2*it + 2, 0.0_wp, pos_real(3*(idx-1)+1), pos_real(3*(idx-1)+2), pos_real(3*(idx-1)+3)
+                end do
             end do
         else
             do i = 1, natoms
-                idx = idx + 1
-                ! Shift 0-based internal particle type (itype) by +1 for 1-based LAMMPS atom type compatibility
                 write(99, '(I10, I10, I5, F6.2, 3F18.8)') &
-                    idx, i, itype(i-1) + 1, 0.0_wp, R(3*(i-1))*Box(0), R(3*(i-1)+1)*Box(1), R(3*(i-1)+2)*Box(2)
+                    i, i, itype(i-1) + 1, 0.0_wp, pos_real(3*(i-1)+1), pos_real(3*(i-1)+2), pos_real(3*(i-1)+3)
             end do
         end if
         close(99)
 
-        ! 4. Send commands to LAMMPS
-        call lmp%command("clear")
+        ! 5. Send initialization commands to LAMMPS
+        if (lmp_system_loaded) call lmp%command("clear")
         call lmp%command("units lj")
         call lmp%command("atom_style full")
         call lmp%command("boundary p p p")
@@ -539,122 +565,249 @@ contains
         call lmp%command("compute hmc_ke all ke")
         call lmp%command("compute hmc_pe all pe")
 
-        ! Velocities and initial energy evaluation
+        ! Initial warm-up run 0 to construct neighbor lists and GPU buffers
+        call lmp%command("velocity all create 0.1 12345 loop geom")
+        call lmp%command("run 0")
+
+        lmp_system_loaded = .true.
+    end subroutine setup_lammps_system
+
+
+    subroutine execute_hmc_step(istep)
+        use set_precision
+        use configuration
+        use potential
+        use rundata, only: pot_int, model, temp, seed, Nmc_hmc, Nmd_hmc, tstep_hmc, &
+                           lammps_skin, lammps_thermo, lammps_gpu, swap_moves
+        use Cell
+        use utils, only: c_green, c_red, c_reset
+        use cudafor, only : cudaEvent, cudaEventCreate, cudaEventRecord, cudaEventSynchronize, cudaEventElapsedTime, cudaEventDestroy
+        implicit none
+        integer, intent(in) :: istep
+        
+        integer :: i, j, k, l, it, idx, total_atoms, n_patches, n_types
+        character(len=512) :: cmd
+        real(wp) :: R_rot(3,3), PX, PY, PZ, p_x, p_y, p_z, sigma_ii
+        real(c_double) :: E_initial, E_final, E_initial_pe, E_final_pe, E_final_ke
+        real(wp) :: rnd_val
+        real(wp) :: u_x_0(3), u_y_0(3), u_z_0(3)
+        real(wp) :: u_x_p(3), u_y_p(3), u_z_p(3)
+        real(wp) :: px0, py0, pz0, px1, py1, pz1
+        real(wp) :: q_new(4), norm_q
+        integer :: seed_hmc
+        real(wp) :: hmc_cpu_start, hmc_cpu_end, hmc_cpu_time
+        type(cudaEvent) :: hmc_start_event, hmc_stop_event
+        real(4) :: hmc_gpu_time_ms
+        integer :: hmc_istat
+        logical :: accepted
+        
+        ! Synchronize flat regular coordinate arrays from GPU checkerboard cells
+        call Convert_CB_RU()
+        
+        hmc_istat = cudaEventCreate(hmc_start_event)
+        hmc_istat = cudaEventCreate(hmc_stop_event)
+        call cpu_time(hmc_cpu_start)
+        hmc_istat = cudaEventRecord(hmc_start_event, 0)
+        
+        ! 1. Check if model is SSP or TABLE
+        if (trim(model) /= 'SSP' .and. trim(model) /= 'TABLE' .and. trim(model) /= 'table') then
+            write(*,*) " [HMC Error] HMC strategy is only available for SSP and TABLE models."
+            stop
+        end if
+
+        ! 2. Initialize persistent LAMMPS state if not loaded or if box dimensions changed
+        if (.not. lmp_system_loaded .or. any(abs(lmp_cached_box - Box) > 1.0e-8_wp)) then
+            call setup_lammps_system()
+        end if
+
+        ! 3. Count total atoms for energy normalization
+        if (pot_int == 2) then ! SSP
+            total_atoms = natoms
+            do i = 1, natoms
+                total_atoms = total_atoms + Nrb_sites(itype(i-1))
+            end do
+        else ! TABLE
+            total_atoms = natoms
+        end if
+
+        ! 4. Populate in-memory position array from current MC configuration
+        idx = 0
+        if (pot_int == 2) then
+            do i = 1, natoms
+                it = itype(i-1)
+                idx = idx + 1
+                pos_real(3*(idx-1) + 1) = R(3*(i-1))*Box(0)
+                pos_real(3*(idx-1) + 2) = R(3*(i-1)+1)*Box(1)
+                pos_real(3*(idx-1) + 3) = R(3*(i-1)+2)*Box(2)
+                if (swap_moves .and. Npart_types >= 2) then
+                    atom_types_lmp(idx) = int(2*it + 1, c_int)
+                end if
+
+                n_patches = Nrb_sites(it)
+                if (n_patches > 0) then
+                    call rot_matrix(q(4*(i-1)), q(4*(i-1)+1), q(4*(i-1)+2), q(4*(i-1)+3), R_rot)
+                    sigma_ii = sigma_LJ(it * Npart_types + it)
+                    do j = 0, n_patches - 1
+                        PX = patch(Nrb_sites_max*ndim*it + j*ndim)
+                        PY = patch(Nrb_sites_max*ndim*it + j*ndim + 1)
+                        PZ = patch(Nrb_sites_max*ndim*it + j*ndim + 2)
+                        p_x = patch_radial_factor * sigma_ii * (R_rot(1,1)*PX + R_rot(1,2)*PY + R_rot(1,3)*PZ)
+                        p_y = patch_radial_factor * sigma_ii * (R_rot(2,1)*PX + R_rot(2,2)*PY + R_rot(2,3)*PZ)
+                        p_z = patch_radial_factor * sigma_ii * (R_rot(3,1)*PX + R_rot(3,2)*PY + R_rot(3,3)*PZ)
+
+                        idx = idx + 1
+                        pos_real(3*(idx-1) + 1) = R(3*(i-1))*Box(0) + p_x
+                        pos_real(3*(idx-1) + 2) = R(3*(i-1)+1)*Box(1) + p_y
+                        pos_real(3*(idx-1) + 3) = R(3*(i-1)+2)*Box(2) + p_z
+                        if (swap_moves .and. Npart_types >= 2) then
+                            atom_types_lmp(idx) = int(2*it + 2, c_int)
+                        end if
+                    end do
+                end if
+            end do
+        else
+            do i = 1, natoms
+                pos_real(3*(i-1) + 1) = R(3*(i-1))*Box(0)
+                pos_real(3*(i-1) + 2) = R(3*(i-1)+1)*Box(1)
+                pos_real(3*(i-1) + 3) = R(3*(i-1)+2)*Box(2)
+                if (swap_moves .and. Npart_types >= 2) then
+                    atom_types_lmp(i) = int(itype(i-1) + 1, c_int)
+                end if
+            end do
+        end if
+
+        ! 5. In-memory data injection to LAMMPS (bypassing disk I/O & reset)
+        call lmp%scatter_atoms("x", pos_real)
+        if (swap_moves .and. Npart_types >= 2) then
+            call lmp%scatter_atoms("type", atom_types_lmp)
+        end if
+
+        if (pot_int == 2) then
+            call lmp%command("unfix hmc_rigid")
+            call lmp%command("set group all image 0 0 0")
+            call lmp%command("fix hmc_rigid all rigid/nve molecule")
+        end if
+        call lmp%command("reset_timestep 0")
+
+        ! 6. Thermal velocities and initial energy evaluation
         seed_hmc = seed + istep
         write(cmd, '(A, F15.7, A, I8, A)') "velocity all create ", temp, " ", seed_hmc, " loop geom"
         call lmp%command(cmd)
-        
+
         call lmp%command("run 0")
         E_initial_pe = lmp%extract_compute("hmc_pe", 0, 0)%r64
         E_initial = E_initial_pe + lmp%extract_compute("hmc_ke", 0, 0)%r64
 
-        ! 5. Run MD steps
+        ! 7. Run MD trajectory
         write(cmd, '(A, I8)') "run ", Nmd_hmc
         call lmp%command(cmd)
 
-        ! 6. Final energy evaluation
+        ! 8. Final energy evaluation
         E_final_pe = lmp%extract_compute("hmc_pe", 0, 0)%r64
         E_final_ke = lmp%extract_compute("hmc_ke", 0, 0)%r64
         E_final = E_final_pe + E_final_ke
 
+        ! 9. Metropolis criterion & state extraction
         accepted = .false.
         call random_number(rnd_val)
-        if (exp(-(E_final - E_initial)/temp) > rnd_val) then
-            accepted = .true.
-            call lmp%gather_atoms("x", 3, pos_real)
+        if (.not. (E_final /= E_final .or. E_initial /= E_initial)) then
+            if (exp(-(E_final - E_initial)/temp) > rnd_val) then
+                accepted = .true.
+                call lmp%gather_atoms("x", 3, pos_real)
 
-            if (pot_int == 2) then ! SSP
-                idx = 0
-                do i = 1, natoms
-                    it = itype(i-1)
-                    idx = idx + 1
-                    R(3*(i-1)) = pos_real(3*(idx-1) + 1) / Box(0)
-                    R(3*(i-1)+1) = pos_real(3*(idx-1) + 2) / Box(1)
-                    R(3*(i-1)+2) = pos_real(3*(idx-1) + 3) / Box(2)
-                    R(3*(i-1))   = R(3*(i-1))   - floor(R(3*(i-1)))
-                    R(3*(i-1)+1) = R(3*(i-1)+1) - floor(R(3*(i-1)+1))
-                    R(3*(i-1)+2) = R(3*(i-1)+2) - floor(R(3*(i-1)+2))
-                    
-                    n_patches = Nrb_sites(it)
-                    if (n_patches > 0) then
-                        px0 = patch(Nrb_sites_max*ndim*it)
-                        py0 = patch(Nrb_sites_max*ndim*it + 1)
-                        pz0 = patch(Nrb_sites_max*ndim*it + 2)
-                        
-                        px1 = patch(Nrb_sites_max*ndim*it + ndim)
-                        py1 = patch(Nrb_sites_max*ndim*it + ndim + 1)
-                        pz1 = patch(Nrb_sites_max*ndim*it + ndim + 2)
-                        
-                        u_x_0 = (/ px0, py0, pz0 /)
-                        u_x_0 = u_x_0 / sqrt(dot_product(u_x_0, u_x_0))
-                        
-                        u_y_0 = (/ px1, py1, pz1 /)
-                        u_y_0 = u_y_0 - dot_product(u_y_0, u_x_0) * u_x_0
-                        u_y_0 = u_y_0 / sqrt(dot_product(u_y_0, u_y_0))
-                        
-                        u_z_0 = (/ u_x_0(2)*u_y_0(3) - u_x_0(3)*u_y_0(2), &
-                                   u_x_0(3)*u_y_0(1) - u_x_0(1)*u_y_0(3), &
-                                   u_x_0(1)*u_y_0(2) - u_x_0(2)*u_y_0(1) /)
-                                   
-                        u_x_p = (/ pos_real(3*idx + 1) - pos_real(3*(idx-1) + 1), &
-                                   pos_real(3*idx + 2) - pos_real(3*(idx-1) + 2), &
-                                   pos_real(3*idx + 3) - pos_real(3*(idx-1) + 3) /)
-                        u_x_p(1) = u_x_p(1) - Box(0) * anint(u_x_p(1) / Box(0))
-                        u_x_p(2) = u_x_p(2) - Box(1) * anint(u_x_p(2) / Box(1))
-                        u_x_p(3) = u_x_p(3) - Box(2) * anint(u_x_p(3) / Box(2))
-                        u_x_p = u_x_p / sqrt(dot_product(u_x_p, u_x_p))
-                        
-                        u_y_p = (/ pos_real(3*(idx+1) + 1) - pos_real(3*(idx-1) + 1), &
-                                   pos_real(3*(idx+1) + 2) - pos_real(3*(idx-1) + 2), &
-                                   pos_real(3*(idx+1) + 3) - pos_real(3*(idx-1) + 3) /)
-                        u_y_p(1) = u_y_p(1) - Box(0) * anint(u_y_p(1) / Box(0))
-                        u_y_p(2) = u_y_p(2) - Box(1) * anint(u_y_p(2) / Box(1))
-                        u_y_p(3) = u_y_p(3) - Box(2) * anint(u_y_p(3) / Box(2))
-                        u_y_p = u_y_p - dot_product(u_y_p, u_x_p) * u_x_p
-                        u_y_p = u_y_p / sqrt(dot_product(u_y_p, u_y_p))
-                        
-                        u_z_p = (/ u_x_p(2)*u_y_p(3) - u_x_p(3)*u_y_p(2), &
-                                   u_x_p(3)*u_y_p(1) - u_x_p(1)*u_y_p(3), &
-                                   u_x_p(1)*u_y_p(2) - u_x_p(2)*u_y_p(1) /)
-                                   
-                        do k = 1, 3
-                            do l = 1, 3
-                                R_rot(k, l) = u_x_p(k)*u_x_0(l) + u_y_p(k)*u_y_0(l) + u_z_p(k)*u_z_0(l)
+                if (pot_int == 2) then ! SSP
+                    idx = 0
+                    do i = 1, natoms
+                        it = itype(i-1)
+                        idx = idx + 1
+                        R(3*(i-1)) = pos_real(3*(idx-1) + 1) / Box(0)
+                        R(3*(i-1)+1) = pos_real(3*(idx-1) + 2) / Box(1)
+                        R(3*(i-1)+2) = pos_real(3*(idx-1) + 3) / Box(2)
+                        R(3*(i-1))   = R(3*(i-1))   - floor(R(3*(i-1)))
+                        R(3*(i-1)+1) = R(3*(i-1)+1) - floor(R(3*(i-1)+1))
+                        R(3*(i-1)+2) = R(3*(i-1)+2) - floor(R(3*(i-1)+2))
+
+                        n_patches = Nrb_sites(it)
+                        if (n_patches > 0) then
+                            px0 = patch(Nrb_sites_max*ndim*it)
+                            py0 = patch(Nrb_sites_max*ndim*it + 1)
+                            pz0 = patch(Nrb_sites_max*ndim*it + 2)
+
+                            px1 = patch(Nrb_sites_max*ndim*it + ndim)
+                            py1 = patch(Nrb_sites_max*ndim*it + ndim + 1)
+                            pz1 = patch(Nrb_sites_max*ndim*it + ndim + 2)
+
+                            u_x_0 = (/ px0, py0, pz0 /)
+                            u_x_0 = u_x_0 / sqrt(dot_product(u_x_0, u_x_0))
+
+                            u_y_0 = (/ px1, py1, pz1 /)
+                            u_y_0 = u_y_0 - dot_product(u_y_0, u_x_0) * u_x_0
+                            u_y_0 = u_y_0 / sqrt(dot_product(u_y_0, u_y_0))
+
+                            u_z_0 = (/ u_x_0(2)*u_y_0(3) - u_x_0(3)*u_y_0(2), &
+                                       u_x_0(3)*u_y_0(1) - u_x_0(1)*u_y_0(3), &
+                                       u_x_0(1)*u_y_0(2) - u_x_0(2)*u_y_0(1) /)
+
+                            u_x_p = (/ pos_real(3*idx + 1) - pos_real(3*(idx-1) + 1), &
+                                       pos_real(3*idx + 2) - pos_real(3*(idx-1) + 2), &
+                                       pos_real(3*idx + 3) - pos_real(3*(idx-1) + 3) /)
+                            u_x_p(1) = u_x_p(1) - Box(0) * anint(u_x_p(1) / Box(0))
+                            u_x_p(2) = u_x_p(2) - Box(1) * anint(u_x_p(2) / Box(1))
+                            u_x_p(3) = u_x_p(3) - Box(2) * anint(u_x_p(3) / Box(2))
+                            u_x_p = u_x_p / sqrt(dot_product(u_x_p, u_x_p))
+
+                            u_y_p = (/ pos_real(3*(idx+1) + 1) - pos_real(3*(idx-1) + 1), &
+                                       pos_real(3*(idx+1) + 2) - pos_real(3*(idx-1) + 2), &
+                                       pos_real(3*(idx+1) + 3) - pos_real(3*(idx-1) + 3) /)
+                            u_y_p(1) = u_y_p(1) - Box(0) * anint(u_y_p(1) / Box(0))
+                            u_y_p(2) = u_y_p(2) - Box(1) * anint(u_y_p(2) / Box(1))
+                            u_y_p(3) = u_y_p(3) - Box(2) * anint(u_y_p(3) / Box(2))
+                            u_y_p = u_y_p - dot_product(u_y_p, u_x_p) * u_x_p
+                            u_y_p = u_y_p / sqrt(dot_product(u_y_p, u_y_p))
+
+                            u_z_p = (/ u_x_p(2)*u_y_p(3) - u_x_p(3)*u_y_p(2), &
+                                       u_x_p(3)*u_y_p(1) - u_x_p(1)*u_y_p(3), &
+                                       u_x_p(1)*u_y_p(2) - u_x_p(2)*u_y_p(1) /)
+
+                            do k = 1, 3
+                                do l = 1, 3
+                                    R_rot(k, l) = u_x_p(k)*u_x_0(l) + u_y_p(k)*u_y_0(l) + u_z_p(k)*u_z_0(l)
+                                end do
                             end do
-                        end do
-                        
-                        call matrix_to_quaternion(R_rot, q_new)
-                        q(4*(i-1))   = q_new(1)
-                        q(4*(i-1)+1) = q_new(2)
-                        q(4*(i-1)+2) = q_new(3)
-                        q(4*(i-1)+3) = q_new(4)
-                        
-                        idx = idx + n_patches
-                    end if
-                end do
-            else ! TABLE
-                do i = 1, natoms
-                    R(3*(i-1))   = pos_real(3*(i-1) + 1) / Box(0)
-                    R(3*(i-1)+1) = pos_real(3*(i-1) + 2) / Box(1)
-                    R(3*(i-1)+2) = pos_real(3*(i-1) + 3) / Box(2)
-                    R(3*(i-1))   = R(3*(i-1))   - floor(R(3*(i-1)))
-                    R(3*(i-1)+1) = R(3*(i-1)+1) - floor(R(3*(i-1)+1))
-                    R(3*(i-1)+2) = R(3*(i-1)+2) - floor(R(3*(i-1)+2))
-                end do
+
+                            call matrix_to_quaternion(R_rot, q_new)
+                            q(4*(i-1))   = q_new(1)
+                            q(4*(i-1)+1) = q_new(2)
+                            q(4*(i-1)+2) = q_new(3)
+                            q(4*(i-1)+3) = q_new(4)
+
+                            idx = idx + n_patches
+                        end if
+                    end do
+                else ! TABLE
+                    do i = 1, natoms
+                        R(3*(i-1))   = pos_real(3*(i-1) + 1) / Box(0)
+                        R(3*(i-1)+1) = pos_real(3*(i-1) + 2) / Box(1)
+                        R(3*(i-1)+2) = pos_real(3*(i-1) + 3) / Box(2)
+                        R(3*(i-1))   = R(3*(i-1))   - floor(R(3*(i-1)))
+                        R(3*(i-1)+1) = R(3*(i-1)+1) - floor(R(3*(i-1)+1))
+                        R(3*(i-1)+2) = R(3*(i-1)+2) - floor(R(3*(i-1)+2))
+                    end do
+                end if
+                call repopulate_checkerboard_cells()
+                call CB_system_energy_GPU(1)
             end if
-            call repopulate_checkerboard_cells()
-            call CB_system_energy_GPU(1)
         end if
-        
+
         hmc_istat = cudaEventRecord(hmc_stop_event, 0)
         hmc_istat = cudaEventSynchronize(hmc_stop_event)
         hmc_istat = cudaEventElapsedTime(hmc_gpu_time_ms, hmc_start_event, hmc_stop_event)
         call cpu_time(hmc_cpu_end)
         hmc_cpu_time = hmc_cpu_end - hmc_cpu_start
-        
+
         hmc_istat = cudaEventDestroy(hmc_start_event)
         hmc_istat = cudaEventDestroy(hmc_stop_event)
-        
+
         if (accepted) then
             write(*,'(A, I8, A, F14.8, A, F14.8, A, F14.8, A, I0, A, F8.3, A, F8.3, A)') &
                 c_green // '  >>> [HMC Step ', istep, '] ACCEPTED | E_pe/site: ', E_initial_pe/real(total_atoms,wp), &
@@ -666,8 +819,6 @@ contains
                 ' -> ', E_final_pe/real(total_atoms,wp), ' | E_ke/site: ', E_final_ke/real(total_atoms,wp), &
                 ' | MD steps: ', Nmd_hmc, ' | CPU time: ', hmc_cpu_time, ' s | GPU time: ', real(hmc_gpu_time_ms, wp)/1000.0_wp, ' s' // c_reset
         end if
-        
-        if (allocated(pos_real)) deallocate(pos_real)
     end subroutine execute_hmc_step
 
     subroutine rot_matrix(q0, q1, q2, q3, R)
