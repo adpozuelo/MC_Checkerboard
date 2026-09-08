@@ -7,9 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [2.8.0] - 2026-09-07
+## [2.8.0] - 2026-09-08
 
 ### Added
+- **Persistent-Memory LAMMPS Wrapper for Hybrid Monte Carlo (`src/lammps_hmc_wrapper.cuf`)**:
+  - Implemented persistent in-memory LAMMPS state architecture: the LAMMPS instance, box geometry, topology, pair styles, and GPU neighbor lists are initialized once during the initial trial (`setup_lammps_system`) and held in memory across all HMC trials.
+  - Eliminated per-trial disk file I/O (`lammps_hmc.data`), `clear` commands, ASCII re-parsing, and neighbor list destruction.
+  - Replaced disk communication with direct in-memory C API data injection: coordinates are transferred via `scatter_atoms("x")` and retrieved via `gather_atoms("x")` in $< 0.5$ ms.
+  - Implemented dynamic rigid-body and periodic boundary synchronization for patchy particles (`pot_int == 2`): dynamically resets atom image flags to zero (`set group all image 0 0 0`) and refreshes `fix rigid/nve molecule` before each MD trajectory, preventing boundary unwrap distortion, coordinate drift, and spurious particle overlaps across successive HMC moves.
+  - Bypassed atom tag 64-bit array casting bugs in the LAMMPS library interface by strictly avoiding `scatter_atoms("image")`.
+- **Hybrid Monte Carlo for Tabulated Potential Mixtures (`model = 'TABLE'`)**:
+  - Generalized HMC LAMMPS moves to plain tabulated potentials (`model = 'TABLE'`) with point particles using `fix nve` on GPU with exact table metadata matching.
+  - Added compatibility verification check: automatically disables hybrid LAMMPS moves with an explanatory notice if `lammps = .true.` is specified for `HS`, `LJ`, or `LJG` potentials.
+  - Added dedicated `&Lammps_Params` namelist for configuring internal LAMMPS parameters (`timestep`, `Nmd`, `hmc_freq`, `neigh_skin`, `thermo_freq`, `use_gpu`, `gpu_id`, `table_lammps`, `table_file_lammps`).
+  - Added dedicated example case in `examples/HMC_table_mixture/` with Mie 50-49 tabulated binary mixture input and documentation.
+- **Multicomponent Mixture Identity Swaps ($N_{\text{species}} \ge 2$)**:
+  - Extended identity swap kernels (intra-cell and cross-cell) across all potential models (`HS`, `LJ`, `TABLE`, `LJG`, `SSP`) to support arbitrary multicomponent mixtures ($N_{\text{part\_types}} \ge 2$).
+  - Trial species pairs $(A, B)$ are chosen uniformly at random for each swap attempt, preserving microscopic reversibility and caching trial species in block-shared variables for concurrent neighbor evaluations.
 - **Generalized Identity Swap Moves for All Potential Models**:
   - Generalized GPU checkerboard identity swap moves ($A \leftrightarrow B$) from hard spheres (`HS`) to all supported interaction models:
     - Lennard-Jones and tabular mixtures (`LJ`, `TABLE`, `pot_int = 0` / `pot_int < 1`).
@@ -27,8 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Directional coin flip: In cross-cell swaps, added a 50/50 symmetric coin toss for swap direction ($0 \leftrightarrow 1$ vs $1 \leftrightarrow 0$) to guarantee microscopic reversibility and detailed balance.
   - CPU reference subroutine `calc_swap_energy_cpu` in `src/energy.cuf` for verification and double-checking.
   - Automated verification test suite `src/test_swap_energy.cuf` validating $\Delta E = E_{\text{tot}}(\text{after}) - E_{\text{tot}}(\text{before})$ to within floating-point precision ($< 10^{-7}$) across HS, LJ, angular patchy, and site-site patchy potentials.
+- **Documentation & Installation Guide**:
+  - Added comprehensive `INSTALL.md` detailing system requirements, software dependencies (NVHPC, NetCDF, LAMMPS, cuRAND), HPC module loading, building LAMMPS with Fortran wrappers, Makefile customization, verification tests, and troubleshooting.
+  - Added `examples/README.md` and `examples/HMC/README.md` detailing all benchmark cases, namelists, and execution commands.
 
-### Changed
+### Changed & Fixed
+- **Input Parsing Robustness**:
+  - Added lookahead comment and whitespace skipping loops in `src/Read_input_data_nml.cuf` to safely ignore comment lines (`!` and `#`) and blank lines preceding formatted patch geometry data sections.
 - **Driver and Energy Accumulation**:
   - `src/Subsweep_Energy_CUDA.cuf`: Updated host wrappers `subsweep_swap_gpu` and `subsweep_cross_swap_gpu` to dispatch to the appropriate kernel according to `pot_int`, synchronize device execution, and accumulate `Delta_E` into running energy `En_tot`.
   - `src/MCsweep_Checkerboard.cuf`: Removed `pot_int /= -1` early return guard in `MCswap_Checkerboard()` and routed `En_tot` through the host wrappers.
