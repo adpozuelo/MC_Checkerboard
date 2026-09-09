@@ -1,0 +1,34 @@
+! ==============================================================================
+! MONTE CARLO SIMULATION CONTROL PARAMETERS - HS NVT
+! ==============================================================================
+&Control_Params
+  istep_ini   = 0,
+  istep_fin   = 10000,
+  Neq         = 2000,
+  Nmove       = 10,
+  Nsave       = 50,
+  Ndump       = 500,
+  Nrestart    = 2000,
+  imovie      = .false.,
+  traj_format = 'netcdf',
+  Npart_types = 2,
+  lammps      = .false.
+/
+&MC_Params
+  hmax         = 0.0125,
+  omax         = 0.5,
+  vmax         = 0.05, 0.05, 0.05,
+  displ_update = .true.,
+  npt          = .false.,
+  Nvolf        = 1,
+  iscale       = 0,
+  pres         = 1.0,
+  seed         = 987,
+  swap_moves   = .false.
+/
+&Potential_Params
+  model = 'HS'
+/
+  --- HS SIGMA MATRIX ---
+1.000  1.000
+1.000  1.000

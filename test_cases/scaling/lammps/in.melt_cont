@@ -1,0 +1,39 @@
+# 3d Lennard-Jones melt
+
+units           lj
+atom_style      atomic
+
+
+read_data data.atoms
+
+mass            1 1.0
+mass            2 1.0
+
+velocity        all create 3.0 87287 loop geom
+
+include forcefield.LJ
+
+variable tstep equal 0.001
+#neighbor        0.3 bin
+#neigh_modify    every 20 delay 0 check no
+variable Text equal 3.0
+variable Text2 equal 3.0
+variable Tdamp equal 100*${tstep}
+
+
+fix             1 all nvt temp ${Text2} ${Text} ${Tdamp}
+
+
+#dump           id all atom 50 dump.melt
+
+#dump           2 all image 25 image.*.jpg type type &
+#               axes yes 0.8 0.02 view 60 -30
+#dump_modify    2 pad 3
+
+#dump           3 all movie 25 movie.mpg type type &
+#               axes yes 0.8 0.02 view 60 -30
+#dump_modify    3 pad 3
+
+thermo          10
+run             10000
+write_data      final.dat nocoeff

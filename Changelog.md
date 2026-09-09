@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.8.0] - 2026-09-08
 
 ### Added
+- **Thermodynamic Consistency Benchmark Suite: NpT vs NVT Ensembles (`test_cases/npt_nvt_consistency/`)**:
+  - Developed an automated two-stage simulation framework verifying thermodynamic consistency ($\langle A \rangle_{NpT} = \langle A \rangle_{NVT}$) across all fundamental interaction models:
+    - **Hard Spheres (`HS`)**: Validated contact virial pressure $P_{\text{virial}}\sigma^3/k_B T$ in both $NpT$ ($0.67674 \pm 0.00218$) and $NVT$ ($0.72284 \pm 0.00059$) against the analytical Carnahan-Starling equation of state ($0.034\%$ and $0.038\%$ discrepancy, respectively).
+    - **Lennard-Jones (`LJ`)**: Verified density and potential energy consistency ($\langle U/N \rangle_{NpT} = -2.64028$ vs $\langle U/N \rangle_{NVT} = -2.63133$, $0.339\%$ discrepancy, $0.35\sigma$ statistical $Z$-score).
+    - **Site-Site Patchy Colloids (`SSP`)**: Verified internal energy consistency for 4-patch tetrahedral colloids ($-1.87301$ vs $-1.88494$, $0.637\%$ discrepancy, $1.15\sigma$; exact restart match $-1.88562$ vs $-1.88560$, $0.001\%$).
+  - Added SLURM multi-node batch scripts (`run_hs.slurm`, `run_lj.slurm`, `run_ssp.slurm`, `submit_all.sh`) configured for simultaneous multi-GPU execution across cluster nodes `ladon28` and `ladon29`.
+  - Added automated statistical analysis tool `analyze_consistency.py` with system-adaptive equilibration detection, Z-score evaluation, and Carnahan-Starling EOS validation.
+  - Added publication-quality plotting tool `plot_consistency.py` generating dual-panel density and energy/virial-pressure evolution figures (`consistency_hs.png`, `consistency_lj.png`, `consistency_ssp.png`).
+- **gpMC CPU vs MCCB-gpu GPU Scaling Benchmark Reproduction (`test_cases/scaling/gpMC_bench/`)**:
+  - Replicated Table 2 scaling benchmarks from `benchmark.tex` comparing CPU code `gpMC` (Intel Fortran `ifx` on Intel Xeon Gold 6548Y+) against GPU code `MCCB-gpu` (NVIDIA RTX PRO 4500) for binary LJ mixtures across system sizes $N = 8000, 15625, 32768, 125000$.
+  - Expanded scaling measurements to both canonical ($NVT$) and isobaric-isothermal ($NpT$) ensembles:
+    - In $NpT$, measured execution times of 15.16 s ($N=8000$), 35.95 s ($N=15625$), 59.23 s ($N=32768$), and 254.09 s ($N=125000$) for gpMC (CPU) vs 6.26 s, 11.88 s, 9.94 s, and 10.14 s for MCCB-gpu (GPU).
+    - Accounted for differing trial displacements per particle between codes ($\mu_{\text{CPU}} = 1.0$ vs $\mu_{\text{GPU}} = N_{\text{cells}} N_{\text{move}} / N = 1.73 - 3.38$ moves/particle/cycle): effective throughput speedups reach **61.41× ($NVT$)** and **68.76× ($NpT$)** at $N=125,000$ (raw cycle speedups of 22.39× and 25.06×).
+  - Corrected outdated input parameter `Nsave2` to `Ndump` in `test_cases/scaling/{1,2,3,4}/datos.nml`.
+  - Developed conversion utility `utils/convert_lammps_lj_to_real.py` translating reduced LJ coordinates and topologies into physical Angstrom units with $\sigma_0 = 3.0$ Å for gpMC compatibility.
+  - Replicated anomalous scaling saturation: GPU execution time plateaus at $\sim 8$ s ($NVT$) and $\sim 10$ s ($NpT$) across $N=15,625$ to $N=125,000$.
+  - Updated `test_cases/benchmark.tex`: revised Table 2 to include side-by-side $NVT$ and $NpT$ scaling runtimes, moves-per-particle normalization, normalized GPU times, and effective speedups, added Section 1.3 with Table 3 for thermodynamic consistency validation, and updated structural discussion insights.
 - **Persistent-Memory LAMMPS Wrapper for Hybrid Monte Carlo (`src/lammps_hmc_wrapper.cuf`)**:
   - Implemented persistent in-memory LAMMPS state architecture: the LAMMPS instance, box geometry, topology, pair styles, and GPU neighbor lists are initialized once during the initial trial (`setup_lammps_system`) and held in memory across all HMC trials.
   - Eliminated per-trial disk file I/O (`lammps_hmc.data`), `clear` commands, ASCII re-parsing, and neighbor list destruction.

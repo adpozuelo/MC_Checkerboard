@@ -14,6 +14,7 @@
 *.err
 *-restart.d
 *-final
+final.dat
 coords-*-final
 coords.out-*.dat
 movie.xyz
@@ -21,18 +22,29 @@ movie-quat.dat
 trajectory.nc
 trajectory.lammpstrj
 *.lammpstrj
+*.dmp
 data.restart
 input-restart.nml
 run-data.dat
 input-restart.d
 run-data-*.dat
 output_*.out
+thermo*.dat
+gmix.dat
+fort.*
+
+# Benchmark runtime directories and large raw dumps
+test_cases/npt_nvt_consistency/*/npt/
+test_cases/npt_nvt_consistency/*/nvt/
+test_cases/scaling/data.atoms
 
 # SLURM job scripts (often contain user-specific paths)
 *.slurm
+!test_cases/npt_nvt_consistency/*/*.slurm
 
 # Log and TeX auxiliary files
 *.log
+log.*
 *.out
 *.aux
 *.synctex.gz

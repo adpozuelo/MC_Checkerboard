@@ -1,0 +1,41 @@
+! ==============================================================================
+! MONTE CARLO SIMULATION CONTROL PARAMETERS - LJ NPT
+! ==============================================================================
+&Control_Params
+  istep_ini   = 0,
+  istep_fin   = 10000,
+  Neq         = 2000,
+  Nmove       = 10,
+  Nsave       = 50,
+  Ndump       = 500,
+  Nrestart    = 2000,
+  imovie      = .false.,
+  traj_format = 'netcdf',
+  Npart_types = 2,
+  lammps      = .false.
+/
+&MC_Params
+  hmax         = 0.0125,
+  omax         = 0.5,
+  vmax         = 0.05, 0.05, 0.05,
+  displ_update = .true.,
+  temp0        = 1.5,
+  temp1        = 1.5,
+  npt          = .true.,
+  Nvolf        = 1,
+  iscale       = 0,
+  pres         = 0.60,
+  seed         = 345,
+  swap_moves   = .false.
+/
+&Potential_Params
+  model   = 'LJ',
+  rangepp = 2.5
+/
+  --- LJ SIGMA MATRIX ---
+1.000  1.000
+1.000  1.000
+
+  --- LJ EPSILON MATRIX ---
+1.000  1.000
+1.000  1.000

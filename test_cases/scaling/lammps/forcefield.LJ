@@ -1,0 +1,6 @@
+pair_style      lj/cut 10.5
+pair_coeff      1 1 1.0 1.0 2.5
+pair_coeff      1 2 1.5 1.2 3.0
+pair_coeff      2 2 0.5 1.4 3.5
+
+

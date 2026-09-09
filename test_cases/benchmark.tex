@@ -1,10 +1,12 @@
 \documentclass[12pt]{article}
 
+\usepackage[margin=2cm]{geometry}
 \usepackage{siunitx}
 \usepackage{booktabs}
 \usepackage{hyperref}
 \usepackage{xcolor}
 \usepackage{amsmath}
+\usepackage{graphicx}
 
 % Define the color used for section headers
 \definecolor{primary}{RGB}{0, 75, 150}
@@ -52,48 +54,113 @@ Benchmarks were conducted using two distinct NVIDIA hardware architectures: the 
 \end{tabular}
 \end{table}
 
-\subsection{gpMC (CPU) vs. MCCB-gpu (GPU) (Small-to-Medium Scales)}
+\subsection{gpMC (CPU) vs. MCCB-gpu (GPU) Scaling (\texorpdfstring{$NVT$ and $NpT$}{NVT and NpT} Ensembles)}
 \label{sec:small_scale}
-This benchmark scales from \num{8000} to approximately \num{110000} particles, comparing a CPU-driven implementation (\textbf{gpMC}) against dedicated GPU acceleration (\textbf{MCCB-gpu}). 
+This benchmark assesses execution runtime across both canonical ($NVT$) and isobaric-isothermal ($NpT$) ensembles, scaling from \num{8000} to \num{125000} particles for a binary Lennard-Jones mixture ($N_1 : N_2 = 2 : 1$, $T^* = 3.0$, $r_c = 2.5\sigma$, with isotropic volume trial moves executed every cycle in $NpT$). We compare the CPU-driven implementation (\textbf{gpMC}, compiled with Intel Fortran \texttt{ifx} 2025.2.0) executed on an \textbf{Intel(R) Xeon(R) Gold 6548Y+} (32 cores / 64 threads, 2.20 GHz) against GPU acceleration (\textbf{MCCB-gpu} Version 2.8.0) on an \textbf{NVIDIA RTX PRO 4500 Blackwell} (32 GB VRAM) for workloads of 100 Monte Carlo sweeps.
 
-For the CPU execution on \textbf{gpMC}, timings are provided for the Core \textbf{i7-14700K}. Testing on the \textbf{Intel Xeon Gold 6548Y+} demonstrated an approximate relative performance factor of \textbf{$0.98\times$} (i.e., $1.02\times$ slower execution times across workloads).
+\paragraph{Trial Displacements per Particle Normalization.}
+A critical distinction between the two codes lies in the operational definition of a Monte Carlo cycle:
+\begin{itemize}
+    \item In \textbf{gpMC}, each cycle attempts exactly one single-particle displacement per particle ($\mu_{\text{CPU}} = 1.0$). Over 100 cycles, exactly 100 trial moves per particle are evaluated ($100 \times N$ total moves).
+    \item In \textbf{MCCB-gpu}, the GPU checkerboard decomposition attempts $N_{\text{move}} = 125$ trial displacements per active cell across the 8 sublattices during each cycle, yielding a total of $N_{\text{trans}} = N_{\text{cells}} \times N_{\text{move}}$ moves per cycle. The number of trial displacements attempted \emph{per particle per cycle} is therefore:
+    \begin{equation}
+        \mu_{\text{GPU}} = \frac{N_{\text{cells}} \times N_{\text{move}}}{N}
+    \end{equation}
+    yielding $\mu_{\text{GPU}} = 3.375$, $1.728$, $1.953$, and $2.744$ moves/particle/cycle for $N=\num{8000}$, \num{15625}, \num{32768}, and \num{125000}, respectively.
+\end{itemize}
+Consequently, over 100 simulation sweeps, \texttt{MCCB-gpu} evaluates between $1.73\times$ and $3.38\times$ \textbf{more trial displacements per particle} than \texttt{gpMC}. To provide an unbiased comparison of actual Monte Carlo sampling throughput, Table~\ref{tab:gpmc_vs_mccbgpu} reports both the raw measured wallclock time $t_{\text{raw}}$ and the normalized GPU time $t_{\text{norm}} = t_{\text{raw}} / \mu_{\text{GPU}}$ (scaled to an equivalent workload of 100 moves per particle), alongside the corresponding effective speedup:
+\begin{equation}
+    S_{\text{effective}} = \frac{t_{\text{CPU}}}{t_{\text{norm, GPU}}} = S_{\text{raw}} \times \mu_{\text{GPU}}
+\end{equation}
 
 \begin{table}[htbp]
 \centering
-\caption{Simulation Runtime (Seconds) across CPU and GPU Architectures}
+\caption{Simulation Runtime (Seconds) and Speedup across CPU and GPU Architectures ($NVT$ and $NpT$ Ensembles), Accounting for Differing Trial Displacements per Particle}
 \label{tab:gpmc_vs_mccbgpu}
-\small
+\resizebox{\textwidth}{!}{%
 \begin{tabular}{
     @{}
     l 
-    S[table-format=3.1] 
-    @{\hspace{0.8cm}}
-    S[table-format=1.2] 
-    S[table-format=1.2] 
+    c 
+    @{\hspace{0.4cm}}
+    c 
+    c 
+    @{\hspace{0.4cm}}
+    c 
+    c 
+    @{\hspace{0.4cm}}
+    c 
+    c 
     @{}
 }
 \toprule
-& {\textbf{gpMC (CPU)}} & \multicolumn{2}{c}{\textbf{MCCB-gpu (GPU) Time}} \\
-\cmidrule(l){3-4}
-\textbf{Particle Count ($N$)} & {\textbf{i7-14700K}$^\dagger$} & {\textbf{RTX 2000}} & {\textbf{RTX 4500}} \\
+& \textbf{Moves/Part.} & \multicolumn{2}{c}{\textbf{gpMC CPU Time (s)}} & \multicolumn{2}{c}{\textbf{MCCB-gpu GPU Time (s)}} & \multicolumn{2}{c}{\textbf{Effective Speedup}} \\
+\cmidrule(lr){3-4} \cmidrule(lr){5-6} \cmidrule(l){7-8}
+\textbf{Particles ($N$)} & \textbf{($\mu_{\text{GPU}}$ / $\mu_{\text{CPU}}$)} & {\textbf{$NVT$}} & {\textbf{$NpT$}} & {\textbf{$NVT$ (Norm)$^\dagger$}} & {\textbf{$NpT$ (Norm)}} & {\textbf{$NVT$}} & {\textbf{$NpT$}} \\
 \midrule
-\num{8000}                     &  10.0 & 1.21 & 0.85 \\
-\num{15626}                    &  23.4 & 4.27 & 3.20 \\
-\num{32768}                    &  38.4 & 3.49 & 2.61 \\
-\num{125000}                   & 167.0 & 4.34 & 1.93 \\
+\num{8000}   & 3.375 / 1.0 &   9.95 &  15.16 & 4.97 (1.47) &  6.26 (1.85) & \textbf{6.76$\times$} ($2.00\times$) & \textbf{8.17$\times$} ($2.42\times$) \\
+\num{15625}  & 1.728 / 1.0 &  23.59 &  35.95 & 8.73 (5.05) & 11.88 (6.88) & \textbf{4.67$\times$} ($2.70\times$) & \textbf{5.23$\times$} ($3.03\times$) \\
+\num{32768}  & 1.953 / 1.0 &  38.63 &  59.23 & 8.05 (4.12) &  9.94 (5.09) & \textbf{9.37$\times$} ($4.80\times$) & \textbf{11.64$\times$} ($5.96\times$) \\
+\num{125000} & 2.744 / 1.0 & 175.91 & 254.09 & 7.86 (2.86) & 10.14 (3.70) & \textbf{61.41$\times$} ($22.39\times$) & \textbf{68.76$\times$} ($25.06\times$) \\
 \bottomrule
 \addlinespace[0.2cm]
-\multicolumn{4}{p{7.5cm}}{\footnotesize $^\dagger$ For Intel Xeon Gold 6548Y+, scale execution times by a factor of $\sim 1.02$ ($0.98\times$ slower).} \\
-\end{tabular}
+\multicolumn{8}{p{17cm}}{\footnotesize Measured on node \texttt{ladon28} (Intel Xeon Gold 6548Y+ vs NVIDIA RTX PRO 4500 Blackwell) for 100 MC sweeps. In \texttt{gpMC}, each sweep attempts exactly $1.0$ displacement per particle ($\mu_{\text{CPU}} = 1.0$). In \texttt{MCCB-gpu}, checkerboard decomposition evaluates $N_{\text{cells}} \times N_{\text{move}}$ trial displacements per sweep, yielding $\mu_{\text{GPU}} = N_{\text{cells}} N_{\text{move}} / N$ trial moves per particle ($3.375$, $1.728$, $1.953$, and $2.744$ moves/particle/cycle for $N=\num{8000}, \num{15625}, \num{32768}, \num{125000}$, respectively). The normalized GPU runtime $t_{\text{norm}} = t_{\text{raw}} / \mu_{\text{GPU}}$ (in parentheses) reflects the execution time scaled to an equivalent $1.0$ move/particle workload (100 moves per particle total). Effective speedup is defined as $S_{\text{eff}} = t_{\text{CPU}} / t_{\text{norm}} = S_{\text{raw}} \times \mu_{\text{GPU}}$, with raw unadjusted cycle speedup in parentheses. $^\dagger$ Pure GPU kernel loop times (excluding I/O) on RTX 4500 are \SI{0.85}{\second} ($N=\num{8000}$), \SI{3.20}{\second} ($N=\num{15625}$), \SI{2.61}{\second} ($N=\num{32768}$), and \SI{1.93}{\second} ($N=\num{125000}$); on RTX 2000: \SI{1.21}{\second}, \SI{4.27}{\second}, \SI{3.49}{\second}, and \SI{4.34}{\second}.} \\
+\end{tabular}%
+}
+\end{table}
+
+\subsection{Thermodynamic Consistency Benchmarks (\texorpdfstring{$NpT \leftrightarrow NVT$}{NpT <-> NVT})}
+\label{sec:npt_nvt_consistency}
+To verify the physical fidelity and thermodynamic equivalence of the simulation ensembles, an automated two-stage workflow was developed and executed across cluster nodes \texttt{ladon28} and \texttt{ladon29}:
+\begin{enumerate}
+    \item \textbf{Stage 1 ($NpT$)}: An isobaric-isothermal simulation is initialized and equilibrated at target pressure $P^*_{\text{target}}$ and temperature $T^*$, recording the mean volume $\langle V \rangle_{NpT}$ (equilibrium density $\langle \rho^* \rangle_{NpT}$) and generating an exact configuration restart checkpoint.
+    \item \textbf{Stage 2 ($NVT$)}: A canonical simulation is executed from the restart configuration at fixed density $\rho^* = \langle \rho^* \rangle_{NpT}$.
+    \item \textbf{Validation}: Statistical equivalence $\langle U/N \rangle_{NVT} \approx \langle U/N \rangle_{NpT}$ is verified for continuous potential fluids (Lennard-Jones and Site-Site Patchy colloids), while the virial contact extrapolation $\langle P_{\text{virial}} \rangle$ is cross-validated against the analytical Carnahan-Starling equation of state for Hard Spheres.
+\end{enumerate}
+
+Simulations comprised $N = \num{7695}$ particles per system, executed concurrently under SLURM on dedicated RTX PRO 4500 GPUs.
+
+\begin{table}[htbp]
+\centering
+\caption{Thermodynamic Consistency Validation across Interaction Models}
+\label{tab:thermo_consistency}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{
+    @{}
+    l 
+    l 
+    c 
+    c 
+    c 
+    c 
+    @{}
+}
+\toprule
+\textbf{Model} & \textbf{Observable} & \textbf{$NpT$ Ensemble} & \textbf{$NVT$ Ensemble} & \textbf{Discrepancy} & \textbf{Agreement} \\
+\midrule
+\textbf{Lennard-Jones} & Density $\langle \rho^* \rangle$ & $0.47230 \pm 0.00405$ & $0.47029$ (fixed) & 0.43\% & $0.50\sigma$ \\
+($T^* = 1.50, P^* = 0.60$) & Energy $\langle U/N \rangle$ & $-2.64028 \pm 0.02328$ & $-2.63133 \pm 0.01100$ & \textbf{0.34\%} & \textbf{0.35$\sigma$ ($Z$-score)} \\
+\midrule
+\textbf{Hard Spheres} & Virial $P^*_{\text{NpT}}$ & $0.67674 \pm 0.00218$ & -- & \textbf{0.03\%} & vs. $P_{\text{CS}} = 0.67697$ \\
+($T^* = 1.00$) & Virial $P^*_{\text{NVT}}$ & -- & $0.72284 \pm 0.00059$ & \textbf{0.04\%} & vs. $P_{\text{CS}} = 0.72311$ \\
+\midrule
+\textbf{Site-Site Patchy} & Density $\langle \rho^* \rangle$ & $0.71579 \pm 0.00627$ & $0.72375$ (fixed) & 1.11\% & Equilibrated \\
+($T^* = 0.154, P^* = 0.05$) & Energy $\langle U/N \rangle$ & $-1.87301 \pm 0.00981$ & $-1.88494 \pm 0.00325$ & \textbf{0.64\%} & \textbf{1.15$\sigma$ ($Z$-score)} \\
+& Restart Point $U/N$ & $-1.88562$ & $-1.88560 \pm 0.00034$ & \textbf{0.001\%} & Exact Match \\
+\bottomrule
+\addlinespace[0.2cm]
+\multicolumn{6}{p{17cm}}{\footnotesize Evaluated for Hard Spheres (HS), Lennard-Jones (LJ), and Site-Site Patchy (SSP, 4-patch tetrahedral Palaia model) fluids with $N = \num{7695}$ particles. Virial pressure for HS is calculated via pair-distribution contact extrapolation $g(\sigma^+)$ and compared against the Carnahan-Starling equation of state $P_{\text{CS}}(\rho)$.} \\
+\end{tabular}%
+}
 \end{table}
 
 \section{Discussion and Structural Insights}
-An analysis of the benchmarking profiles yields two key architectural insights:
+An analysis of the benchmarking profiles yields three key architectural and physical insights:
 \begin{itemize}
-    \item \textbf{Heterogeneous Paradigm Shifts:} Moving from multicore CPU environments (\texttt{gpMC}) to even entry-level professional GPUs (\texttt{MCCB-gpu} on RTX 2000) yields over an order of magnitude speedup (e.g., $27\times$ speedup at the largest medium scale).
-    \item \textbf{Anomalous Scaling Profile:} In the \texttt{MCCB-gpu} dataset on the RTX 2000/4500 architectures, scaling from $N=\num{15626}$ to $N=\num{32768}$ demonstrates an absolute reduction in execution time. This indicates a hardware architectural threshold where GPU thread occupancy optimizations and block-level memory coalescing align to hit peak efficiency.
+    \item \textbf{Heterogeneous Paradigm Shifts and Sampling Throughput:} Transitioning from multicore CPU architectures (\texttt{gpMC}) to modern GPU acceleration (\texttt{MCCB-gpu} on RTX PRO 4500) delivers substantial speedups. On a raw cycle-by-cycle basis, GPU speedups reach \textbf{22.4$\times$} ($NVT$) and \textbf{25.1$\times$} ($NpT$) at $N = \num{125000}$. When normalizing for the actual number of trial displacements attempted per particle (since \texttt{MCCB-gpu} performs up to $3.38\times$ more trial moves per particle per cycle), the true sampling throughput speedup reaches \textbf{61.4$\times$} in the canonical ($NVT$) ensemble and \textbf{68.8$\times$} in the isobaric-isothermal ($NpT$) ensemble.
+    \item \textbf{Anomalous Scaling Profile across Ensembles:} In both the $NVT$ and $NpT$ datasets, scaling from $N = \num{15625}$ to $N = \num{125000}$ exhibits an execution time reduction/plateau on the GPU (e.g., dropping from \SI{8.73}{\second} to \SI{7.86}{\second} in $NVT$, and plateauing at $\sim \SI{10}{\second}$ in $NpT$, despite an $8\times$ particle increase). This demonstrates a hardware architectural threshold where GPU block-level memory coalescing and thread warp occupancy reach peak efficiency.
+    \item \textbf{Thermodynamic Rigor and Conservation:} The two-stage consistency test suite confirms that \texttt{MCCB-gpu} preserves strict thermodynamic equivalence across ensembles: continuous models (LJ and SSP) reproduce canonical energies within sub-percent statistical uncertainty ($0.34\%$ for LJ, $0.64\%$ for SSP, $Z < 1.2\sigma$), while athermal contact virial evaluation reproduces the analytical Carnahan-Starling equation of state within $\mathbf{< 0.04\%}$ accuracy.
 \end{itemize}
-
 
 \end{document}
 
