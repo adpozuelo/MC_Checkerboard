@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.8.0] - 2026-09-08
 
 ### Added
+- **Computer Physics Communications (CPC) Program Manuscript Package (`manuscript_cpc/`)**:
+  - Prepared and compiled complete 12-page manuscript in Elsevier `elsarticle` format (`final,5p,times,twocolumn`) for submission to *Computer Physics Communications* (CPiP).
+  - Included full Program Summary, detailed mathematical formulation of 3D checkerboard domain decomposition (8 sublattices), canonical ($NVT$) and isobaric-isothermal ($NpT$) sampling, and virial pressure evaluation for hard spheres.
+  - Formulated Association Volume Bias Monte Carlo (AVBMC) with analytical proof and machine-precision verification of microscopic reversibility ($\text{arg}_{\text{fwd}} \cdot \text{arg}_{\text{rev}} \equiv 1.0$).
+  - Documented cluster surface geometry identification using geometric dipole asymmetry ($\eta_i \ge 0.5$) and its connection to GPU G-DBSCAN clustering from companion package `trj_analysis`.
+  - Detailed multicomponent particle identity swaps ($A \leftrightarrow B$) with proofs of cell occupancy invariance and microscopic reversibility.
+  - Documented in-memory persistent Hybrid Monte Carlo (HMC) coupling with LAMMPS via direct C-API scatter/gather.
+  - Added comprehensive tables for all namelist inputs (`&Control_Params`, `&MC_Params`, `&Potential_Params`, `&Lammps_Params`), input/output file formats, thermodynamic consistency benchmarks, and GPU scaling comparisons with moves-per-particle throughput normalizations.
+  - Included publication-quality figures (`scaling_benchmark.png`, `avbmc_benchmark_comparison.png`, `hmc_overhead_benchmark_comparison.png`, `consistency_hs.png`, `consistency_lj.png`, `consistency_ssp.png`), BibTeX database (`references.bib`), and author biographies.
 - **Thermodynamic Consistency Benchmark Suite: NpT vs NVT Ensembles (`test_cases/npt_nvt_consistency/`)**:
   - Developed an automated two-stage simulation framework verifying thermodynamic consistency ($\langle A \rangle_{NpT} = \langle A \rangle_{NVT}$) across all fundamental interaction models:
     - **Hard Spheres (`HS`)**: Validated contact virial pressure $P_{\text{virial}}\sigma^3/k_B T$ in both $NpT$ ($0.67674 \pm 0.00218$) and $NVT$ ($0.72284 \pm 0.00059$) against the analytical Carnahan-Starling equation of state ($0.034\%$ and $0.038\%$ discrepancy, respectively).

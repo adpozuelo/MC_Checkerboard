@@ -50,6 +50,8 @@ log.*
 *.synctex.gz
 *.fls
 *.fdb_latexmk
+*.blg
+*.spl
 
 # Backup files
 *~

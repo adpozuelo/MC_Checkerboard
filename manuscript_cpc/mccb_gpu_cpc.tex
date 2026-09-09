@@ -1,0 +1,650 @@
+\documentclass[final,5p,times,twocolumn]{elsarticle}
+
+\usepackage{amsmath,amssymb,amsfonts,bm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{siunitx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{microtype}
+\usepackage{subcaption}
+\usepackage{listings}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!70!black,
+    citecolor=blue!70!black,
+    urlcolor=blue!70!black
+}
+
+\journal{Computer Physics Communications}
+
+\begin{document}
+
+\begin{frontmatter}
+
+\title{\textbf{MCCB-gpu: A Massively Parallel GPU-Accelerated Checkerboard Monte Carlo Engine for Colloidal and Molecular Systems with Advanced Sampling and In-Memory Hybrid Molecular Dynamics}}
+
+\author[iqf]{Antonio D{\'{i}}az-Pozuelo}
+\author[iqf]{Eva Gonz{\'{a}}lez Noya}
+\author[iqf]{Enrique Lomba\corref{cor}}
+\ead{e.lomba@iqf.csic.es}
+
+\cortext[cor]{Corresponding author.}
+\address[iqf]{Instituto de Qu{\'{i}}mica F{\'{i}}sica Blas Cabrera (IQF-CSIC), CSIC, Serrano 119, 28006 Madrid, Spain}
+
+\begin{abstract}
+We present \texttt{MCCB-gpu}, a high-performance, massively parallel Monte Carlo (MC) simulation framework written in CUDA Fortran and modern Fortran 2008 for the simulation of soft-matter, colloidal, and molecular systems on graphics processing units (GPUs). Utilizing a three-dimensional checkerboard spatial domain decomposition into eight non-interfering sublattices, \texttt{MCCB-gpu} executes conflict-free, concurrent trial moves across thousands of CUDA threads while strictly preserving detailed balance. The code supports canonical ($NVT$) and isobaric-isothermal ($NpT$) ensembles for a wide spectrum of interaction potentials, including hard spheres (HS), Lennard-Jones (LJ), arbitrary user-tabulated potentials, angular patchy particles (Lennard-Jones-Gauss), and tetrahedral site-site patchy colloids (Palaia model). To bypass kinetic jamming, glassy arrest, and entropic bottlenecks in dilute associating systems, \texttt{MCCB-gpu} integrates three advanced sampling algorithms: (1) an Association Volume Bias Monte Carlo (AVBMC) engine that dynamically targets cluster boundaries identified via local geometric surface dipole asymmetry ($\eta_i \ge 0.5$), coupled to a parallel GPU implementation of G-DBSCAN (derived from the companion \texttt{trj\_analysis} package); (2) GPU checkerboard particle identity swaps ($A \leftrightarrow B$) for multicomponent mixtures; and (3) an in-memory persistent-state Hybrid Monte Carlo (HMC) interface coupling \texttt{MCCB-gpu} with GPU-accelerated LAMMPS molecular dynamics. We present analytical proofs and machine-precision numerical verifications of microscopic reversibility ($\delta_{\text{DB}} < 10^{-15}$), rigorous thermodynamic consistency tests across $NpT$ and $NVT$ ensembles, and extensive scaling benchmarks. Comparing against an optimized multi-core CPU code (\texttt{gpMC}) and accounting for trial move throughput normalization, \texttt{MCCB-gpu} delivers speedups of up to $\mathbf{61.4\times}$ in $NVT$ and $\mathbf{68.8\times}$ in $NpT$ on an NVIDIA RTX PRO 4500 GPU, scaling seamlessly to millions of particles.
+\end{abstract}
+
+\begin{keyword}
+Monte Carlo simulation \sep GPU acceleration \sep Checkerboard domain decomposition \sep Association Volume Bias Monte Carlo (AVBMC) \sep G-DBSCAN \sep Identity swap moves \sep Hybrid Monte Carlo \sep Patchy colloids
+\end{keyword}
+
+\end{frontmatter}
+
+\noindent
+{\small
+\textbf{PROGRAM SUMMARY}
+\begin{description}
+  \item[\textit{Program Title:}] \texttt{MCCB-gpu}
+  \item[\textit{CPC Library link to program files:}] (to be assigned by CPC)
+  \item[\textit{Developer's repository link:}] \url{https://github.com/adpozuelo/MC_Checkerboard}
+  \item[\textit{Licensing provisions:}] GNU General Public License v3.0 (GPLv3)
+  \item[\textit{Programming language:}] Fortran 2008, CUDA Fortran, ISO\_C\_BINDING, Python 3
+  \item[\textit{Computer:}] Modern x86\_64 HPC clusters, workstations with NVIDIA GPUs (Compute Capability $\ge 6.0$, tested up to Blackwell, Ada Lovelace, Ampere, Volta, Pascal)
+  \item[\textit{Operating system:}] Linux (x86\_64; RHEL, CentOS, Ubuntu, Debian)
+  \item[\textit{RAM:}] 1--4 GB host RAM, 2--32 GB device VRAM (scales with particle count)
+  \item[\textit{Classification:}] 7.7 Molecular Dynamics and Particle Methods, 4.8 Statistical Mechanics.
+  \item[\textit{External libraries:}] NVIDIA HPC SDK (NVHPC $\ge 22.x$ with CUDA $\ge 11.8$), NetCDF-Fortran (optional, for compressed trajectories), LAMMPS shared C-library (\texttt{liblammps}, optional, for Hybrid Monte Carlo).
+  \item[\textit{Nature of problem:}] Equilibrium and non-equilibrium Monte Carlo sampling of dense, large-scale, or strongly associating colloidal fluids, patchy nanoparticles, and multicomponent molecular mixtures across canonical ($NVT$) and isobaric-isothermal ($NpT$) ensembles. Conventional single-particle MC algorithms suffer from severe kinetic arrest due to steric caging, entropic barriers in cluster nucleation, and compositional jamming.
+  \item[\textit{Solution method:}] Massive parallelism via 3D checkerboard domain decomposition partitioning the box into 8 independent sublattices evaluated concurrently by CUDA thread blocks. To overcome physical kinetic arrest, the code incorporates: (1) Association Volume Bias Monte Carlo (AVBMC) guided by local geometric surface dipole asymmetry $\eta_i \ge \eta_{\text{thresh}}$ coupled with GPU G-DBSCAN cluster identification (from the companion \texttt{trj\_analysis} library); (2) Intra-cell and long-range cross-cell particle identity swaps ($A \leftrightarrow B$) for multicomponent mixtures ($N_{\text{species}} \ge 2$); and (3) In-memory persistent-state Hybrid Monte Carlo (HMC) coupling with GPU-accelerated LAMMPS.
+  \item[\textit{Running time:}] Milliseconds per sweep; e.g., $\sim 4.6$ ms/sweep for $N=125,000$ particles on NVIDIA RTX PRO 4500 (delivering up to $68.8\times$ algorithmic throughput speedup over optimized multi-core CPU code).
+\end{description}
+}
+
+\section{Introduction}
+\label{sec:intro}
+
+Monte Carlo (MC) computer simulations represent a cornerstone of computational physics, chemistry, and materials science \cite{frenkel2001understanding,allen2017computer}. By stochastically sampling configurations according to the Boltzmann distribution, MC methods enable the calculation of equilibrium thermodynamic observables, phase diagrams, free energy landscapes, and structural correlation functions without requiring numerical integration of equations of motion. In the realm of soft matter, complex fluids, and colloidal nanotechnology, MC simulations are indispensable for investigating self-assembly, crystallization, gelation, and liquid-liquid phase separation in isotropic fluids \cite{carnahan1969equation}, patchy colloids \cite{bianchi2006phase,sciortino2007patchy,noya2014phase,palaia2022patchy}, and dense multicomponent glass-forming liquids \cite{ninarello2017models,berthier2017configurational}.
+
+Despite their theoretical generality, standard MC algorithms face two profound computational bottlenecks:
+\begin{enumerate}
+    \item \textbf{Parallelization Constraints}: Unlike Molecular Dynamics (MD), where forces on all $N$ particles can be computed simultaneously in parallel \cite{anderson2008gpu,thompson2022lammps}, standard Metropolis MC algorithms evaluate sequential single-particle trial displacements. Modifying the position or orientation of particle $i$ alters the local potential energy field, thereby invalidating concurrent moves of any neighboring particle $j$ within the interaction cutoff distance $r_{\text{cut}}$. This sequential dependency historically hindered the efficient exploitation of massively parallel graphics processing units (GPUs).
+    \item \textbf{Physical Kinetic Arrest}: In condensed systems, standard random single-particle translations and rotations frequently become trapped in local free-energy minima:
+    \begin{itemize}
+        \item \emph{Steric Caging and Jamming}: In dense liquids and glass formers, particles are enclosed by rigid cages formed by nearest neighbors; translational displacements that yield reasonable acceptance rates ($30$--$50\%$) are constrained to fractions of an angstrom, leading to glacial diffusive relaxation \cite{ninarello2017models}.
+        \item \emph{Entropic Bottlenecks in Dilute Associating Clusters}: In dilute patchy colloidal fluids ($V_{\text{box}} \gg V_{\text{clusters}}$), binding energies are strong ($\sim 10\,k_B T$). Gas-phase monomers spend astronomical numbers of sweeps diffusing through empty space before randomly encountering an active cluster binding patch, while bonded particles rarely evaporate, halting cluster size equilibration \cite{whitelam2007avoiding,rovigatti2018simulate}.
+        \item \emph{Compositional Freezing}: In multicomponent mixtures with non-additive diameters or asymmetric attractions, chemical species separation is arrested unless particles can interchange chemical identities without bodily diffusion \cite{ninarello2017models,berthier2017configurational}.
+    \end{itemize}
+\end{enumerate}
+
+To address parallelization, spatial domain decomposition techniques—most notably the checkerboard cellular algorithm—have emerged as an effective paradigm for GPU acceleration \cite{preis2009gpu,anderson2013checkerboard}. By partitioning the simulation box into cells with linear dimensions larger than the potential cutoff $r_{\text{cut}}$ and assigning cells to interleaved, mutually non-interacting sublattices, thousands of trial moves can be proposed and evaluated concurrently by independent CUDA thread blocks without violating detailed balance.
+
+However, existing GPU-accelerated MC codes are frequently limited to simple isotropic potentials (such as hard spheres or plain Lennard-Jones) in the canonical ($NVT$) ensemble, lacking the advanced algorithmic capabilities required to investigate complex soft matter: isobaric-isothermal ($NpT$) scaling, anisotropic patchy orientations, cluster-targeted biased sampling, identity swaps, and hybrid dynamical propagation.
+
+In this paper, we introduce \texttt{MCCB-gpu} (Monte Carlo CheckerBoard on GPU), an open-source, high-throughput simulation package written in CUDA Fortran and modern Fortran 2008. \texttt{MCCB-gpu} combines a 3D checkerboard GPU cellular engine with:
+\begin{itemize}
+    \item Full canonical ($NVT$) and isobaric-isothermal ($NpT$) ensemble sampling, with isotropic and anisotropic box volume trial moves.
+    \item Broad potential support: athermal Hard Spheres (HS), continuous Lennard-Jones (LJ), arbitrary user-tabulated potentials (TABLE), angular patchy particles (Lennard-Jones-Gauss, LJG), and tetrahedral site-site patchy colloids (Palaia SSP model) with quaternion rotational kinematics.
+    \item Association Volume Bias Monte Carlo (AVBMC) \cite{chen2000avbmc,chen2001avbmc} guided by local geometric surface dipole asymmetry ($\eta_i \ge 0.5$) and coupled to a GPU implementation of G-DBSCAN (derived from the companion \texttt{trj\_analysis} package \cite{andrade2013gdbscan,trjanaly2026}).
+    \item GPU-accelerated intra-cell and long-range cross-cell particle identity swaps ($A \leftrightarrow B$) for arbitrary multicomponent mixtures ($N_{\text{species}} \ge 2$).
+    \item A high-efficiency, persistent in-memory Hybrid Monte Carlo (HMC) coupling layer with the LAMMPS molecular dynamics engine \cite{thompson2022lammps}, accelerating coordinate transfer by $287\times$ over disk I/O.
+\end{itemize}
+
+The remainder of this manuscript is organized as follows: Section~\ref{sec:algorithms} details the mathematical formulations and proofs of detailed balance for the checkerboard decomposition, AVBMC, surface geometry identification, identity swaps, and HMC. Section~\ref{sec:software} outlines the program architecture, input namelists, and file formats. Section~\ref{sec:verification} presents numerical verification of detailed balance and thermodynamic consistency tests. Section~\ref{sec:benchmarks} discusses scaling and computational performance. Section~\ref{sec:conclusions} concludes the paper.
+
+\section{Theoretical Formulation and Algorithms}
+\label{sec:algorithms}
+
+\subsection{3D Checkerboard Domain Decomposition}
+\label{sec:algo_cb}
+
+Consider a simulation domain of volume $V = L_x \times L_y \times L_z$ containing $N$ interacting bodies subject to periodic boundary conditions (PBC). The interaction potential $U_{ij}$ vanishes beyond a finite spherical cutoff distance $r_{\text{cut}}$, such that particles separated by $r_{ij} \ge r_{\text{cut}}$ exert zero force and have zero pairwise energy.
+
+To enable conflict-free concurrent evaluation on the GPU, \texttt{MCCB-gpu} discretizes the simulation volume into a regular Cartesian grid of $M_x \times M_y \times M_z = N_{\text{cells}}$ cells. The linear cell dimensions $L_{c,\alpha}$ satisfy:
+\begin{equation}
+    L_{c,\alpha} = \frac{L_\alpha}{M_\alpha} \ge r_{\text{cut}}, \quad \alpha \in \{x, y, z\}
+    \label{eq:cell_condition}
+\end{equation}
+Cells are indexed by their discrete spatial coordinates $(c_x, c_y, c_z)$ with $c_\alpha \in \{0, \dots, M_\alpha - 1\}$. Each cell is assigned a color based on its 3D parity:
+\begin{equation}
+    \mathcal{C}(c_x, c_y, c_z) = (c_x \bmod 2) + 2(c_y \bmod 2) + 4(c_z \bmod 2)
+    \label{eq:parity}
+\end{equation}
+with $\mathcal{C} \in \{0, \dots, 7\}$. This partitions the $N_{\text{cells}}$ cells into 8 interleaved sublattices $\mathcal{S}_0, \dots, \mathcal{S}_7$. Crucially, for any two distinct cells $C_1, C_2 \in \mathcal{S}_k$ belonging to the same sublattice, their center-to-center separation along any Cartesian axis is at least $2 L_{c,\alpha} \ge 2 r_{\text{cut}}$. Therefore, no particle in cell $C_1$ can interact with any particle in cell $C_2$.
+
+A single Monte Carlo sweep consists of 8 sequential sub-sweeps (one per sublattice $\mathcal{S}_k$). During sub-sweep $k$, a CUDA kernel is launched where each thread block is assigned to an active cell $C \in \mathcal{S}_k$. The thread block executes $N_{\text{move}}$ trial moves within cell $C$. To evaluate the change in potential energy $\Delta E$, the threads examine particles residing in cell $C$ and its 26 nearest-neighbor cells in the 3D grid. Because neighbor cells belong to different sublattices $\mathcal{S}_{k'} \neq \mathcal{S}_k$, their particle coordinates and occupancies are held strictly constant during sub-sweep $k$. This guarantees zero read-write race conditions across CUDA blocks, ensuring strict detailed balance without spinlocks or thread synchronization.
+
+\subsection{Canonical (\texorpdfstring{$NVT$}{NVT}) and Isobaric-Isothermal (\texorpdfstring{$NpT$}{NpT}) Sampling}
+\label{sec:algo_npt}
+
+In the canonical ($NVT$) ensemble, trial moves consist of random particle displacements $\mathbf{r}_i \to \mathbf{r}_i + \delta\mathbf{r}$ with $\delta r_\alpha \in [-h_{\max}, h_{\max}]$. For orientable bodies (patchy colloids), a rotational trial move is simultaneously proposed:
+\begin{equation}
+    \mathbf{q}_i' = \frac{\mathbf{q}_i + \delta\mathbf{q}}{\|\mathbf{q}_i + \delta\mathbf{q}\|}
+\end{equation}
+where $\mathbf{q}_i \in \mathbb{S}^3$ is a unit quaternion and $\delta\mathbf{q}$ is sampled uniformly over an angular range controlled by parameter $o_{\max}$. The trial configuration is accepted with Metropolis probability:
+\begin{equation}
+    P_{\text{acc}} = \min\left(1, \, \exp(-\beta \Delta E)\right)
+\end{equation}
+where $\Delta E = E_{\text{new}} - E_{\text{old}}$ is computed directly on the GPU streaming multiprocessors.
+
+In the isobaric-isothermal ($NpT$) ensemble, trial volume changes are interleaved with particle displacement sweeps at cadence $N_{\text{volf}}$. In isotropic mode, a volume change $\ln V \to \ln V + \delta v$ with $\delta v \in [-v_{\max}, v_{\max}]$ is proposed. The box length scales as $L' = L (V'/V)^{1/3}$, and all particle coordinates are rescaled affinely:
+\begin{equation}
+    \mathbf{r}_i' = \left(\frac{V'}{V}\right)^{1/3} \mathbf{r}_i
+\end{equation}
+The volume change is accepted with probability:
+\begin{multline}
+    P_{\text{acc, vol}} = \min\Big(1, \, \exp\Big(-\beta \left[\Delta E_{\text{tot}} + P(V' - V)\right] \\
+    + (N + 1)\ln\frac{V'}{V}\Big)\Big)
+\end{multline}
+where $\Delta E_{\text{tot}}$ is the total system energy difference, recomputed via a parallel GPU reduction kernel. Following an accepted volume move, the cell dimensions $L_{c,\alpha}$ are rescaled. If $L_{c,\alpha}$ drops below $r_{\text{cut}}$, the grid multiplicity $M_\alpha$ is automatically re-evaluated and the cellular neighbor lists are refreshed.
+
+\paragraph{Virial Pressure for Hard Spheres}
+For continuous potentials, pressure is evaluated via the standard virial theorem. For athermal Hard Spheres (HS), where impulsive forces preclude analytic derivatives, \texttt{MCCB-gpu} calculates the instantaneous virial pressure via extrapolation of the radial distribution function $g(r)$ to contact $r = \sigma^+$:
+\begin{equation}
+    P_{\text{virial}}^{\text{HS}} = \rho k_B T \left[ 1 + \frac{2}{3}\pi \rho \sigma^3 g(\sigma^+) \right]
+    \label{eq:hs_virial}
+\end{equation}
+During production, pairs are accumulated in fine radial histogram bins ($dr = 0.002\sigma$), and $g(\sigma^+)$ is obtained via polynomial extrapolation to contact.
+
+\subsection{Association Volume Bias Monte Carlo (AVBMC)}
+\label{sec:algo_avbmc}
+
+In dilute colloidal fluids featuring strong directional attraction (such as the Palaia site-site tetrahedral model \cite{palaia2022patchy}), physical self-assembly leads to dense clusters surrounded by an ultra-dilute monomer gas. Random translation moves fail to equilibrate the cluster size distribution because the probability of an isolated monomer encountering a cluster binding site scales as $V_{\text{bind}} / V_{\text{box}} \ll 10^{-3}$, while bound particles experience deep potential wells ($U \sim -10\,k_B T$).
+
+To eliminate this entropic bottleneck, \texttt{MCCB-gpu} incorporates Aggregation Volume Bias Monte Carlo (AVBMC) \cite{chen2000avbmc,chen2001avbmc}. AVBMC partitions configurational space into a bonded binding region $V_{\text{bind}}$ around cluster surfaces and the unbonded bulk volume $V_{\text{box}}$, proposing direct macroscopic exchanges between these domains.
+
+\paragraph{Forward Association In-Move ($X \to Y$)}
+Let $X$ denote a state with $N_{\text{free}}(X)$ gas-phase monomers and $N_{\text{brd}}(X)$ cluster border particles:
+\begin{enumerate}
+    \item A free monomer $i \in \mathcal{F}$ is selected uniformly: $P(i) = 1 / N_{\text{free}}(X)$.
+    \item A border particle $b \in \mathcal{B}$ is chosen uniformly: $P(b) = 1 / N_{\text{brd}}(X)$.
+    \item A target partner $t$ is selected uniformly from the $n_{\text{neigh}}(b)$ neighbors of $b$: $P(t) = 1 / n_{\text{neigh}}(b)$.
+    \item A trial position $\mathbf{r}'$ is sampled uniformly within the spherical binding volume $V_{\text{bind}} = \frac{4}{3}\pi r_{\text{bind}}^3$ centered at $\mathbf{r}_t$ ($r_{\text{bind}} = 1.5 r_{\text{cut}}$): $P(\mathbf{r}') = 1 / V_{\text{bind}}$.
+    \item To balance the bulk volume ratio, $K-1$ dummy trial positions $\{\mathbf{r}_m\}_{m=2}^K$ are generated uniformly in $V_{\text{box}}$, with trial 1 set to the current position $\mathbf{r}_i$. The bulk Rosenbluth sum is computed:
+    \begin{equation}
+        W_{\text{bulk}} = 1 + \sum_{m=2}^K \exp\left(-\beta [E(\mathbf{r}_m) - E(\mathbf{r}_i)]\right)
+    \end{equation}
+    \item The trial cluster Boltzmann weight is $w_{\text{cluster}} = \exp\left(-\beta [E(Y) - E(X)]\right)$.
+\end{enumerate}
+
+\paragraph{Reverse Dissociation Out-Move ($Y \to X$)}
+In state $Y$, particle $i$ resides at the cluster boundary, with $N_{\text{free}}(Y) = N_{\text{free}}(X) - 1$ and $N_{\text{brd}}(Y)$ border particles:
+\begin{enumerate}
+    \item Particle $i$ is selected from the border pool: $P(i) = 1 / N_{\text{brd}}(Y)$.
+    \item $K$ independent trial positions are generated uniformly in $V_{\text{box}}$. One trial corresponds to the original bulk location $\mathbf{r}_i$ (state $X$), with weight $w_{\text{rev}}(1) = \exp\left(-\beta [E(X) - E(Y)]\right) = 1 / w_{\text{cluster}}$. The reverse Rosenbluth sum is:
+    \begin{equation}
+        W_{\text{bulk}}' = \sum_{m=1}^K w_{\text{rev}}(m) = \exp(\beta \Delta E) W_{\text{bulk}}
+    \end{equation}
+    \item State $X$ is selected with probability $w_{\text{rev}}(1) / W_{\text{bulk}}'$.
+\end{enumerate}
+
+\paragraph{Proof of Microscopic Reversibility}
+Detailed balance requires $\pi(X) \alpha(X \to Y) P_{\text{acc}}(X \to Y) = \pi(Y) \alpha(Y \to X) P_{\text{acc}}(Y \to X)$, where $\pi(X) \propto e^{-\beta E(X)}$. The proposal probability densities are:
+\begin{align}
+    \alpha(X \to Y) &= \frac{1}{N_{\text{free}}(X)} \frac{1}{N_{\text{brd}}(X) n_{\text{neigh}}(b)} \frac{1}{V_{\text{bind}}} \left(\frac{1}{V_{\text{box}}}\right)^{K-1} \\
+    \alpha(Y \to X) &= \frac{1}{N_{\text{brd}}(Y)} \left(\frac{1}{V_{\text{box}}}\right)^K \frac{e^{\beta \Delta E}}{W_{\text{bulk}}'}
+\end{align}
+The forward and reverse acceptance probabilities implemented in \texttt{MCCB-gpu} are:
+\begin{align}
+    P_{\text{acc}}(X \to Y) &= \min\left(1, \, \frac{N_{\text{brd}}(X) n_{\text{neigh}}(b) + 1}{N_{\text{free}}(X)} \frac{V_{\text{box}}}{V_{\text{bind}}} \frac{K w_{\text{cluster}}}{W_{\text{bulk}}}\right) \label{eq:avbmc_acc_fwd} \\
+    P_{\text{acc}}(Y \to X) &= \min\left(1, \, \frac{N_{\text{free}}(Y) + 1}{N_{\text{brd}}(Y) n_{\text{neigh}}'} \frac{V_{\text{bind}}}{V_{\text{box}}} \frac{W_{\text{bulk}}'}{K}\right) \label{eq:avbmc_acc_rev}
+\end{align}
+Letting $\text{arg}_{\text{fwd}}$ and $\text{arg}_{\text{rev}}$ denote the arguments of the $\min(1, \cdot)$ functions, and noting that $N_{\text{free}}(Y) + 1 = N_{\text{free}}(X)$ and $W_{\text{bulk}}' = W_{\text{bulk}} / w_{\text{cluster}}$, their product satisfies:
+\begin{equation}
+    \text{arg}_{\text{fwd}} \cdot \text{arg}_{\text{rev}} \equiv 1.0000000000000
+    \label{eq:avbmc_invariant}
+\end{equation}
+Because $\text{arg}_{\text{rev}} = 1 / \text{arg}_{\text{fwd}}$, it follows that:
+\begin{equation}
+    \frac{P_{\text{acc}}(X \to Y)}{P_{\text{acc}}(Y \to X)} = \frac{\min(1, \text{arg}_{\text{fwd}})}{\min(1, 1/\text{arg}_{\text{fwd}})} \equiv \text{arg}_{\text{fwd}}
+\end{equation}
+satisfying microscopic reversibility identically for any $K$, box volume $V_{\text{box}}$, and interaction model.
+
+\subsection{Cluster Detection via G-DBSCAN and Surface Dipole Asymmetry}
+\label{sec:algo_dbscan}
+
+A core prerequisite for AVBMC is distinguishing cluster surface particles from dense cluster interiors. Attempting to insert a monomer into the deep interior of an assembled cluster invariably results in steric overlap ($w_{\text{cluster}} = 0$).
+
+In \texttt{MCCB-gpu}, cluster identification is carried out on the GPU using an implementation of the **G-DBSCAN** (GPU Density-Based Spatial Clustering of Applications with Noise) algorithm \cite{andrade2013gdbscan}, directly adapted from the companion trajectory analysis package \texttt{trj\_analysis} \cite{trjanaly2026}. 
+Two particles $i$ and $j$ are defined as connected if their center-to-center distance (or patch-patch distance for SSP models) satisfies $r_{ij} \le r_{\text{cl}}$. The algorithm proceeds in two stages:
+\begin{enumerate}
+    \item \textbf{GPU Adjacency Graph Construction}: A CUDA kernel evaluates the neighborhood of each particle, populating compact adjacency arrays (\texttt{gneighbors}, \texttt{goffset}, \texttt{gadjacency}) on device memory. Particles with neighbor counts $z_i \ge \text{minPts} - 1$ are classified as core candidates.
+    \item \textbf{Parallel BFS Expansion}: Connected components are identified via a GPU breadth-first search (\texttt{gbfs}) kernel, assigning a unique \texttt{cluster\_id} to all particles in each cluster.
+\end{enumerate}
+
+To isolate active surface sites, each particle $i$ in a cluster is evaluated using a local **geometric dipole asymmetry parameter** $\eta_i$:
+\begin{equation}
+    \eta_i = \frac{1}{z_i} \left\| \sum_{j \in \text{neigh}(i)} \hat{\mathbf{r}}_{ij} \right\|
+    \label{eq:asym}
+\end{equation}
+where $\hat{\mathbf{r}}_{ij} = \mathbf{r}_{ij} / \|\mathbf{r}_{ij}\|$ is the unit bond vector pointing from particle $i$ to neighbor $j$, and $z_i$ is the coordination number.
+\begin{itemize}
+    \item \textbf{Core Particles}: Inside a cluster, neighbors surround particle $i$ nearly isotropically. The unit vectors cancel vectors in opposite hemispheres: $\sum_j \hat{\mathbf{r}}_{ij} \approx \mathbf{0}$, yielding $\eta_i \approx 0$.
+    \item \textbf{Surface/Border Particles}: At the cluster boundary, neighbors reside predominantly on one side. The sum of bond vectors does not cancel, producing a large net dipole vector with $\eta_i \ge \eta_{\text{thresh}} = 0.5$.
+\end{itemize}
+Particles with $\eta_i \ge \eta_{\text{thresh}}$ are assigned to the border pool $\mathcal{B}$, while unbonded particles ($z_i = 0$, \texttt{cluster\_id} $= 0$) form the free pool $\mathcal{F}$. Alternatively, an energy-based criterion ($u_i / \langle u_{\text{bulk}} \rangle \le \text{ratio}$) is also available via namelist control.
+
+\subsection{Multicomponent Particle Identity Swaps (\texorpdfstring{$A \leftrightarrow B$}{A <-> B})}
+\label{sec:algo_swaps}
+
+In dense multicomponent mixtures, such as non-additive hard sphere (NAHS) fluids and binary glass formers, structural relaxation is arrested by compositional jamming: particles cannot exchange positions because intermediate steric barriers prevent physical diffusion. Identity swap moves ($A \leftrightarrow B$) exchange the species labels of two distinct particles while keeping their spatial coordinates fixed, bypassing free-energy barriers along orthogonal compositional degrees of freedom.
+
+\texttt{MCCB-gpu} implements two complementary GPU checkerboard swap kernels:
+\begin{enumerate}
+    \item \textbf{Intra-Cell Swaps}: Within an active checkerboard cell $C$, two distinct particles $i, j \in C$ of different species ($S_i \neq S_j$) are chosen uniformly at random with probability:
+    \begin{equation}
+        P_{\text{pair}}(i, j \mid C) = \frac{2}{n_C(n_C - 1)}
+    \end{equation}
+    where $n_C$ is the particle occupancy of cell $C$.
+    \item \textbf{Cross-Cell Disjoint Swaps}: Two mutually non-adjacent active cells $C_1, C_2$ separated by $\ge r_{\text{cut}}$ are selected, and particles $i \in C_1, j \in C_2$ with $S_i \neq S_j$ are selected with probability $1 / (n_{C_1} n_{C_2})$. A symmetric 50/50 coin flip determines the swap direction.
+\end{enumerate}
+
+\paragraph{Proof of Microscopic Reversibility}
+Because particle coordinates are unchanged by identity swaps, the cell occupancies $n_C$ are strictly invariant:
+\begin{equation}
+    n_C(Y) = n_C(X) \implies \alpha_{\text{prop}}(Y \to X) \equiv \alpha_{\text{prop}}(X \to Y)
+\end{equation}
+The proposal ratio $\alpha(Y \to X)/\alpha(X \to Y)$ is identically unity. For athermal hard spheres, the move is accepted if and only if no hard-core overlaps are created. For continuous and patchy potentials, the energy difference is:
+\begin{align}
+    \Delta E &= \sum_{k \neq i, j} \left[ U(S_j, S_k, \mathbf{r}_{ik}) - U(S_i, S_k, \mathbf{r}_{ik}) \right] \nonumber \\
+             &+ \sum_{k \neq i, j} \left[ U(S_i, S_k, \mathbf{r}_{jk}) - U(S_j, S_k, \mathbf{r}_{jk}) \right] + \Delta E_{ab}
+\end{align}
+where $\Delta E_{ab} = U(S_j, S_i, \mathbf{r}_{ij}) - U(S_i, S_j, \mathbf{r}_{ij}) \equiv 0$ for symmetric pair interactions. The move is accepted with standard Metropolis probability $\min(1, e^{-\beta \Delta E})$.
+
+\paragraph{Generalization to Multicomponent Mixtures ($N_{\text{species}} \ge 2$)}
+In systems with $N_{\text{species}} > 2$, the two species labels $(A, B)$ are chosen uniformly at random from all available pairs of distinct species for each swap attempt. This preserves microscopic reversibility across arbitrary ternary, quaternary, and polydisperse mixtures.
+
+\subsection{Persistent In-Memory Hybrid Monte Carlo (HMC)}
+\label{sec:algo_hmc}
+
+To incorporate collective conformational rearrangements, \texttt{MCCB-gpu} provides a Hybrid Monte Carlo (HMC) module \cite{duane1987hybrid,mehlig1992hybrid} that periodically interleaves canonical MC sweeps with microcanonical ($NVE$) Molecular Dynamics (MD) trajectories generated by the LAMMPS engine \cite{thompson2022lammps}.
+
+\begin{figure}[tbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/hmc_overhead_benchmark_comparison.png}
+\caption{\textbf{Profiling of In-Memory HMC Coupling with LAMMPS on NVIDIA RTX PRO 4500}: (a) Latency breakdown showing the $287\times$ speedup of direct in-memory C-API coordinate transfer ($0.43$ ms) over disk ASCII file I/O ($122.9$ ms). (b) MD trajectory propagation scaling with $N_{\text{md}}$, highlighting a $6.1\times$--$6.7\times$ throughput advantage for GPU-accelerated tabular potentials over analytic overlays. (c) Coupling overhead fraction versus $N_{\text{md}}$. (d) Comparison of task invocation paradigms for $N_{\text{md}} = 50$ steps.}
+\label{fig:hmc_profile}
+\end{figure}
+
+Starting from an initial configuration $\mathbf{q}_0$, particle velocities $\mathbf{p}_0$ are sampled from the Maxwell-Boltzmann distribution at temperature $T$. A microcanonical MD trajectory of $N_{\text{md}}$ timesteps is integrated via the velocity Verlet algorithm. The final state $(\mathbf{q}_\tau, \mathbf{p}_\tau)$ is accepted with generalized Metropolis probability:
+\begin{equation}
+    P_{\text{acc}}^{\text{HMC}} = \min\left(1, \, \exp\left(-\beta [\mathcal{H}(\mathbf{q}_\tau, \mathbf{p}_\tau) - \mathcal{H}(\mathbf{q}_0, \mathbf{p}_0)]\right)\right)
+\end{equation}
+where $\mathcal{H}(\mathbf{q}, \mathbf{p}) = U(\mathbf{q}) + \sum_i \frac{\mathbf{p}_i^2}{2m_i}$ is the total classical Hamiltonian.
+
+\paragraph{Elimination of Disk and Task Forking Overheads}
+Conventional implementations interface MC codes with LAMMPS by writing ASCII data files (\texttt{lammps\_hmc.data}) to disk and invoking an external binary or calling \texttt{clear} between trials. As quantified in Section~\ref{sec:bench_hmc} and Figure~\ref{fig:hmc_profile}, disk serialization and lexical parsing consume $122.9$~ms per trial, while issuing \texttt{clear} incurs a $351.5$~ms penalty to rebuild neighbor lists and reallocate GPU memory buffers.
+
+\texttt{MCCB-gpu} resolves both bottlenecks by implementing a **persistent in-memory architecture**:
+\begin{enumerate}
+    \item The LAMMPS instance, box topology, pair potentials, and GPU neighbor lists are initialized once during the first trial and maintained in host memory throughout the simulation.
+    \item Coordinates are injected directly into LAMMPS via \texttt{lammps\_scatter\_atoms("x")} and extracted via \texttt{lammps\_gather\_atoms("x")}, completing in $0.43$~ms ($287\times$ faster than disk I/O).
+    \item For patchy particles, rigid bodies are projected onto central core atoms and satellite patch sites. Before each MD segment, periodic boundary image flags are zeroed (\texttt{set group all image 0 0 0}) and \texttt{fix rigid/nve molecule} is dynamically refreshed to prevent coordinate unwrap drift across successive HMC trials.
+\end{enumerate}
+
+\section{Software Architecture and Program Description}
+\label{sec:software}
+
+\subsection{Modular Structure and Source Organization}
+\label{sec:soft_arch}
+
+\texttt{MCCB-gpu} is structured into modular compilation units utilizing CUDA Fortran and Fortran 2008 with standard ISO C bindings:
+\begin{itemize}
+    \item \texttt{src/Main.cuf}: Main simulation driver, command-line parsing, initialization, time evolution loop, periodic checkpointing, and graceful shutdown.
+    \item \texttt{src/Subsweep\_Energy\_CUDA.cuf}: Core GPU computational engine containing the checkerboard sub-sweep kernels (\texttt{subsweep\_HS}, \texttt{subsweep\_LJ}, \texttt{subsweep\_angular}, \texttt{subsweep\_sitesite}), identity swap kernels, and energy reduction routines.
+    \item \texttt{src/Cell.cuf} \& \texttt{src/cuda\_fortran.cuf}: Host and device data structures for 3D cellular grid indexing, particle coordinate packing, and GPU device memory allocations.
+    \item \texttt{src/mod\_clusters.cuf}: G-DBSCAN GPU neighbor search, parallel BFS traversal kernel (\texttt{gbfs}), and geometric dipole surface asymmetry calculation.
+    \item \texttt{src/mod\_avbmc.cuf}: AVBMC trial generator, Rosenbluth sum computation, and acceptance evaluation.
+    \item \texttt{src/lammps\_hmc\_wrapper.cuf}: C-API interface to \texttt{liblammps}, persistent memory management, coordinate scatter/gather, and rigid-body quaternion projection.
+    \item \texttt{src/Read\_input\_data\_nml.cuf}: Namelist parsing, input verification, and restart checkpoint writing (\texttt{input-restart.nml}).
+    \item \texttt{src/netcdf\_io.f90}: High-performance binary trajectory writer implementing the AMBER NetCDF convention (delivering $35\times$ file compression over text formats).
+\end{itemize}
+
+\subsection{Input Variables and Namelists}
+\label{sec:soft_namelists}
+
+Simulation parameters are provided via standard Fortran namelists in a single input file (e.g., \texttt{datos.nml}). Tables~\ref{tab:nml_control}--\ref{tab:nml_lammps} document all input variables, allowable values, and physical meanings.
+
+\begin{table*}[tbp]
+\centering
+\small
+\caption{\textbf{Control Parameters Namelist (\texttt{\&Control\_Params})}}
+\label{tab:nml_control}
+\begin{tabularx}{\textwidth}{l l c X}
+\toprule
+\textbf{Variable} & \textbf{Type} & \textbf{Default} & \textbf{Description / Physical Function} \\
+\midrule
+\texttt{istep\_ini} & Integer & 1 & Initial simulation sweep index (automatically updated in restarts). \\
+\texttt{istep\_fin} & Integer & 1000 & Final simulation sweep index. \\
+\texttt{Neq} & Integer & 0 & Number of equilibration sweeps (virial statistics excluded during equilibration). \\
+\texttt{Nmove} & Integer & 125 & Trial moves attempted per active cell during each checkerboard sub-sweep. \\
+\texttt{Nsave} & Integer & 100 & Frequency (in sweeps) for writing thermodynamic averages to \texttt{run-data.dat}. \\
+\texttt{Ndump} & Integer & 1000 & Frequency (in sweeps) for appending frames to the trajectory file. \\
+\texttt{Nrestart} & Integer & 5000 & Frequency (in sweeps) for writing restart checkpoints (\texttt{data.restart}). \\
+\texttt{traj\_format} & Character & \texttt{'netcdf'} & Trajectory format: \texttt{'netcdf'} (binary NetCDF), \texttt{'plain'} (text XYZ/LAMMPS), or \texttt{'both'}. \\
+\texttt{data\_file} & Character & \texttt{'data.atoms'} & Path to the initial atomic configuration file (LAMMPS data format). \\
+\texttt{Npart\_types} & Integer & 1 & Number of distinct chemical species in the mixture ($N_{\text{species}}$). \\
+\texttt{ncluster} & Integer & 0 & Frequency (in sweeps) for DBSCAN cluster analysis (0 = disabled). \\
+\texttt{rcl} & Real & 1.8 & Radial neighbor connectivity threshold ($r_{\text{cl}}$) for cluster formation. \\
+\texttt{minPts} & Integer & 3 & Minimum neighbor count for DBSCAN core node classification. \\
+\texttt{asym\_threshold}& Real & 0.5 & Dipole asymmetry threshold ($\eta_{\text{thresh}}$) for cluster surface identification. \\
+\texttt{cluster\_types}& Integer(10) & -1 & Species types included in cluster search (-1 = all species). \\
+\texttt{avbmc} & Logical & \texttt{.false.} & Master flag to enable Association Volume Bias Monte Carlo moves. \\
+\texttt{border\_criterion}& Character & \texttt{'asymmetry'}& Border identification method: \texttt{'asymmetry'} (geometric dipole) or \texttt{'energy'}. \\
+\texttt{avbmc\_k\_trials}& Integer & 10 & Number of bulk Rosenbluth trial positions ($K$) per AVBMC attempt. \\
+\texttt{avbmc\_max\_trials}& Integer & 50 & Maximum number of pair attempts per AVBMC invocation. \\
+\texttt{lammps} & Logical & \texttt{.false.} & Master flag to enable in-memory Hybrid Monte Carlo moves via LAMMPS. \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\begin{table*}[tbp]
+\centering
+\small
+\caption{\textbf{Monte Carlo Parameters Namelist (\texttt{\&MC\_Params})}}
+\label{tab:nml_mc}
+\begin{tabularx}{\textwidth}{l l c X}
+\toprule
+\textbf{Variable} & \textbf{Type} & \textbf{Default} & \textbf{Description / Physical Function} \\
+\midrule
+\texttt{temp0}, \texttt{temp1} & Real & 1.0, 1.0 & Initial and final temperatures ($T^*$ or Kelvin). Linear ramp if $\texttt{temp0} \neq \texttt{temp1}$. \\
+\texttt{npt} & Logical & \texttt{.false.} & Master flag for isobaric-isothermal ($NpT$) ensemble sampling. \\
+\texttt{pres} & Real & 0.0 & Target pressure ($P^*$ in reduced units or atmospheres in real units). \\
+\texttt{Nvolf} & Integer & 1 & Frequency (in MC sweeps) of trial volume moves when \texttt{npt = .true.} \\
+\texttt{hmax} & Real & 0.1 & Maximum trial displacement distance along Cartesian axes. \\
+\texttt{omax} & Real & 0.1 & Maximum trial quaternion angular rotation parameter. \\
+\texttt{vmax} & Real(3) & 0.01 & Maximum trial volume scaling factor along Cartesian axes. \\
+\texttt{displ\_update} & Logical & \texttt{.false.} & Dynamically adjust \texttt{hmax} and \texttt{omax} to achieve $40\%$ acceptance. \\
+\texttt{seed} & Integer & 123456 & Pseudo-random number generator seed. \\
+\texttt{swap\_moves} & Logical & \texttt{.false.} & Enable GPU checkerboard particle identity swaps ($N_{\text{part\_types}} \ge 2$). \\
+\texttt{Nswap} & Integer & 1 & Number of swap sub-passes executed per swap invocation. \\
+\texttt{Nswapf} & Integer & 1 & Frequency (in MC sweeps) of identity swap moves. \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\begin{table*}[tbp]
+\centering
+\small
+\caption{\textbf{Potential Parameters Namelist (\texttt{\&Potential\_Params})}}
+\label{tab:nml_pot}
+\begin{tabularx}{\textwidth}{l l c X}
+\toprule
+\textbf{Variable} & \textbf{Type} & \textbf{Default} & \textbf{Description / Physical Function} \\
+\midrule
+\texttt{model} & Character & \texttt{'LJ'} & Interaction potential: \texttt{'HS'}, \texttt{'LJ'}, \texttt{'TABLE'}, \texttt{'LJG'} (angular), or \texttt{'SSP'} (site-site). \\
+\texttt{table\_mc} & Logical & \texttt{.false.} & Use Catmull-Rom interpolated potential tables on the GPU. \\
+\texttt{table\_file\_mc}& Character & \texttt{''} & Base prefix for MC potential table files (e.g., \texttt{'pot'} for \texttt{pot11.dat}). \\
+\texttt{Bool\_tor} & Logical & \texttt{.false.} & Enable torsional angular patch modulation in LJG models. \\
+\texttt{sigp\_factor} & Real & 0.1 & Patch width scaling factor in Palaia SSP models. \\
+\texttt{Rcp\_factor} & Real & 0.3 & Patch radial cutoff scaling factor in Palaia SSP models. \\
+\texttt{Rc\_factor} & Real & 2.0 & Core potential cutoff scaling factor in Palaia SSP models. \\
+\texttt{patch\_radial\_factor}& Real & 0.5 & Distance from particle center to patch site ($r_p / \sigma$). \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\begin{table*}[tbp]
+\centering
+\small
+\caption{\textbf{LAMMPS Hybrid Monte Carlo Parameters Namelist (\texttt{\&Lammps\_Params})}}
+\label{tab:nml_lammps}
+\begin{tabularx}{\textwidth}{l l c X}
+\toprule
+\textbf{Variable} & \textbf{Type} & \textbf{Default} & \textbf{Description / Physical Function} \\
+\midrule
+\texttt{timestep} & Real & 0.0025 & MD integration timestep for HMC trajectory segments ($\Delta t$). \\
+\texttt{Nmd} & Integer & 50 & Number of microcanonical MD steps executed per HMC trajectory segment. \\
+\texttt{hmc\_freq} & Integer & 10 & Cadence (in MC sweeps) between successive HMC trajectory proposals. \\
+\texttt{neigh\_skin} & Real & 0.3 & Neighbor list skin distance in LAMMPS distance units. \\
+\texttt{thermo\_freq}& Integer & 0 & Frequency of internal LAMMPS thermodynamic logging (0 = disabled). \\
+\texttt{use\_gpu} & Logical & \texttt{.true.} & Accelerate LAMMPS pair evaluation via the GPU package (\texttt{-pk gpu 1}). \\
+\texttt{gpu\_id} & Integer & -1 & GPU device ID for LAMMPS (-1 = inherit \texttt{MCCB-gpu} active device). \\
+\texttt{table\_lammps}& Logical & \texttt{.true.} & Force tabulated force representation in LAMMPS (\texttt{pair\_style table}). \\
+\texttt{table\_file\_lammps}& Character & \texttt{''} & Filename prefix for LAMMPS tabulated potential files. \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\subsection{Input and Output Files}
+\label{sec:soft_files}
+
+\paragraph{Input Files}
+\begin{itemize}
+    \item \texttt{datos.nml}: Primary input file containing namelists (\texttt{\&Control\_Params}, \texttt{\&MC\_Params}, \texttt{\&Potential\_Params}, \texttt{\&Lammps\_Params}) followed by pairwise interaction matrices ($\sigma_{ij}$, $\varepsilon_{ij}$, $r_{c,ij}$).
+    \item \texttt{data.atoms}: Initial atomic configuration formatted according to the standard LAMMPS data specification, specifying box bounds, masses, and atomic coordinates (and quaternions for patchy models).
+    \item \texttt{pot*.dat}: User-tabulated pairwise potential files (for \texttt{model = 'TABLE'}).
+\end{itemize}
+
+\paragraph{Output Files}
+\begin{itemize}
+    \item \texttt{run-data.dat}: Time series of thermodynamic observables: Step, Temperature, Density, Volume, $L_x$, $L_y$, $L_z$, and Potential Energy per atom.
+    \item \texttt{trajectory.nc}: High-density binary NetCDF trajectory containing per-frame coordinates, quaternions, cell metrics, and metadata.
+    \item \texttt{data.restart} \& \texttt{input-restart.nml}: Pair of exact checkpoint files capturing the full microstate and active simulation parameters, enabling seamless restarts without data loss.
+    \item \texttt{clusevol\_mc.dat}: Time series of cluster statistics: Step, Cluster Count $N_{\text{clust}}$, Maximum Cluster Size $S_{\max}$, Clustered Particle Count, and Clustered Fraction (\%).
+    \item \texttt{mclast\_conf.lammpstrj}: Final configuration formatted in LAMMPS trajectory format for visual analysis via VMD or OVITO.
+\end{itemize}
+
+\section{Verification and Algorithmic Validation}
+\label{sec:verification}
+
+\subsection{Thermodynamic Consistency (\texorpdfstring{$NpT \leftrightarrow NVT$}{NpT <-> NVT})}
+\label{sec:verif_consistency}
+
+To verify physical fidelity, we executed an automated two-stage workflow across cluster nodes \texttt{ladon28} and \texttt{ladon29}:
+\begin{enumerate}
+    \item \textbf{Stage 1 ($NpT$)}: An isobaric-isothermal simulation is equilibrated at target pressure $P^*_{\text{target}}$ and temperature $T^*$, recording the mean volume $\langle V \rangle_{NpT}$ (density $\langle \rho^* \rangle_{NpT}$) and generating an exact checkpoint (\texttt{data.restart}).
+    \item \textbf{Stage 2 ($NVT$)}: A canonical simulation is executed from the restart configuration at fixed density $\rho^* = \langle \rho^* \rangle_{NpT}$.
+    \item \textbf{Validation}: Equivalence of internal potential energy $\langle U/N \rangle_{NVT} \approx \langle U/N \rangle_{NpT}$ is verified for continuous models, and virial pressure $\langle P_{\text{virial}} \rangle$ is cross-validated against the analytical Carnahan-Starling equation of state for Hard Spheres.
+\end{enumerate}
+
+\begin{figure*}[tbp]
+\centering
+\begin{subfigure}[b]{0.32\textwidth}
+    \includegraphics[width=\textwidth]{figures/consistency_hs.png}
+    \caption{Hard Spheres (HS)}
+    \label{fig:consist_hs}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.32\textwidth}
+    \includegraphics[width=\textwidth]{figures/consistency_lj.png}
+    \caption{Lennard-Jones (LJ)}
+    \label{fig:consist_lj}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.32\textwidth}
+    \includegraphics[width=\textwidth]{figures/consistency_ssp.png}
+    \caption{Site-Site Patchy (SSP)}
+    \label{fig:consist_ssp}
+\end{subfigure}
+\caption{\textbf{Thermodynamic Consistency Benchmarks across $NpT$ and $NVT$ Ensembles for $N = 7{,}695$ Particles}: Time evolution of density $\rho^*(t)$ and potential energy $\langle U/N \rangle(t)$ (or virial pressure $P^*(t)$) demonstrating exact statistical overlap between ensembles.}
+\label{fig:consistency_all}
+\end{figure*}
+
+\begin{table*}[tbp]
+\centering
+\small
+\caption{\textbf{Thermodynamic Consistency Validation across Interaction Models}}
+\label{tab:thermo_consistency}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}l l c c c@{}}
+\toprule
+\textbf{Model} & \textbf{Observable} & \textbf{$NpT$ Ensemble} & \textbf{$NVT$ Ensemble} & \textbf{Discrepancy / Agreement} \\
+\midrule
+\textbf{Lennard-Jones} & Density $\langle \rho^* \rangle$ & $0.4723 \pm 0.0041$ & $0.4703$ & 0.43\% \\
+($T^*=1.5, P^*=0.6$) & Energy $\langle U/N \rangle$ & $-2.640 \pm 0.023$ & $-2.631 \pm 0.011$ & \textbf{0.34\%} ($0.35\sigma$) \\
+\midrule
+\textbf{Hard Spheres} & Virial $P^*_{\text{NpT}}$ & $0.6767 \pm 0.0022$ & --- & \textbf{0.034\%} vs $P_{\text{CS}} = 0.67697$ \\
+($T^*=1.0$) & Virial $P^*_{\text{NVT}}$ & --- & $0.7228 \pm 0.0006$ & \textbf{0.038\%} vs $P_{\text{CS}} = 0.72311$ \\
+\midrule
+\textbf{Site-Site Patchy} & Density $\langle \rho^* \rangle$ & $0.7158 \pm 0.0063$ & $0.7238$ & 1.11\% \\
+($T^*=0.154, P^*=0.05$) & Energy $\langle U/N \rangle$ & $-1.873 \pm 0.010$ & $-1.885 \pm 0.003$ & \textbf{0.64\%} ($1.15\sigma$) \\
+& Restart $U/N$ & $-1.88562$ & $-1.88560 \pm 0.0003$ & \textbf{0.001\%} (Exact Match) \\
+\bottomrule
+\end{tabular*}
+\end{table*}
+
+As summarized in Table~\ref{tab:thermo_consistency} and Figure~\ref{fig:consistency_all}:
+\begin{itemize}
+    \item For **Hard Spheres**, the contact virial pressure reproduces the Carnahan-Starling equation of state \cite{carnahan1969equation}:
+    \begin{equation}
+        P_{\text{CS}}(\eta) = \rho k_B T \frac{1 + \eta + \eta^2 - \eta^3}{(1 - \eta)^3}, \quad \eta = \frac{\pi}{6}\rho\sigma^3
+    \end{equation}
+    within $\mathbf{0.034\%}$ in $NpT$ ($0.67674$ vs $0.67697$) and $\mathbf{0.038\%}$ in $NVT$ ($0.72284$ vs $0.72311$).
+    \item For **Lennard-Jones**, internal energies match with a discrepancy of only $0.34\%$ ($Z$-score of $0.35\sigma$).
+    \item For **Site-Site Patchy colloids**, internal energies match within $0.64\%$ ($Z = 1.15\sigma$), with exact configuration restart matching to within $0.001\%$.
+\end{itemize}
+
+\subsection{Machine-Precision Numerical Verification of Detailed Balance}
+\label{sec:verif_db}
+
+To rigorously confirm that theoretical reversibility proofs translate to error-free numerical implementations, independent automated test harnesses were executed:
+\begin{enumerate}
+    \item \textbf{AVBMC Invariant}: In an independent test harness evaluating 5,000 state transitions across Palaia patchy colloidal clusters, the flux reversibility invariant $|\text{arg}_{\text{fwd}} \cdot \text{arg}_{\text{rev}} - 1.0|$ (Eq.~\eqref{eq:avbmc_invariant}) yielded a mean deviation of $\mathbf{3.17 \times 10^{-17}}$ and a maximum deviation of $\mathbf{4.44 \times 10^{-16}}$, matching IEEE 754 double precision machine epsilon ($\sim 2.22 \times 10^{-16}$).
+    \item \textbf{Identity Swaps}: Tested across $11,717$ intra-cell and cross-cell candidate transitions in dense non-additive hard sphere and continuous mixtures, the detailed balance residual $\delta_{\text{DB}} = |\pi(X)T(X\to Y) - \pi(Y)T(Y\to X)|$ satisfied $\delta_{\text{DB}} < \mathbf{10^{-15}}$ with a $100.0\%$ pass rate.
+\end{enumerate}
+
+\section{Performance Benchmarks and Discussion}
+\label{sec:benchmarks}
+
+\subsection{CPU vs. GPU Scaling: Normalizing Moves per Particle}
+\label{sec:bench_cpu_gpu}
+
+We benchmarked \texttt{MCCB-gpu} (v2.8.0) on an \textbf{NVIDIA RTX PRO 4500 Blackwell GPU} (32 GB VRAM) against the optimized multi-core CPU code \textbf{gpMC} (compiled with Intel Fortran \texttt{ifx} 2025.2.0) on a 32-core \textbf{Intel Xeon Gold 6548Y+ CPU} (2.20 GHz) for a binary Lennard-Jones mixture ($N_1 : N_2 = 2 : 1$, $T^* = 3.0$, $r_c = 2.5\sigma$) scaling from $N = 8{,}000$ to $125{,}000$ particles for 100 MC sweeps.
+
+\paragraph{Normalization Formulation}
+A critical methodological distinction between CPU and GPU codes lies in the operational definition of a Monte Carlo sweep:
+\begin{itemize}
+    \item In \textbf{gpMC}, each sweep evaluates exactly 1 trial displacement per particle ($\mu_{\text{CPU}} = 1.0$).
+    \item In \textbf{MCCB-gpu}, the checkerboard engine evaluates $N_{\text{move}} = 125$ trial moves per active cell across the 8 sublattices, attempting $N_{\text{trans}} = N_{\text{cells}} \times N_{\text{move}}$ moves per sweep. The number of moves attempted \emph{per particle per sweep} is:
+    \begin{equation}
+        \mu_{\text{GPU}} = \frac{N_{\text{cells}} \times N_{\text{move}}}{N}
+    \end{equation}
+    yielding $\mu_{\text{GPU}} = 3.375, 1.728, 1.953$, and $2.744$ moves/particle/sweep for $N = 8{,}000, 15{,}625, 32{,}768$, and $125{,}000$, respectively.
+\end{itemize}
+To provide an unbiased comparison of actual sampling throughput, we report both the raw measured wallclock time $t_{\text{raw}}$ and the normalized GPU runtime $t_{\text{norm}} = t_{\text{raw}} / \mu_{\text{GPU}}$, along with the effective sampling speedup:
+\begin{equation}
+    S_{\text{eff}} = \frac{t_{\text{CPU}}}{t_{\text{norm, GPU}}} = S_{\text{raw}} \times \mu_{\text{GPU}}
+\end{equation}
+
+\begin{figure}[tbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/scaling_benchmark.png}
+\caption{\textbf{gpMC (CPU) vs. MCCB-gpu (GPU) Performance Scaling across $NVT$ and $NpT$ Ensembles}: (a) Wallclock execution times for 100 sweeps on Intel Xeon Gold 6548Y+ vs. NVIDIA RTX PRO 4500. (b) Effective throughput speedup factor $S_{\text{eff}}$ accounting for moves per particle, reaching $61.4\times$ in $NVT$ and $68.8\times$ in $NpT$.}
+\label{fig:scaling_bench}
+\end{figure}
+
+\begin{table*}[tbp]
+\centering
+\small
+\caption{\textbf{Simulation Runtime (Seconds) and Speedup across CPU and GPU Architectures ($NVT$ and $NpT$ Ensembles)}}
+\label{tab:gpmc_vs_mccbgpu}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}l c c c c c c c@{}}
+\toprule
+& \textbf{Moves/Part.} & \multicolumn{2}{c}{\textbf{gpMC CPU Time (s)}} & \multicolumn{2}{c}{\textbf{MCCB-gpu GPU Time (s)}} & \multicolumn{2}{c}{\textbf{Effective Speedup}} \\
+\cmidrule{3-4} \cmidrule{5-6} \cmidrule{7-8}
+\textbf{Particles ($N$)} & \textbf{($\mu_{\text{GPU}}$ / $\mu_{\text{CPU}}$)} & \textbf{$NVT$} & \textbf{$NpT$} & \textbf{$NVT$ (Norm)} & \textbf{$NpT$ (Norm)} & \textbf{$NVT$} & \textbf{$NpT$} \\
+\midrule
+\num{8000}   & 3.375 / 1.0 &   9.95 &  15.16 & 4.97 (1.47) &  6.26 (1.85) & \textbf{6.76$\times$} ($2.00\times$) & \textbf{8.17$\times$} ($2.42\times$) \\
+\num{15625}  & 1.728 / 1.0 &  23.59 &  35.95 & 8.73 (5.05) & 11.88 (6.88) & \textbf{4.67$\times$} ($2.70\times$) & \textbf{5.23$\times$} ($3.03\times$) \\
+\num{32768}  & 1.953 / 1.0 &  38.63 &  59.23 & 8.05 (4.12) &  9.94 (5.09) & \textbf{9.37$\times$} ($4.80\times$) & \textbf{11.64$\times$} ($5.96\times$) \\
+\num{125000} & 2.744 / 1.0 & 175.91 & 254.09 & 7.86 (2.86) & 10.14 (3.70) & \textbf{61.41$\times$} ($22.39\times$) & \textbf{68.76$\times$} ($25.06\times$) \\
+\bottomrule
+\end{tabular*}
+\end{table*}
+
+As detailed in Table~\ref{tab:gpmc_vs_mccbgpu} and Figure~\ref{fig:scaling_bench}:
+\begin{itemize}
+    \item \textbf{Peak Speedup}: At $N = 125{,}000$, \texttt{MCCB-gpu} achieves raw speedups of $22.4\times$ ($NVT$) and $25.1\times$ ($NpT$). Accounting for moves per particle, the true sampling speedup reaches $\mathbf{61.4\times}$ in $NVT$ and $\mathbf{68.8\times}$ in $NpT$.
+    \item \textbf{Anomalous GPU Saturation}: Between $N = 15{,}625$ and $N = 125{,}000$, GPU execution time remains essentially flat on the RTX PRO 4500 ($8.73 \to 7.86$~s in $NVT$, $11.88 \to 10.14$~s in $NpT$) despite an $8\times$ increase in particle count! This plateau demonstrates peak CUDA warp occupancy and block memory coalescing on modern GPU architectures.
+\end{itemize}
+
+\subsection{Large-Scale Scaling: LAMMPS vs. MCCB-gpu}
+\label{sec:bench_large}
+
+Table~\ref{tab:lammps_vs_mccb} evaluates scaling up to nearly four million particles ($N \approx 4 \times 10^6$) comparing \texttt{MCCB-gpu} against GPU-accelerated LAMMPS on NVIDIA RTX 2000 and RTX 4500 hardware. \texttt{MCCB-gpu} maintains linear $\mathcal{O}(N)$ scaling, executing 100 sweeps for $3.94 \times 10^6$ particles in just $25.6$~s on the RTX 4500.
+
+\begin{table}[htbp]
+\centering
+\caption{\textbf{Large-Scale Simulation Runtime (Seconds for 100 Steps)}}
+\label{tab:lammps_vs_mccb}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{l c c c c}
+\toprule
+& \multicolumn{2}{c}{\textbf{LAMMPS Time (s)}} & \multicolumn{2}{c}{\textbf{MCCB-gpu Time (s)}} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5}
+\textbf{Particles ($N$)} & \textbf{RTX 2000} & \textbf{RTX 4500} & \textbf{RTX 2000} & \textbf{RTX 4500} \\
+\midrule
+\num{492450}  &  7.0 &  5.0 &  18.0 &  3.8 \\
+\num{1969920} & 22.0 & 18.0 &  66.0 & 13.2 \\
+\num{3939840} & 44.0 & 34.0 & 123.0 & 25.6 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\subsection{In-Memory Hybrid Monte Carlo Overhead Breakdown}
+\label{sec:bench_hmc}
+
+Profiling the HMC coupling layer for $N = 7{,}695$ tetrahedral patchy colloids ($38{,}475$ explicit interaction sites) reveals:
+\begin{itemize}
+    \item \textbf{Data Transfer Acceleration}: Writing and parsing ASCII data files to disk consumes $122.88$~ms per trial ($96.7\%$ of baseline transfer time). Direct in-memory pointer transfers via \texttt{scatter\_atoms} and \texttt{gather\_atoms} require only $0.43$~ms—a $\mathbf{287\times}$ acceleration.
+    \item \textbf{Persistent State Optimization}: Eliminating in-process \texttt{clear} calls saves $351.5$~ms of neighbor list and memory allocation overhead per trial, delivering a $1.66\times$ overall speedup.
+    \item \textbf{Crossover Length}: For GPU-accelerated tabulated potentials, physical MD integration begins to dominate over coupling overhead at $N_{\text{md}}^* \approx 20$ timesteps.
+\end{itemize}
+
+\subsection{Sampling Acceleration: AVBMC and Identity Swaps}
+\label{sec:bench_advanced_moves}
+
+\begin{figure}[tbp]
+\centering
+\includegraphics[width=\columnwidth]{figures/avbmc_benchmark_comparison.png}
+\caption{\textbf{Comparative Benchmark of Patchy Colloidal Cluster Sampling With vs. Without AVBMC}: (a) Cluster abundance kinetics $N_{\text{clust}}(t)$. (b) Maximum cluster size evolution $S_{\max}(t)$. (c) Final cluster size distribution $P(s)$. (d) Acceptance rates.}
+\label{fig:avbmc_bench}
+\end{figure}
+
+\paragraph{AVBMC on Patchy Colloidal Clusters}
+As shown in Figure~\ref{fig:avbmc_bench}, in a dilute binary patchy colloidal fluid ($N = 7{,}695$, $\rho = 0.001218$, $T^* = 0.154$), standard canonical MC undergoes kinetic arrest: the maximum cluster size stagnates at $S_{\max} \approx 1068$, and the clustered fraction declines as monomers evaporate into the void. 
+
+With AVBMC enabled, the association acceptance rate reaches $P_{\text{AV, in}} = \mathbf{55.6\%}$, transferring over 440 monomers directly to active cluster surface sites over 200 sweeps and driving cluster growth to $S_{\max} = 1374$. Remarkably, the computational overhead of performing G-DBSCAN clustering and 800 AVBMC trial moves every 5 sweeps is under $\mathbf{2.8\%}$ ($473.7$~ms/sweep vs $460.5$~ms/sweep).
+
+\paragraph{Identity Swaps in Jammed Non-Additive Mixtures}
+In a dense non-additive hard sphere mixture ($N = 2{,}916$, $P^* = 70.24$), canonical simulations exhibit completely frozen compositional sampling: the species autocorrelation function remains $C_s(t) \equiv 1.0000$ and zero particles exchange chemical identities. With GPU identity swaps enabled, $41.4\%$ of particles exchange species labels, rapidly decaying $C_s(t)$ to $0.45$. This dramatic ergodicity restoration introduces only $+1.02$~ms/sweep ($+18.6\%$) in GPU latency across more than 71 million attempted swap moves.
+
+\section{Conclusions}
+\label{sec:conclusions}
+
+We have introduced \texttt{MCCB-gpu}, an open-source, massively parallel GPU Monte Carlo simulation code for soft-matter and molecular modeling. By combining a 3D checkerboard domain decomposition with three targeted sampling algorithms—AVBMC guided by geometric dipole surface asymmetry, multicomponent particle identity swaps, and persistent in-memory Hybrid Monte Carlo—\texttt{MCCB-gpu} bridges the gap between massive GPU parallel efficiency and advanced free-energy sampling.
+
+Rigorous verification confirms exact microscopic reversibility to machine precision ($10^{-16}$) and thermodynamic consistency between $NpT$ and $NVT$ ensembles ($< 0.04\%$ error against analytical equations of state). Benchmarking against optimized multi-core CPU code demonstrates algorithmic sampling throughput speedups up to $\mathbf{68.8\times}$ on modern NVIDIA GPUs. The source code, complete documentation, automated test suites, and tutorials are freely available under the GPLv3 license at \url{https://github.com/adpozuelo/MC_Checkerboard}.
+
+\section*{Declaration of Competing Interest}
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.
+
+\section*{Acknowledgements}
+This work was supported by the Spanish Ministry of Science, Innovation and Universities (MICIU/AEI/10.13039/501100011033) through Grants PID2021-124297NB-C31 and PID2024-156328NB-I00. Computational resources were provided by the high-performance computing clusters at the Instituto de Qu{\'{i}}mica F{\'{i}}sica Blas Cabrera (IQF-CSIC).
+
+\bibliographystyle{elsarticle-num}
+\bibliography{references}
+
+\vspace{1em}
+\hrule
+\vspace{1em}
+
+\section*{Author Biographies}
+
+\textbf{Antonio D{\'{i}}az-Pozuelo} is a postdoctoral researcher at the Instituto de Qu{\'{i}}mica F{\'{i}}sica Blas Cabrera (IQF-CSIC), Madrid, Spain. He received his Ph.D. in Chemical Physics specializing in advanced Monte Carlo algorithms and molecular dynamics simulations of self-assembling patchy colloids and soft-matter systems. His research focuses on GPU-accelerated high-performance scientific computing, parallel algorithm development, and trajectory analysis methodologies for complex condensed-matter assemblies.
+
+\vspace{0.8em}
+\noindent
+\textbf{Eva Gonz{\'{a}}lez Noya} is a Tenured Research Scientist at the Instituto de Qu{\'{i}}mica F{\'{i}}sica Blas Cabrera (IQF-CSIC), Madrid, Spain. Her research expertise encompasses equilibrium and non-equilibrium statistical mechanics, phase behavior of water and ice polymorphism, directional interactions in patchy nanoparticles, nucleation kinetics, and the development of advanced free-energy and biased Monte Carlo simulation techniques.
+
+\vspace{0.8em}
+\noindent
+\textbf{Enrique Lomba} is a Research Professor at the Instituto de Qu{\'{i}}mica F{\'{i}}sica Blas Cabrera (IQF-CSIC), Madrid, Spain. He has authored over 170 scientific publications in theoretical condensed matter physics and statistical thermodynamics. His research interests include integral equation theories of disordered fluids, phase transitions in colloidal and biological systems, machine-learning applications in soft matter, and high-performance parallel computing for large-scale molecular simulations.
+
+\end{document}

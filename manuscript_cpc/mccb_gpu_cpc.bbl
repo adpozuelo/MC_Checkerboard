@@ -1,0 +1,146 @@
+\begin{thebibliography}{10}
+\expandafter\ifx\csname url\endcsname\relax
+  \def\url#1{\texttt{#1}}\fi
+\expandafter\ifx\csname urlprefix\endcsname\relax\def\urlprefix{URL }\fi
+\expandafter\ifx\csname href\endcsname\relax
+  \def\href#1#2{#2} \def\path#1{#1}\fi
+
+\bibitem{frenkel2001understanding}
+D.~Frenkel, B.~Smit, Understanding Molecular Simulation: From Algorithms to
+  Applications, 2nd Edition, Academic Press, San Diego, 2001.
+
+\bibitem{allen2017computer}
+M.~P. Allen, D.~J. Tildesley, Computer Simulation of Liquids, 2nd Edition,
+  Oxford University Press, Oxford, 2017.
+
+\bibitem{carnahan1969equation}
+N.~F. Carnahan, K.~E. Starling, Equation of state for nonattracting rigid
+  spheres, J. Chem. Phys. 51~(2) (1969) 635--636.
+\newblock \href {https://doi.org/10.1063/1.1672048}
+  {\path{doi:10.1063/1.1672048}}.
+
+\bibitem{bianchi2006phase}
+E.~Bianchi, J.~Largo, P.~Tartaglia, E.~Zaccarelli, F.~Sciortino, Phase diagram
+  of patchy colloids: towards empty liquids, Phys. Rev. Lett. 97~(16) (2006)
+  168301.
+\newblock \href {https://doi.org/10.1103/PhysRevLett.97.168301}
+  {\path{doi:10.1103/PhysRevLett.97.168301}}.
+
+\bibitem{sciortino2007patchy}
+F.~Sciortino, E.~Bianchi, J.~F. Douglas, P.~Tartaglia, Self-assembly of patchy
+  particles into polymer networks: A molecular dynamics study, J. Chem. Phys.
+  126~(19) (2007) 194903.
+\newblock \href {https://doi.org/10.1063/1.2730797}
+  {\path{doi:10.1063/1.2730797}}.
+
+\bibitem{noya2014phase}
+E.~G. Noya, I.~Kolovos, G.~Doppelbauer, G.~Kahl, C.~Vega, Phase diagram of a
+  model of patchy particles with tetrahedral symmetry, Soft Matter 10~(42)
+  (2014) 8464--8474.
+\newblock \href {https://doi.org/10.1039/C4SM01620D}
+  {\path{doi:10.1039/C4SM01620D}}.
+
+\bibitem{palaia2022patchy}
+I.~Palaia, A.~D{\'{i}}az-Pozuelo, A.~Reinhardt, E.~Lomba, C.~Valeriani,
+  Self-assembly of patchy particles into crystalline and glassy structures,
+  Phys. Chem. Chem. Phys. 24 (2022) 28545--28555.
+\newblock \href {https://doi.org/10.1039/D2CP04052C}
+  {\path{doi:10.1039/D2CP04052C}}.
+
+\bibitem{ninarello2017models}
+A.~Ninarello, L.~Berthier, D.~Coslovich, Models and algorithms for the next
+  generation of glass transition studies, Phys. Rev. X 7~(2) (2017) 021039.
+\newblock \href {https://doi.org/10.1103/PhysRevX.7.021039}
+  {\path{doi:10.1103/PhysRevX.7.021039}}.
+
+\bibitem{berthier2017configurational}
+L.~Berthier, P.~Charbonneau, D.~Coslovich, A.~Ninarello, M.~Ozawa, S.~Yaida,
+  Configurational entropy measurements in extremely supercooled liquids that
+  break the glass ceiling, Proc. Natl. Acad. Sci. U.S.A. 114~(43) (2017)
+  11356--11361.
+\newblock \href {https://doi.org/10.1073/pnas.1706860114}
+  {\path{doi:10.1073/pnas.1706860114}}.
+
+\bibitem{anderson2008gpu}
+J.~A. Anderson, C.~D. Lorenz, A.~Travesset, General purpose molecular dynamics
+  simulations fully implemented on graphics processing units, J. Comput. Phys.
+  227~(10) (2008) 5342--5359.
+\newblock \href {https://doi.org/10.1016/j.jcp.2008.01.047}
+  {\path{doi:10.1016/j.jcp.2008.01.047}}.
+
+\bibitem{thompson2022lammps}
+A.~P. Thompson, H.~M. Aktulga, R.~Berger, D.~S. Bolintineanu, W.~M. Brown,
+  P.~S. Crozier, P.~J. in~'t Veld, A.~Kohlmeyer, S.~G. Moore, T.~D. Nguyen,
+  R.~Shan, M.~J. Stevens, J.~Tranchida, C.~Trott, S.~J. Plimpton, {LAMMPS} - a
+  flexible simulation tool for particle-based materials modeling at the atomic,
+  meso, and continuum scales, Comput. Phys. Commun. 271 (2022) 108171.
+\newblock \href {https://doi.org/10.1016/j.cpc.2021.108171}
+  {\path{doi:10.1016/j.cpc.2021.108171}}.
+
+\bibitem{whitelam2007avoiding}
+S.~Whitelam, P.~L. Geissler, Avoiding unphysical kinetic traps in {Monte Carlo}
+  simulations of strongly attractive particles, J. Chem. Phys. 127~(15) (2007)
+  154101.
+\newblock \href {https://doi.org/10.1063/1.2790421}
+  {\path{doi:10.1063/1.2790421}}.
+
+\bibitem{rovigatti2018simulate}
+L.~Rovigatti, J.~Russo, F.~Romano, How to simulate patchy particles, Eur. Phys.
+  J. E 41~(5) (2018) 59.
+\newblock \href {https://doi.org/10.1140/epje/i2018-11667-x}
+  {\path{doi:10.1140/epje/i2018-11667-x}}.
+
+\bibitem{preis2009gpu}
+T.~Preis, P.~Virnau, W.~Paul, J.~J. Schneider, {GPU} accelerated {Monte Carlo}
+  simulation of the 2d and 3d {Ising} model, J. Comput. Phys. 228~(12) (2009)
+  4468--4477.
+\newblock \href {https://doi.org/10.1016/j.jcp.2009.03.018}
+  {\path{doi:10.1016/j.jcp.2009.03.018}}.
+
+\bibitem{anderson2013checkerboard}
+J.~A. Anderson, E.~Jankowski, T.~L. Grubb, M.~Engel, S.~C. Glotzer, Massively
+  parallel {Monte Carlo} for many-particle simulations on {GPUs}, J. Comput.
+  Phys. 254 (2013) 27--38.
+\newblock \href {https://doi.org/10.1016/j.jcp.2013.07.023}
+  {\path{doi:10.1016/j.jcp.2013.07.023}}.
+
+\bibitem{chen2000avbmc}
+B.~Chen, J.~I. Siepmann, Aggregation-volume-bias {Monte Carlo} simulations of
+  the liquid-vapor coexistence of water, J. Phys. Chem. B 104~(36) (2000)
+  8725--8734.
+\newblock \href {https://doi.org/10.1021/jp001952u}
+  {\path{doi:10.1021/jp001952u}}.
+
+\bibitem{chen2001avbmc}
+B.~Chen, J.~I. Siepmann, K.~J. Oh, M.~L. Klein, Aggregation-volume-bias {Monte
+  Carlo} simulations of vapor-liquid equilibria of associating fluids, J. Chem.
+  Phys. 115~(23) (2001) 10903--10913.
+\newblock \href {https://doi.org/10.1063/1.1417536}
+  {\path{doi:10.1063/1.1417536}}.
+
+\bibitem{andrade2013gdbscan}
+G.~Andrade, G.~Ramos, D.~Madeira, R.~Sachetto, R.~Ferreira, L.~Rocha,
+  {G-DBSCAN: A GPU Accelerated Algorithm for Density-based Clustering},
+  Procedia Comput. Sci. 18 (2013) 369--378.
+\newblock \href {https://doi.org/10.1016/j.procs.2013.05.200}
+  {\path{doi:10.1016/j.procs.2013.05.200}}.
+
+\bibitem{trjanaly2026}
+A.~D{\'{i}}az-Pozuelo, R.~Lomba, E.~Lomba, {\texttt{trj\_analysis}:
+  High-Performance GPU-Accelerated Trajectory Analysis and Graph-Mining Package
+  for Complex Colloidal Assemblies}, Available at:
+  \url{https://github.com/adpozuelo/trj_analysis} (2026).
+
+\bibitem{duane1987hybrid}
+S.~Duane, A.~D. Kennedy, B.~J. Pendleton, D.~Roweth, Hybrid {Monte Carlo},
+  Phys. Lett. B 195~(2) (1987) 216--222.
+\newblock \href {https://doi.org/10.1016/0370-2693(87)91197-X}
+  {\path{doi:10.1016/0370-2693(87)91197-X}}.
+
+\bibitem{mehlig1992hybrid}
+B.~Mehlig, D.~W. Heermann, B.~M. Forrest, Hybrid {Monte Carlo} method for
+  condensed-matter systems, Phys. Rev. B 45~(1) (1992) 679--685.
+\newblock \href {https://doi.org/10.1103/PhysRevB.45.679}
+  {\path{doi:10.1103/PhysRevB.45.679}}.
+
+\end{thebibliography}
