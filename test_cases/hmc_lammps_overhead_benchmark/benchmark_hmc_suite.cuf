@@ -49,7 +49,7 @@ program benchmark_hmc_suite
     n_reps = 5
 
     write(*,'(A)') c_blue // '========================================================================================' // c_reset
-    write(*,'(A)') c_cyan // '          HYBRID MC_CB-GPU/LAMMPS COMPREHENSIVE PROFILER & BENCHMARK                    ' // c_reset
+    write(*,'(A)') c_cyan // '          HYBRID MCCB-gpu/LAMMPS COMPREHENSIVE PROFILER & BENCHMARK                    ' // c_reset
     write(*,'(A)') c_cyan // '                     (JCTC Rigorous Profiling Suite)                                    ' // c_reset
     write(*,'(A)') c_blue // '========================================================================================' // c_reset
 

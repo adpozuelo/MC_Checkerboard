@@ -108,7 +108,7 @@ The Makefile automatically includes NetCDF libraries if the proper environment v
 ### Manual Compilation
 
 ```bash
-nvfortran -O3 -Mcuda=cc70 -o ../bin/mc_gpu.exe *.cuf
+nvfortran -O3 -Mcuda=cc70 -o ../bin/MCCB-gpu *.cuf
 ```
 
 Adjust `-Mcuda=cc70` to match your GPU architecture:
@@ -154,10 +154,10 @@ netcdf
 
 ```bash
 # Run using the default GPU device (ID 0):
-mc_gpu.exe filename.nml
+MCCB-gpu filename.nml
 
 # Run using a specific GPU device (e.g., GPU 1):
-mc_gpu.exe filename.nml 1
+MCCB-gpu filename.nml 1
 ```
 
 ### Example Input Structure
@@ -169,7 +169,7 @@ Each potential model has a self-contained example directory under `examples/`, w
 - **`examples/LJG/`** - Lennard-Jones-Gauss patchy system with angular/torsional patches (`input.d`)
 - **`examples/SSP/`** - Site-Site Patchy (tetrahedral, 4-patch) system (`datos_ssp_tetrahedral.nml`); also includes `data.atoms_lammps` / `data.atoms_lammps_reduced` and, at `examples/in.ssp`, `examples/forcefield.lj`, `examples/log.lammps`, the companion LAMMPS input/output used to cross-validate the SSP potential against LAMMPS (see [Mapping SSP to LAMMPS](#mapping-ssp-to-lammps-4) below)
 
-The namelist filename passed as the first command-line argument to `mc_gpu.exe` is arbitrary (`datos.nml`, `input.d`, etc. are just naming conventions used across these examples).
+The namelist filename passed as the first command-line argument to `MCCB-gpu` is arbitrary (`datos.nml`, `input.d`, etc. are just naming conventions used across these examples).
 
 ### Output Files
 
@@ -543,7 +543,7 @@ For a complete record of all versions and features, see [Changelog.md](Changelog
   - Integrated GPU running energy accumulation (`En_tot`) and energy drift tracking at simulation checkpoints.
 
 - **V2.7** (September 2026) Standalone Direct Execution & Modernized Build
-  - Removed obsolete MPI runtime dependency (`MPI_Init`/`MPI_Finalize`) from `src/Main.cuf`, allowing `mc_gpu.exe` to be invoked directly from the command line without `mpirun -np 1`.
+  - Removed obsolete MPI runtime dependency (`MPI_Init`/`MPI_Finalize`) from `src/Main.cuf`, allowing `MCCB-gpu` to be invoked directly from the command line without `mpirun -np 1`.
   - Updated `Makefile` to use `FC = nvfortran` with automatic detection for standard NVHPC and NetCDF library paths.
 
 - **V2.6** (September 2026) Tabulated Potential Fluid Mixtures (`model = 'TABLE'`)

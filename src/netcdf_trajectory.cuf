@@ -136,7 +136,7 @@ Contains
       ! Add global attributes
       ierr = nf90_put_att(ncid, NF90_GLOBAL, 'Conventions', 'AMBER')
       ierr = nf90_put_att(ncid, NF90_GLOBAL, 'ConventionVersion', '1.0')
-      ierr = nf90_put_att(ncid, NF90_GLOBAL, 'program', 'MC_CB-GPU')
+      ierr = nf90_put_att(ncid, NF90_GLOBAL, 'program', 'MCCB-gpu')
       ierr = nf90_put_att(ncid, NF90_GLOBAL, 'programVersion', '2.8.0')
 
       ! End define mode

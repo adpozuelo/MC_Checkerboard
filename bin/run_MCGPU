@@ -1,9 +1,11 @@
 #!/bin/bash
+[ -f "$HOME/bin/setup_trj" ] && source "$HOME/bin/setup_trj" > /dev/null 2>&1
+
 # 1. Configure PATH for NVHPC compilers if needed
 export PATH="/opt/nvidia/hpc_sdk/Linux_x86_64/2025/compilers/bin:$PATH"
 
 # 2. Configure LD_LIBRARY_PATH for the libraries
 export LD_LIBRARY_PATH="$HOME/lammps/build:$HOME/lammps_latest/build:/usr/local/netcdf-nv/lib/:/opt/nvidia/hpc_sdk/Linux_x86_64/2025/compilers/lib:$LD_LIBRARY_PATH"
 
-# 3. Launch mc_gpu.exe directly
-exec $HOME/MC_Checkerboard/bin/mc_gpu.exe "$@"
+# 3. Launch MCCB-gpu directly
+exec $HOME/MC_Checkerboard/bin/MCCB-gpu "$@"

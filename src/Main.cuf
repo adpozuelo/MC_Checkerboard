@@ -1,5 +1,5 @@
 ! ==============================================================================
-! PROGRAM: MC_CB-GPU
+! PROGRAM: MCCB-gpu
 ! ==============================================================================
 ! DESCRIPTION:
 !   GPU-accelerated Monte Carlo simulation for patchy particle systems in
@@ -25,7 +25,7 @@
 !   February 2026
 ! ==============================================================================
 
-Program MC_CB_GPU
+Program MCCB_gpu
 
    Use set_precision
 
@@ -91,7 +91,7 @@ Program MC_CB_GPU
    argc = command_argument_count()
    if (argc < 1) then
       write(*,"(A,'!!! Error: You must specify at least ONE argument: the name of the ')")c_red
-      write(*,"('    input file e.g.: mc_gpu.exe input_file.nml')")
+      write(*,"('    input file e.g.: MCCB-gpu input_file.nml')")
       write(*,"('    Second argument (optional) is the GPU device number to use, (default 0)',A)")c_reset
       stop
    end if
@@ -117,7 +117,7 @@ Program MC_CB_GPU
    Call date_and_time(dt_date, dt_time, dt_zone, dt_values)
 
    write(*,'(A)') c_blue // '========================================================================================' // c_reset
-   write(*,'(A)') c_cyan // '                          HYBRID MC_CB-GPU/LAMMPS SIMULATION ENGINE                            ' // c_reset
+   write(*,'(A)') c_cyan // '                            HYBRID MCCB-gpu/LAMMPS SIMULATION ENGINE                            ' // c_reset
    write(*,'(A)') c_cyan // '                                     Version 2.8.0                                      ' // c_reset
    write(*,'(A)') c_blue // '========================================================================================' // c_reset
    write(*,'(A,I4,A,I2.2,A,I2.2,A,I2.2,A,I2.2,A,I2.2,A)') c_green // ' >>> Run started on: ', &
@@ -746,4 +746,4 @@ Program MC_CB_GPU
    Call limpio
    write(*,'(A)') c_green // ' >>> Simulation completely finished. GPU memory cleaned.' // c_reset
 
-End Program MC_CB_GPU
+End Program MCCB_gpu

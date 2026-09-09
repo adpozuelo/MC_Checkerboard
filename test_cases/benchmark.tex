@@ -21,7 +21,7 @@
 \end{center}
 
 
-\subsection{LAMMPS vs. gpu\_mc (Large-Scale Scales)}
+\subsection{LAMMPS vs. MCCB-gpu (Large-Scale Scales)}
 \label{sec:large_scale}
 Benchmarks were conducted using two distinct NVIDIA hardware architectures: the \textbf{RTX 2000} and the \textbf{RTX 4500}.
 
@@ -41,7 +41,7 @@ Benchmarks were conducted using two distinct NVIDIA hardware architectures: the 
     @{}
 }
 \toprule
-& \multicolumn{2}{c}{\textbf{LAMMPS Time}} & \multicolumn{2}{c}{\textbf{gpu\_mc Time}} \\
+& \multicolumn{2}{c}{\textbf{LAMMPS Time}} & \multicolumn{2}{c}{\textbf{MCCB-gpu Time}} \\
 \cmidrule(r{0.5cm}){2-3} \cmidrule(l){4-5}
 \textbf{Particle Count ($N$)} & {\textbf{RTX 2000}} & {\textbf{RTX 4500}} & {\textbf{RTX 2000}} & {\textbf{RTX 4500}} \\
 \midrule
@@ -52,16 +52,16 @@ Benchmarks were conducted using two distinct NVIDIA hardware architectures: the 
 \end{tabular}
 \end{table}
 
-\subsection{gpMC (CPU) vs. mc\_gpu (GPU) (Small-to-Medium Scales)}
+\subsection{gpMC (CPU) vs. MCCB-gpu (GPU) (Small-to-Medium Scales)}
 \label{sec:small_scale}
-This benchmark scales from \num{8000} to approximately \num{110000} particles, comparing a CPU-driven implementation (\textbf{gpMC}) against dedicated GPU acceleration (\textbf{mc\_gpu}). 
+This benchmark scales from \num{8000} to approximately \num{110000} particles, comparing a CPU-driven implementation (\textbf{gpMC}) against dedicated GPU acceleration (\textbf{MCCB-gpu}). 
 
 For the CPU execution on \textbf{gpMC}, timings are provided for the Core \textbf{i7-14700K}. Testing on the \textbf{Intel Xeon Gold 6548Y+} demonstrated an approximate relative performance factor of \textbf{$0.98\times$} (i.e., $1.02\times$ slower execution times across workloads).
 
 \begin{table}[htbp]
 \centering
 \caption{Simulation Runtime (Seconds) across CPU and GPU Architectures}
-\label{tab:gpmc_vs_mcgpu}
+\label{tab:gpmc_vs_mccbgpu}
 \small
 \begin{tabular}{
     @{}
@@ -73,7 +73,7 @@ For the CPU execution on \textbf{gpMC}, timings are provided for the Core \textb
     @{}
 }
 \toprule
-& {\textbf{gpMC (CPU)}} & \multicolumn{2}{c}{\textbf{mc\_gpu (GPU) Time}} \\
+& {\textbf{gpMC (CPU)}} & \multicolumn{2}{c}{\textbf{MCCB-gpu (GPU) Time}} \\
 \cmidrule(l){3-4}
 \textbf{Particle Count ($N$)} & {\textbf{i7-14700K}$^\dagger$} & {\textbf{RTX 2000}} & {\textbf{RTX 4500}} \\
 \midrule
@@ -90,8 +90,8 @@ For the CPU execution on \textbf{gpMC}, timings are provided for the Core \textb
 \section{Discussion and Structural Insights}
 An analysis of the benchmarking profiles yields two key architectural insights:
 \begin{itemize}
-    \item \textbf{Heterogeneous Paradigm Shifts:} Moving from multicore CPU environments (\texttt{gpMC}) to even entry-level professional GPUs (\texttt{mc\_gpu} on RTX 2000) yields over an order of magnitude speedup (e.g., $27\times$ speedup at the largest medium scale).
-    \item \textbf{Anomalous Scaling Profile:} In the \texttt{mc\_gpu} dataset on the RTX 2000/4500 architectures, scaling from $N=\num{15626}$ to $N=\num{32768}$ demonstrates an absolute reduction in execution time. This indicates a hardware architectural threshold where GPU thread occupancy optimizations and block-level memory coalescing align to hit peak efficiency.
+    \item \textbf{Heterogeneous Paradigm Shifts:} Moving from multicore CPU environments (\texttt{gpMC}) to even entry-level professional GPUs (\texttt{MCCB-gpu} on RTX 2000) yields over an order of magnitude speedup (e.g., $27\times$ speedup at the largest medium scale).
+    \item \textbf{Anomalous Scaling Profile:} In the \texttt{MCCB-gpu} dataset on the RTX 2000/4500 architectures, scaling from $N=\num{15626}$ to $N=\num{32768}$ demonstrates an absolute reduction in execution time. This indicates a hardware architectural threshold where GPU thread occupancy optimizations and block-level memory coalescing align to hit peak efficiency.
 \end{itemize}
 
 

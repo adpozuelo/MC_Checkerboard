@@ -27,8 +27,8 @@ export PATH=$OPAL_PREFIX/bin:$PATH
 export LD_LIBRARY_PATH=$HOME/lammps_latest/build:$OPAL_PREFIX/lib:$LD_LIBRARY_PATH
 
 # 1. Analytic SSP HMC
-mpirun -np 1 ../../bin/mc_gpu.exe datos_ssp_hmc.nml 0
+mpirun -np 1 ../../bin/MCCB-gpu datos_ssp_hmc.nml 0
 
 # 2. Tabulated SSP HMC
-mpirun -np 1 ../../bin/mc_gpu.exe datos_ssp_hmc_table.nml 0
+mpirun -np 1 ../../bin/MCCB-gpu datos_ssp_hmc_table.nml 0
 ```

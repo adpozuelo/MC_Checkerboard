@@ -51,5 +51,5 @@ export PATH=$OPAL_PREFIX/bin:$PATH
 export LD_LIBRARY_PATH=$HOME/lammps_latest/build:$OPAL_PREFIX/lib:$LD_LIBRARY_PATH
 
 # Run HMC simulation on GPU device 0
-mpirun -np 1 ../../bin/mc_gpu.exe datos.nml 0
+mpirun -np 1 ../../bin/MCCB-gpu datos.nml 0
 ```

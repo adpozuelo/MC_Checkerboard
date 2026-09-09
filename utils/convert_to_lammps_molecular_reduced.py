@@ -6,7 +6,7 @@ import math
 def main():
     if len(sys.argv) < 3:
         print("Usage: python convert_to_lammps_molecular_reduced.py <input.atoms> <output.atoms_lammps>")
-        print("Outputs coordinates directly in reduced/LJ units (molecular style, compatible with mc_gpu.exe)")
+        print("Outputs coordinates directly in reduced/LJ units (molecular style, compatible with MCCB-gpu)")
         sys.exit(1)
 
     input_path = sys.argv[1]

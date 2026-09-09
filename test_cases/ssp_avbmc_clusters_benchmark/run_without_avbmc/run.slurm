@@ -11,5 +11,5 @@
 
 export OMP_NUM_THREADS=4
 echo "=== Starting SSP Benchmark WITHOUT AVBMC on $(hostname) at $(date) ==="
-/home/e.lomba/MC_Checkerboard/bin/mc_gpu.exe datos.nml > output.out 2>&1
+/home/e.lomba/MC_Checkerboard/bin/MCCB-gpu datos.nml > output.out 2>&1
 echo "=== Finished at $(date) with exit code $? ==="

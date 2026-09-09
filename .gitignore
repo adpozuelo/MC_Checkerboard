@@ -4,6 +4,7 @@
 *.a
 *.so
 *.exe
+/bin/MCCB-gpu
 
 # Fortran module files
 *.smod

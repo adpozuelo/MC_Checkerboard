@@ -197,4 +197,4 @@ nahs_swap_reversibility_performance/
 - [x] Standalone numerical verification script confirming detailed balance to machine precision ($< 10^{-15}$).
 - [x] Side-by-side reproducible benchmark cases with SLURM submission scripts.
 - [x] Throughput and GPU execution time measurement (ms/sweep).
-- [x] Zero external software dependencies beyond Python 3 (NumPy) and the compiled `mc_gpu.exe`.
+- [x] Zero external software dependencies beyond Python 3 (NumPy) and the compiled `MCCB-gpu`.

@@ -112,8 +112,9 @@ export LD_LIBRARY_PATH=$HOME/lammps_latest/build:$LD_LIBRARY_PATH
 
 3. Upon successful compilation, the executable is created in the `bin/` directory:
    ```
-   ../bin/mc_gpu.exe
+   ../bin/MCCB-gpu
    ```
+   *(Note: A backward-compatible symlink `../bin/mc_gpu.exe -> MCCB-gpu` is also created).*
 
 ### Makefile Configuration Variables
 
@@ -146,7 +147,7 @@ To verify that the executable was built correctly and can access the GPU:
 
 ```bash
 cd ../examples/HS
-../../bin/mc_gpu.exe datos.nml 0
+../../bin/MCCB-gpu datos.nml 0
 ```
 
 Expected terminal output:
@@ -183,7 +184,7 @@ export LD_LIBRARY_PATH=$HOME/lammps_latest/build:$LD_LIBRARY_PATH
 
 # Run test case
 cd /path/to/MC_Checkerboard/examples/HS
-../../bin/mc_gpu.exe datos.nml 0
+../../bin/MCCB-gpu datos.nml 0
 ```
 
 Submit with:
@@ -213,7 +214,7 @@ export LD_LIBRARY_PATH=/path/to/netcdf/lib:$LD_LIBRARY_PATH
 ```
 
 ### Issue 3: `NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver`
-**Cause**: Executing `mc_gpu.exe` directly on an HPC login/head node that does not possess an active NVIDIA GPU.  
+**Cause**: Executing `MCCB-gpu` directly on an HPC login/head node that does not possess an active NVIDIA GPU.  
 **Solution**: Request an interactive GPU node (`salloc --gres=gpu:1 ...`) or submit via Slurm (`sbatch`).
 
 ### Issue 4: `NVFORTRAN-F-0004-Unable to open MODULE file cudafor.mod`

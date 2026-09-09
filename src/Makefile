@@ -64,7 +64,7 @@ LKOPTS         = -cuda -cudalib=curand $(RPATH_FLAGS)
 
 # Output executable and directory
 BINDIR         = ../bin
-EXE            = $(BINDIR)/mc_gpu.exe
+EXE            = $(BINDIR)/MCCB-gpu
 
 # Object files
 OBJ            = Definitions.o \
@@ -103,6 +103,7 @@ $(BINDIR):
 
 $(EXE): $(OBJ) $(LAMMPSINC)/lammps.o | $(BINDIR)
 	$(FC) $(LKOPTS) $(EXE_FLAG) -o $@ $(OBJ) $(LAMMPSINC)/lammps.o $(LKLIBS)
+	ln -sf MCCB-gpu $(BINDIR)/mc_gpu.exe
 
 # Compile LAMMPS Fortran wrapper if needed
 $(LAMMPSINC)/lammps.o: $(LAMMPSINC)/lammps.f90
@@ -131,7 +132,7 @@ Main.o                   : Definitions.o potential_functions.o Read_input_data_n
                            mod_avbmc.o mod_clusters.o lammps_hmc_wrapper.o
 
 clean:
-	rm -f *.o *.mod $(EXE) test_swap_energy.exe
+	rm -f *.o *.mod $(EXE) $(BINDIR)/mc_gpu.exe test_swap_energy.exe
 
 test_swap: Definitions.o potential_functions.o energy.o test_swap_energy.cuf
 	$(FC) $(FCOPTS) $(LKOPTS) Definitions.o potential_functions.o energy.o test_swap_energy.cuf -o test_swap_energy.exe

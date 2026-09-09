@@ -106,7 +106,7 @@ export LD_LIBRARY_PATH=$HOME/lammps_latest/build:$OPAL_PREFIX/lib:$LD_LIBRARY_PA
 ```
 
 ### Step 2: Build the Benchmark Suite
-Compile the CUDA Fortran benchmark driver linking against `liblammps.so` and `mc_gpu` modules:
+Compile the CUDA Fortran benchmark driver linking against `liblammps.so` and `MCCB-gpu` modules:
 ```bash
 cd /home/e.lomba/MC_Checkerboard/test_cases/hmc_lammps_overhead_benchmark
 

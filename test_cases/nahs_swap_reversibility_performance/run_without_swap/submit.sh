@@ -20,7 +20,7 @@ module purge
 source ~/bin/setup_trj
 
 export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
-BIN="/home/e.lomba/MC_Checkerboard/bin/mc_gpu.exe"
+BIN="/home/e.lomba/MC_Checkerboard/bin/MCCB-gpu"
 
 $BIN datos.nml
 

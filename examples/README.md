@@ -8,13 +8,13 @@ This directory contains reference simulation setups for **MC_Checkerboard**, dem
 
 | Directory | Model (`model`) | Physical System | Key Features & Algorithms | Execution Command |
 | :--- | :--- | :--- | :--- | :--- |
-| [`HS/`](file:///home/e.lomba/MC_Checkerboard/examples/HS) | `HS` | Binary Hard-Sphere Mixture | Athermal overlap rejection, contact distance matrix $\sigma_{ij}$, GPU identity swaps, virial pressure estimation | `../../bin/mc_gpu.exe datos.nml 0` |
-| [`LJ/`](file:///home/e.lomba/MC_Checkerboard/examples/LJ) | `LJ` | Binary Lennard-Jones Fluid | Continuous truncated & shifted 12-6 LJ, $\sigma_{ij}$ and $\varepsilon_{ij}$ matrices, GPU identity swap moves, $NVT$/$NpT$ | `../../bin/mc_gpu.exe datos.nml 0` |
-| [`LJG/`](file:///home/e.lomba/MC_Checkerboard/examples/LJG) | `LJG` | 7-Patch Colloidal Particles | Directional patchy attractions, angular and torsional constraints, quaternion rotations | `../../bin/mc_gpu.exe input.d 0` |
-| [`SSP/`](file:///home/e.lomba/MC_Checkerboard/examples/SSP) | `SSP` | Tetrahedral Patchy Particles | Palaia site-site patchy model, on-the-fly DBSCAN clustering, AVBMC aggregation moves | `../../bin/mc_gpu.exe datos_ssp_tetrahedral.nml 0` |
-| [`table_mixture/`](file:///home/e.lomba/MC_Checkerboard/examples/table_mixture) | `TABLE` | Binary Mixture ($N = 10,976$) | Tabulated Mie 50-49 interactions ($100,000$ points), GPU table evaluation, validated against LAMMPS energy | `../../bin/mc_gpu.exe datos.nml 0` |
-| [`HMC/`](file:///home/e.lomba/MC_Checkerboard/examples/HMC) | `SSP` | Tetrahedral Patchy Mixture | Hybrid MC: GPU Checkerboard MC coupled with LAMMPS rigid MD (`fix rigid/nve`), analytic & tabulated forces | `mpirun -np 1 ../../bin/mc_gpu.exe datos_ssp_hmc.nml 0` |
-| [`HMC_table_mixture/`](file:///home/e.lomba/MC_Checkerboard/examples/HMC_table_mixture) | `TABLE` | Binary Mixture ($N = 10,976$) | Hybrid MC: GPU Checkerboard MC coupled with LAMMPS GPU tabulated MD (`fix nve`, `pair_style table linear`) | `mpirun -np 1 ../../bin/mc_gpu.exe datos.nml 0` |
+| [`HS/`](file:///home/e.lomba/MC_Checkerboard/examples/HS) | `HS` | Binary Hard-Sphere Mixture | Athermal overlap rejection, contact distance matrix $\sigma_{ij}$, GPU identity swaps, virial pressure estimation | `../../bin/MCCB-gpu datos.nml 0` |
+| [`LJ/`](file:///home/e.lomba/MC_Checkerboard/examples/LJ) | `LJ` | Binary Lennard-Jones Fluid | Continuous truncated & shifted 12-6 LJ, $\sigma_{ij}$ and $\varepsilon_{ij}$ matrices, GPU identity swap moves, $NVT$/$NpT$ | `../../bin/MCCB-gpu datos.nml 0` |
+| [`LJG/`](file:///home/e.lomba/MC_Checkerboard/examples/LJG) | `LJG` | 7-Patch Colloidal Particles | Directional patchy attractions, angular and torsional constraints, quaternion rotations | `../../bin/MCCB-gpu input.d 0` |
+| [`SSP/`](file:///home/e.lomba/MC_Checkerboard/examples/SSP) | `SSP` | Tetrahedral Patchy Particles | Palaia site-site patchy model, on-the-fly DBSCAN clustering, AVBMC aggregation moves | `../../bin/MCCB-gpu datos_ssp_tetrahedral.nml 0` |
+| [`table_mixture/`](file:///home/e.lomba/MC_Checkerboard/examples/table_mixture) | `TABLE` | Binary Mixture ($N = 10,976$) | Tabulated Mie 50-49 interactions ($100,000$ points), GPU table evaluation, validated against LAMMPS energy | `../../bin/MCCB-gpu datos.nml 0` |
+| [`HMC/`](file:///home/e.lomba/MC_Checkerboard/examples/HMC) | `SSP` | Tetrahedral Patchy Mixture | Hybrid MC: GPU Checkerboard MC coupled with LAMMPS rigid MD (`fix rigid/nve`), analytic & tabulated forces | `mpirun -np 1 ../../bin/MCCB-gpu datos_ssp_hmc.nml 0` |
+| [`HMC_table_mixture/`](file:///home/e.lomba/MC_Checkerboard/examples/HMC_table_mixture) | `TABLE` | Binary Mixture ($N = 10,976$) | Hybrid MC: GPU Checkerboard MC coupled with LAMMPS GPU tabulated MD (`fix nve`, `pair_style table linear`) | `mpirun -np 1 ../../bin/MCCB-gpu datos.nml 0` |
 
 ---
 
@@ -30,7 +30,7 @@ This directory contains reference simulation setups for **MC_Checkerboard**, dem
 - **Run**:
   ```bash
   cd examples/HS
-  ../../bin/mc_gpu.exe datos.nml 0
+  ../../bin/MCCB-gpu datos.nml 0
   ```
 
 ### 2. `LJ/` — Binary Lennard-Jones Fluid
@@ -43,7 +43,7 @@ This directory contains reference simulation setups for **MC_Checkerboard**, dem
 - **Run**:
   ```bash
   cd examples/LJ
-  ../../bin/mc_gpu.exe datos.nml 0
+  ../../bin/MCCB-gpu datos.nml 0
   ```
 
 ### 3. `LJG/` — Patchy Colloidal Particles (Lennard-Jones-Gauss)
@@ -57,7 +57,7 @@ This directory contains reference simulation setups for **MC_Checkerboard**, dem
 - **Run**:
   ```bash
   cd examples/LJG
-  ../../bin/mc_gpu.exe input.d 0
+  ../../bin/MCCB-gpu input.d 0
   ```
 
 ### 4. `SSP/` — Site-Site Patchy Colloids & Cluster Physics
@@ -70,7 +70,7 @@ This directory contains reference simulation setups for **MC_Checkerboard**, dem
 - **Run**:
   ```bash
   cd examples/SSP
-  ../../bin/mc_gpu.exe datos_ssp_tetrahedral.nml 0
+  ../../bin/MCCB-gpu datos_ssp_tetrahedral.nml 0
   ```
 
 ### 5. `table_mixture/` — Tabulated Potential Binary Mixture
@@ -82,7 +82,7 @@ This directory contains reference simulation setups for **MC_Checkerboard**, dem
 - **Run**:
   ```bash
   cd examples/table_mixture
-  ../../bin/mc_gpu.exe datos.nml 0
+  ../../bin/MCCB-gpu datos.nml 0
   ```
 
 ### 6. `HMC/` — Hybrid Monte Carlo for Patchy Colloids
@@ -96,8 +96,8 @@ This directory contains reference simulation setups for **MC_Checkerboard**, dem
 - **Run**:
   ```bash
   cd examples/HMC
-  mpirun -np 1 ../../bin/mc_gpu.exe datos_ssp_hmc.nml 0
-  mpirun -np 1 ../../bin/mc_gpu.exe datos_ssp_hmc_table.nml 0
+  mpirun -np 1 ../../bin/MCCB-gpu datos_ssp_hmc.nml 0
+  mpirun -np 1 ../../bin/MCCB-gpu datos_ssp_hmc_table.nml 0
   ```
 
 ### 7. `HMC_table_mixture/` — Hybrid Monte Carlo with Tabulated Mixtures
@@ -109,7 +109,7 @@ This directory contains reference simulation setups for **MC_Checkerboard**, dem
 - **Run**:
   ```bash
   cd examples/HMC_table_mixture
-  mpirun -np 1 ../../bin/mc_gpu.exe datos.nml 0
+  mpirun -np 1 ../../bin/MCCB-gpu datos.nml 0
   ```
 
 ---
@@ -176,8 +176,8 @@ export PATH=$OPAL_PREFIX/bin:$PATH
 export LD_LIBRARY_PATH=$HOME/lammps_latest/build:$OPAL_PREFIX/lib:$LD_LIBRARY_PATH
 
 # Run standard MC on GPU 0
-../../bin/mc_gpu.exe <input_file.nml> 0
+../../bin/MCCB-gpu <input_file.nml> 0
 
 # Run Hybrid MC with LAMMPS on GPU 0
-mpirun -np 1 ../../bin/mc_gpu.exe <input_file.nml> 0
+mpirun -np 1 ../../bin/MCCB-gpu <input_file.nml> 0
 ```
