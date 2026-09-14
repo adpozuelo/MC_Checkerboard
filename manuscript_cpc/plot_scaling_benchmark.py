@@ -43,7 +43,8 @@ plt.rcParams.update({
     'lines.linewidth': 2.0,
     'figure.dpi': 300
 })
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.8))
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(6.2, 7.6), sharex=True)
+plt.subplots_adjust(hspace=0.14)
 
 colors = {
     'cpu_nvt': '#1f77b4',
@@ -64,13 +65,10 @@ ax1.loglog(N, t_gpu_raw_npt, 'v-.', color=colors['gpu_raw_npt'], label=r'MCCB-gp
 ax1.loglog(N, t_gpu_norm_nvt, 'D-', color=colors['gpu_norm_nvt'], label=r'MCCB-gpu Norm ($NVT$)', linewidth=2.0, markersize=7)
 ax1.loglog(N, t_gpu_norm_npt, 'h-', color=colors['gpu_norm_npt'], label=r'MCCB-gpu Norm ($NpT$)', linewidth=2.0, markersize=7)
 
-ax1.set_xlabel(r'Particle Count ($N$)', fontsize=12, fontweight='bold')
 ax1.set_ylabel(r'Execution Time for 100 Sweeps (s)', fontsize=12, fontweight='bold')
-ax1.set_title('(a) Execution Time Scaling', fontsize=13, fontweight='bold')
-ax1.set_xticks(N)
-ax1.set_xticklabels([r'8k', r'15.6k', r'32.8k', r'125k'])
+ax1.set_title('(a) Wallclock Execution Time Scaling', fontsize=13, fontweight='bold')
 ax1.grid(True, which='both', linestyle=':', alpha=0.6)
-ax1.legend(loc='upper left', frameon=True, fontsize=8.5, ncol=2)
+ax1.legend(loc='upper left', frameon=True, fontsize=8.8, ncol=2)
 
 # ----------------- PANEL B: Speedup -----------------
 ax2.plot(N, s_eff_nvt, 'D-', color=colors['eff_nvt'], label=r'Effective Throughput ($NVT$)', linewidth=2.2, markersize=8)
@@ -81,11 +79,11 @@ ax2.plot(N, s_raw_npt, 'v--', color=colors['gpu_raw_npt'], label=r'Raw Cycle ($N
 ax2.set_xscale('log')
 ax2.set_xlabel(r'Particle Count ($N$)', fontsize=12, fontweight='bold')
 ax2.set_ylabel(r'Speedup Factor ($S = t_{\mathrm{CPU}} / t_{\mathrm{GPU}}$)', fontsize=12, fontweight='bold')
-ax2.set_title('(b) Speedup Factor across Ensembles', fontsize=13, fontweight='bold')
+ax2.set_title('(b) Throughput Speedup Factor across Ensembles', fontsize=13, fontweight='bold')
 ax2.set_xticks(N)
 ax2.set_xticklabels([r'8k', r'15.6k', r'32.8k', r'125k'])
 ax2.grid(True, which='both', linestyle=':', alpha=0.6)
-ax2.legend(loc='upper left', frameon=True, fontsize=9)
+ax2.legend(loc='upper left', frameon=True, fontsize=8.8, ncol=2)
 
 # Annotate peak speedup
 ax2.annotate(r'$\mathbf{68.8\times}$ ($NpT$)',

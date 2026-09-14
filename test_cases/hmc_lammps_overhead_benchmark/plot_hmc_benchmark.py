@@ -55,8 +55,9 @@ ovhd_pers_tab = np.array([float(r[5]) for r in rows_tab])
 # Transfer times
 trans_dict = {r[0]: float(r[2]) for r in rows_trans}
 
-# Create 2x2 subplot figure
-fig, axes = plt.subplots(2, 2, figsize=(13, 10))
+# Create 2x2 subplot figure optimized for two-column width (\textwidth)
+fig, axes = plt.subplots(2, 2, figsize=(14, 8.5))
+plt.subplots_adjust(hspace=0.28, wspace=0.24)
 
 # ------------------------------------------------------------------------------
 # PANEL A: Data Transfer & Conversion Overhead Breakdown (ms)

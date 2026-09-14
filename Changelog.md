@@ -10,11 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.8.1] - 2026-09-14
 
 ### Changed & Improved
-- **CPC Manuscript Vector Figures Replotting (`manuscript_cpc/figures/`)**:
-  - Re-plotted all manuscript figures in high-resolution vector PDF format (`hmc_overhead_benchmark_comparison.pdf`, `consistency_all.pdf`, `scaling_benchmark.pdf`, `avbmc_benchmark_comparison.pdf`) using publication-grade serif fonts, vector stroke geometry, and enlarged labels.
-  - Regrouped Figure 2 (Thermodynamic Consistency Benchmarks across $NpT$ and $NVT$ ensembles) into a unified 2-row $\times$ 3-column layout (`consistency_all.pdf`):
-    - Stacks reduced density $\rho^*(t)$ (top) and thermodynamic observables ($P^*(t)$ with analytical Carnahan-Starling EOS line for HS; potential energy $\langle U/N \rangle(t)$ for LJ and SSP) vertically per physical system column sharing the x-axis ("Monte Carlo Sweeps").
-    - More than doubled individual subpanel width and quadrupled visual plot area, significantly enhancing readability while preserving the exact 12-page manuscript length.
+- **CPC Manuscript Vector Figures Replotting & Layout Optimization (`manuscript_cpc/figures/`, `manuscript_cpc/mccb_gpu_cpc.tex`)**:
+  - Re-plotted all manuscript figures in high-resolution vector PDF format (`hmc_overhead_benchmark_comparison.pdf`, `consistency_all.pdf`, `scaling_benchmark.pdf`, `avbmc_benchmark_comparison.pdf`, `avbmc_csd_distribution.pdf`) using publication-grade serif fonts, vector stroke geometry, and enlarged labels.
+  - **Figure 1 (In-Memory HMC Profiling)**: Enlarged to span both columns (`figure*`, spanning full `\textwidth`) at the top of Page 5, maintaining balanced two-column text below it.
+  - **Figure 2 (Thermodynamic Consistency across Ensembles)**: Regrouped into a unified 2-row $\times$ 3-column layout (`consistency_all.pdf`), stacking reduced density $\rho^*(t)$ (top) and thermodynamic observables ($P^*(t)$ with analytical Carnahan-Starling EOS line for HS; $\langle U/N \rangle(t)$ for LJ and SSP) vertically per physical system column sharing the x-axis ("Monte Carlo Sweeps").
+  - **Figure 3 (CPU vs. GPU Scaling)**: Redesigned into a 2-row $\times$ 1-column vertically stacked panel sharing the x-axis (`Particle Count N`), placing execution time on top and effective speedup on the bottom for enhanced visual comparison.
+  - **Figure 4 (Patchy Colloidal Cluster Kinetics and Acceptance Rates)**: Eliminated cluster abundance kinetics, stacking maximum cluster size growth kinetics $S_{\max}(t)$ (top) and Monte Carlo acceptance rates (bottom) sharing the x-axis ("Monte Carlo Steps").
+  - **Figure 5 (Cluster Size Distribution)**: Extracted cluster size distribution into a standalone publication figure (`avbmc_csd_distribution.pdf`) showing $P(s)$ vs $s$ on log-log scale.
+  - Recompiled manuscript (`mccb_gpu_cpc.pdf`), strictly maintaining the exact 12-page budget with seamless layout and balanced typography.
 - **Bibliography & DOI Verification (`manuscript_cpc/references.bib`)**:
   - Validated all 19 bibliographic DOIs against the official Crossref registry API.
   - Corrected Ref [6] (`noya2014phase`): Set authors to E. G. Noya, I. Kolovos, G. Doppelbauer, G. Kahl, E. Bianchi (*Soft Matter* 10 (42), 8464–8474 (2014)) and updated DOI to `10.1039/c4sm01559b`.
@@ -23,7 +26,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added dedicated bibliographic entry `gpmc2026` for **gpMC** (authors: E. Lomba and E. G. Noya, title: *gpMC: A General Purpose Monte Carlo Program*, available at \url{https://github.com/elomba/MCcol.git}).
   - Added in-text citation `\cite{gpmc2026}` to the CPU benchmark baseline description in Section 4.1.
   - Linked repository in `test_cases/benchmark.tex` and `test_cases/scaling/gpMC_bench/README.md`.
-  - Recompiled manuscript (`mccb_gpu_cpc.pdf`), preserving exact 12-page layout with natural flow into author biographies.
 
 ## [2.8.0] - 2026-09-08
 

@@ -226,74 +226,129 @@ def run_analysis(base_dir='.'):
 
     print("=" * 80)
 
-    # Generate Publication Figure
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    plt.subplots_adjust(hspace=0.32, wspace=0.25)
+    # ==============================================================================
+    # 1. PRIMARY PUBLICATION FIGURE 4: Kinetics & Acceptance Rates (Stacked, Sharing X-axis)
+    #    Eliminates old 4a (Cluster Abundance), stacks S_max (top) and Acceptance (bottom)
+    # ==============================================================================
+    fig_kin, (ax_smax, ax_acc) = plt.subplots(2, 1, figsize=(6.2, 7.6), sharex=True)
+    plt.subplots_adjust(hspace=0.14)
 
-    # 1. Cluster Count Evolution
-    ax1 = axes[0, 0]
+    # Panel A: Maximum Cluster Size Evolution (formerly 4b)
     if evol_with is not None:
-        ax1.plot(evol_with[:, 0], evol_with[:, 1], 'o-', color='#1f77b4', lw=2.2, label='With AVBMC')
+        ax_smax.plot(evol_with[:, 0], evol_with[:, 2], 'o-', color='#1f77b4', lw=2.2, label='With AVBMC')
     if evol_without is not None:
-        ax1.plot(evol_without[:, 0], evol_without[:, 1], 's--', color='#d62728', lw=2.2, label='Without AVBMC (Canonical)')
-    ax1.set_xlabel('Monte Carlo Steps', fontsize=12, fontweight='bold')
-    ax1.set_ylabel('Number of Clusters', fontsize=12, fontweight='bold')
-    ax1.set_title('(a) Cluster Abundance Kinetics', fontsize=13, fontweight='bold')
-    ax1.grid(True, linestyle=':', alpha=0.6)
-    ax1.legend(fontsize=11)
+        ax_smax.plot(evol_without[:, 0], evol_without[:, 2], 's--', color='#d62728', lw=2.2, label='Without AVBMC (Canonical)')
+    ax_smax.set_ylabel(r'Maximum Cluster Size $S_{\max}$', fontsize=12, fontweight='bold')
+    ax_smax.set_title('(a) Maximum Cluster Growth Kinetics', fontsize=13, fontweight='bold')
+    ax_smax.grid(True, linestyle=':', alpha=0.6)
+    ax_smax.legend(fontsize=10.5, loc='center right')
 
-    # 2. Maximum Cluster Size Evolution
-    ax2 = axes[0, 1]
-    if evol_with is not None:
-        ax2.plot(evol_with[:, 0], evol_with[:, 2], 'o-', color='#1f77b4', lw=2.2, label='With AVBMC')
-    if evol_without is not None:
-        ax2.plot(evol_without[:, 0], evol_without[:, 2], 's--', color='#d62728', lw=2.2, label='Without AVBMC (Canonical)')
-    ax2.set_xlabel('Monte Carlo Steps', fontsize=12, fontweight='bold')
-    ax2.set_ylabel(r'Maximum Cluster Size $S_{\max}$', fontsize=12, fontweight='bold')
-    ax2.set_title('(b) Maximum Cluster Growth Kinetics', fontsize=13, fontweight='bold')
-    ax2.grid(True, linestyle=':', alpha=0.6)
-    ax2.legend(fontsize=11)
-
-    # 3. Cluster Size Distribution (Histogram)
-    ax3 = axes[1, 0]
-    if sizes_with is not None and len(sizes_with) > 0:
-        bins = np.logspace(np.log10(max(1, np.min(sizes_with))), np.log10(np.max(sizes_with) + 1), 25)
-        ax3.hist(sizes_with, bins=bins, color='#1f77b4', alpha=0.65, label='With AVBMC', edgecolor='black', density=True)
-    if sizes_without is not None and len(sizes_without) > 0:
-        bins = np.logspace(np.log10(max(1, np.min(sizes_without))), np.log10(np.max(sizes_without) + 1), 25)
-        ax3.hist(sizes_without, bins=bins, color='#d62728', alpha=0.5, label='Without AVBMC', edgecolor='black', density=True)
-    ax3.set_xscale('log')
-    ax3.set_yscale('log')
-    ax3.set_xlabel(r'Cluster Size $s$ (particles)', fontsize=12, fontweight='bold')
-    ax3.set_ylabel(r'Probability Density $P(s)$', fontsize=12, fontweight='bold')
-    ax3.set_title('(c) Cluster Size Distribution (CSD)', fontsize=13, fontweight='bold')
-    ax3.grid(True, linestyle=':', alpha=0.6)
-    ax3.legend(fontsize=11)
-
-    # 4. Acceptance Rates & Performance
-    ax4 = axes[1, 1]
+    # Panel B: Monte Carlo Acceptance Rates (formerly 4d)
     if log_with and len(log_with['p_av_in']) > 0:
-        ax4.plot(log_with['step'], log_with['p_av_in'] * 100, 'o-', color='#2ca02c', lw=2.0, label='AVBMC In-move Acc (%)')
-        ax4.plot(log_with['step'], log_with['p_av_out'] * 100, 'v-', color='#ff7f0e', lw=2.0, label='AVBMC Out-move Acc (%)')
-        ax4.plot(log_with['step'], log_with['p_trans'] * 100, 'k--', lw=1.5, alpha=0.7, label='Canonical Trans Acc (%)')
-    ax4.set_xlabel('Monte Carlo Steps', fontsize=12, fontweight='bold')
-    ax4.set_ylabel('Acceptance Rate (%)', fontsize=12, fontweight='bold')
-    ax4.set_title('(d) Monte Carlo Acceptance Rates', fontsize=13, fontweight='bold')
-    ax4.grid(True, linestyle=':', alpha=0.6)
-    ax4.legend(fontsize=11)
+        ax_acc.plot(log_with['step'], log_with['p_av_in'] * 100, 'o-', color='#2ca02c', lw=2.0, label='AVBMC In-move Acc (%)')
+        ax_acc.plot(log_with['step'], log_with['p_av_out'] * 100, 'v-', color='#ff7f0e', lw=2.0, label='AVBMC Out-move Acc (%)')
+        ax_acc.plot(log_with['step'], log_with['p_trans'] * 100, 'k--', lw=1.5, alpha=0.7, label='Canonical Trans Acc (%)')
+    ax_acc.set_xlabel('Monte Carlo Steps', fontsize=12, fontweight='bold')
+    ax_acc.set_ylabel('Acceptance Rate (%)', fontsize=12, fontweight='bold')
+    ax_acc.set_title('(b) Monte Carlo Acceptance Rates', fontsize=13, fontweight='bold')
+    ax_acc.grid(True, linestyle=':', alpha=0.6)
+    ax_acc.legend(fontsize=10.5, loc='center right')
 
-    plot_file_png = os.path.join(base_dir, 'avbmc_benchmark_comparison.png')
-    plot_file_pdf = os.path.join(base_dir, 'avbmc_benchmark_comparison.pdf')
-    plt.savefig(plot_file_png, dpi=300, bbox_inches='tight')
-    plt.savefig(plot_file_pdf, bbox_inches='tight')
+    fig_kin.tight_layout()
+    plot_kin_png = os.path.join(base_dir, 'avbmc_benchmark_comparison.png')
+    plot_kin_pdf = os.path.join(base_dir, 'avbmc_benchmark_comparison.pdf')
+    fig_kin.savefig(plot_kin_png, dpi=300, bbox_inches='tight')
+    fig_kin.savefig(plot_kin_pdf, bbox_inches='tight')
 
     cpc_dir = os.path.abspath(os.path.join(base_dir, '..', '..', 'manuscript_cpc', 'figures'))
     if os.path.isdir(cpc_dir):
-        plt.savefig(os.path.join(cpc_dir, 'avbmc_benchmark_comparison.png'), dpi=300, bbox_inches='tight')
-        plt.savefig(os.path.join(cpc_dir, 'avbmc_benchmark_comparison.pdf'), bbox_inches='tight')
+        fig_kin.savefig(os.path.join(cpc_dir, 'avbmc_benchmark_comparison.png'), dpi=300, bbox_inches='tight')
+        fig_kin.savefig(os.path.join(cpc_dir, 'avbmc_benchmark_comparison.pdf'), bbox_inches='tight')
+    plt.close(fig_kin)
 
-    plt.close()
-    print(f"  >>> Benchmark comparison plots saved: {plot_file_png} and {plot_file_pdf}")
+    # ==============================================================================
+    # 2. SEPARATED FIGURE: Final Cluster Size Distribution (CSD) (kept separated)
+    # ==============================================================================
+    fig_csd, ax_csd = plt.subplots(1, 1, figsize=(6.2, 4.6))
+    if sizes_with is not None and len(sizes_with) > 0:
+        bins = np.logspace(np.log10(max(1, np.min(sizes_with))), np.log10(np.max(sizes_with) + 1), 25)
+        ax_csd.hist(sizes_with, bins=bins, color='#1f77b4', alpha=0.65, label='With AVBMC', edgecolor='black', density=True)
+    if sizes_without is not None and len(sizes_without) > 0:
+        bins = np.logspace(np.log10(max(1, np.min(sizes_without))), np.log10(np.max(sizes_without) + 1), 25)
+        ax_csd.hist(sizes_without, bins=bins, color='#d62728', alpha=0.5, label='Without AVBMC', edgecolor='black', density=True)
+    ax_csd.set_xscale('log')
+    ax_csd.set_yscale('log')
+    ax_csd.set_xlabel(r'Cluster Size $s$ (particles)', fontsize=12, fontweight='bold')
+    ax_csd.set_ylabel(r'Probability Density $P(s)$', fontsize=12, fontweight='bold')
+    ax_csd.set_title('Cluster Size Distribution (CSD)', fontsize=13, fontweight='bold')
+    ax_csd.grid(True, linestyle=':', alpha=0.6)
+    ax_csd.legend(fontsize=11)
+
+    fig_csd.tight_layout()
+    plot_csd_png = os.path.join(base_dir, 'avbmc_csd_distribution.png')
+    plot_csd_pdf = os.path.join(base_dir, 'avbmc_csd_distribution.pdf')
+    fig_csd.savefig(plot_csd_png, dpi=300, bbox_inches='tight')
+    fig_csd.savefig(plot_csd_pdf, bbox_inches='tight')
+    if os.path.isdir(cpc_dir):
+        fig_csd.savefig(os.path.join(cpc_dir, 'avbmc_csd_distribution.png'), dpi=300, bbox_inches='tight')
+        fig_csd.savefig(os.path.join(cpc_dir, 'avbmc_csd_distribution.pdf'), bbox_inches='tight')
+    plt.close(fig_csd)
+
+    # ==============================================================================
+    # 3. UNIFIED 3-PANEL FIGURE: Left = stacked a & b sharing x-axis, Right = c (CSD) separated
+    # ==============================================================================
+    fig_all = plt.figure(figsize=(12, 6.2))
+    gs = fig_all.add_gridspec(2, 2, width_ratios=[1.0, 1.0], hspace=0.18, wspace=0.25)
+    ax1_all = fig_all.add_subplot(gs[0, 0])
+    ax2_all = fig_all.add_subplot(gs[1, 0], sharex=ax1_all)
+    ax3_all = fig_all.add_subplot(gs[:, 1])
+
+    # Subplot A: S_max
+    if evol_with is not None:
+        ax1_all.plot(evol_with[:, 0], evol_with[:, 2], 'o-', color='#1f77b4', lw=2.2, label='With AVBMC')
+    if evol_without is not None:
+        ax1_all.plot(evol_without[:, 0], evol_without[:, 2], 's--', color='#d62728', lw=2.2, label='Without AVBMC')
+    ax1_all.set_ylabel(r'Max Cluster Size $S_{\max}$', fontsize=11, fontweight='bold')
+    ax1_all.set_title('(a) Cluster Growth Kinetics', fontsize=12, fontweight='bold')
+    ax1_all.grid(True, linestyle=':', alpha=0.6)
+    ax1_all.legend(fontsize=9.5, loc='center right')
+    plt.setp(ax1_all.get_xticklabels(), visible=False)
+
+    # Subplot B: Acceptance
+    if log_with and len(log_with['p_av_in']) > 0:
+        ax2_all.plot(log_with['step'], log_with['p_av_in'] * 100, 'o-', color='#2ca02c', lw=2.0, label='AVBMC In (%)')
+        ax2_all.plot(log_with['step'], log_with['p_av_out'] * 100, 'v-', color='#ff7f0e', lw=2.0, label='AVBMC Out (%)')
+        ax2_all.plot(log_with['step'], log_with['p_trans'] * 100, 'k--', lw=1.5, alpha=0.7, label='Canonical Trans (%)')
+    ax2_all.set_xlabel('Monte Carlo Steps', fontsize=11, fontweight='bold')
+    ax2_all.set_ylabel('Acceptance (%)', fontsize=11, fontweight='bold')
+    ax2_all.set_title('(b) Acceptance Rates', fontsize=12, fontweight='bold')
+    ax2_all.grid(True, linestyle=':', alpha=0.6)
+    ax2_all.legend(fontsize=9.5, loc='center right')
+
+    # Subplot C: CSD
+    if sizes_with is not None and len(sizes_with) > 0:
+        bins = np.logspace(np.log10(max(1, np.min(sizes_with))), np.log10(np.max(sizes_with) + 1), 25)
+        ax3_all.hist(sizes_with, bins=bins, color='#1f77b4', alpha=0.65, label='With AVBMC', edgecolor='black', density=True)
+    if sizes_without is not None and len(sizes_without) > 0:
+        bins = np.logspace(np.log10(max(1, np.min(sizes_without))), np.log10(np.max(sizes_without) + 1), 25)
+        ax3_all.hist(sizes_without, bins=bins, color='#d62728', alpha=0.5, label='Without AVBMC', edgecolor='black', density=True)
+    ax3_all.set_xscale('log')
+    ax3_all.set_yscale('log')
+    ax3_all.set_xlabel(r'Cluster Size $s$ (particles)', fontsize=11, fontweight='bold')
+    ax3_all.set_ylabel(r'Probability Density $P(s)$', fontsize=11, fontweight='bold')
+    ax3_all.set_title('(c) Cluster Size Distribution (CSD)', fontsize=12, fontweight='bold')
+    ax3_all.grid(True, linestyle=':', alpha=0.6)
+    ax3_all.legend(fontsize=10.5)
+
+    plot_all_png = os.path.join(base_dir, 'avbmc_benchmark_all.png')
+    plot_all_pdf = os.path.join(base_dir, 'avbmc_benchmark_all.pdf')
+    fig_all.savefig(plot_all_png, dpi=300, bbox_inches='tight')
+    fig_all.savefig(plot_all_pdf, bbox_inches='tight')
+    if os.path.isdir(cpc_dir):
+        fig_all.savefig(os.path.join(cpc_dir, 'avbmc_benchmark_all.png'), dpi=300, bbox_inches='tight')
+        fig_all.savefig(os.path.join(cpc_dir, 'avbmc_benchmark_all.pdf'), bbox_inches='tight')
+    plt.close(fig_all)
+    print(f"  >>> Benchmark comparison plots saved: {plot_kin_png}, {plot_csd_png}, and {plot_all_png}")
 
 if __name__ == '__main__':
     run_analysis(base_dir='.')
