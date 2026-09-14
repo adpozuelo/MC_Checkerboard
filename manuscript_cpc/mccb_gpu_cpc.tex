@@ -498,7 +498,7 @@ To rigorously confirm that theoretical reversibility proofs translate to error-f
 \subsection{CPU vs. GPU Scaling: Normalizing Moves per Particle}
 \label{sec:bench_cpu_gpu}
 
-We benchmarked \texttt{MCCB-gpu} (v2.8.0) on an \textbf{NVIDIA RTX PRO 4500 Blackwell GPU} (32 GB VRAM) against the optimized multi-core CPU code \textbf{gpMC} (compiled with Intel Fortran \texttt{ifx} 2025.2.0) on a 32-core \textbf{Intel Xeon Gold 6548Y+ CPU} (2.20 GHz) for a binary Lennard-Jones mixture ($N_1 : N_2 = 2 : 1$, $T^* = 3.0$, $r_c = 2.5\sigma$) scaling from $N = 8{,}000$ to $125{,}000$ particles for 100 MC sweeps.
+We benchmarked \texttt{MCCB-gpu} (v2.8.0) on an \textbf{NVIDIA RTX PRO 4500 Blackwell GPU} (32 GB VRAM) against the optimized multi-core CPU code \textbf{gpMC}~\cite{gpmc2026} (compiled with Intel Fortran \texttt{ifx} 2025.2.0) on a 32-core \textbf{Intel Xeon Gold 6548Y+ CPU} (2.20 GHz) for a binary Lennard-Jones mixture ($N_1 : N_2 = 2 : 1$, $T^* = 3.0$, $r_c = 2.5\sigma$) scaling from $N = 8{,}000$ to $125{,}000$ particles for 100 MC sweeps.
 
 \paragraph{Normalization Formulation}
 A critical methodological distinction between CPU and GPU codes lies in the operational definition of a Monte Carlo sweep:
@@ -610,12 +610,13 @@ Rigorous verification confirms exact microscopic reversibility to machine precis
 The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.
 
 \section*{Acknowledgements}
+\enlargethispage{2\baselineskip}
 This work was supported by the Spanish Ministry of Science, Innovation and Universities (MICIU/AEI/10.13039/501100011033) through Grants PID2021-124297NB-C31 and PID2024-156328NB-I00. Computational resources were provided by the high-performance computing clusters at the Instituto de Qu{\'{i}}mica F{\'{i}}sica Blas Cabrera (IQF-CSIC).
 
 \bibliographystyle{elsarticle-num}
 \bibliography{references}
 
-\vspace{1em}
+\vspace{1.5em}
 \hrule
 \vspace{1em}
 

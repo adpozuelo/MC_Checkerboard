@@ -1,6 +1,6 @@
 # gpMC (CPU) vs MCCB-gpu (GPU) Benchmark Reproduction
 
-This benchmark reproduces the execution time comparisons between the CPU-based Monte Carlo code **gpMC** (project `MCcol`, compiled with Intel Fortran `ifx` 2025.2.0) and the GPU-accelerated code **MCCB-gpu** (Version 2.8.0, compiled with NVIDIA HPC SDK 25.3 / CUDA 12.8), originally reported in Table 2 of `benchmark.tex`.
+This benchmark reproduces the execution time comparisons between the CPU-based Monte Carlo code **gpMC** (repository: [MCcol](https://github.com/elomba/MCcol.git), compiled with Intel Fortran `ifx` 2025.2.0) and the GPU-accelerated code **MCCB-gpu** (Version 2.8.0, compiled with NVIDIA HPC SDK 25.3 / CUDA 12.8), originally reported in Table 2 of `benchmark.tex`.
 
 ## Test System Specifications
 - **Model**: Binary Lennard-Jones (LJ) fluid mixture ($N_1 : N_2 = 2 : 1$).

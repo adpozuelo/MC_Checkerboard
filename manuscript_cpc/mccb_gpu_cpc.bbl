@@ -143,4 +143,8 @@ B.~Mehlig, D.~W. Heermann, B.~M. Forrest, Hybrid {Monte Carlo} method for
 \newblock \href {https://doi.org/10.1103/PhysRevB.45.679}
   {\path{doi:10.1103/PhysRevB.45.679}}.
 
+\bibitem{gpmc2026}
+E.~Lomba, E.~G. Noya, {\texttt{gpMC}: A General Purpose Monte Carlo Program},
+  Available at: \url{https://github.com/elomba/MCcol.git} (2026).
+
 \end{thebibliography}

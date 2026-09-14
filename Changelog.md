@@ -19,8 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Validated all 19 bibliographic DOIs against the official Crossref registry API.
   - Corrected Ref [6] (`noya2014phase`): Set authors to E. G. Noya, I. Kolovos, G. Doppelbauer, G. Kahl, E. Bianchi (*Soft Matter* 10 (42), 8464–8474 (2014)) and updated DOI to `10.1039/c4sm01559b`.
   - Corrected Ref [7] (`palaia2022patchy`): Set authors to I. Palaia and A. Šarić (*J. Chem. Phys.* 156 (19), 194902 (2022)) and confirmed DOI `10.1063/5.0087769`.
-  - Refined titles for Chen et al. AVBMC papers (Refs [16], [17]) and Miller et al. (Ref [21]).
-  - Successfully recompiled `mccb_gpu_cpc.pdf` via TeX Live 2026 with updated `bibtex` database, verifying exact 12-page layout, citations, and author biographies.
+- **Software Citation for gpMC (`manuscript_cpc/references.bib`, `manuscript_cpc/mccb_gpu_cpc.tex`)**:
+  - Added dedicated bibliographic entry `gpmc2026` for **gpMC** (authors: E. Lomba and E. G. Noya, title: *gpMC: A General Purpose Monte Carlo Program*, available at \url{https://github.com/elomba/MCcol.git}).
+  - Added in-text citation `\cite{gpmc2026}` to the CPU benchmark baseline description in Section 4.1.
+  - Linked repository in `test_cases/benchmark.tex` and `test_cases/scaling/gpMC_bench/README.md`.
+  - Recompiled manuscript (`mccb_gpu_cpc.pdf`), preserving exact 12-page layout with natural flow into author biographies.
 
 ## [2.8.0] - 2026-09-08
 
