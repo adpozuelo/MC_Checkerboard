@@ -34,18 +34,18 @@ F.~Sciortino, E.~Bianchi, J.~F. Douglas, P.~Tartaglia, Self-assembly of patchy
   {\path{doi:10.1063/1.2730797}}.
 
 \bibitem{noya2014phase}
-E.~G. Noya, I.~Kolovos, G.~Doppelbauer, G.~Kahl, C.~Vega, Phase diagram of a
-  model of patchy particles with tetrahedral symmetry, Soft Matter 10~(42)
-  (2014) 8464--8474.
-\newblock \href {https://doi.org/10.1039/C4SM01620D}
-  {\path{doi:10.1039/C4SM01620D}}.
+E.~G. Noya, I.~Kolovos, G.~Doppelbauer, G.~Kahl, E.~Bianchi, Phase diagram of
+  inverse patchy colloids assembling into an equilibrium laminar phase, Soft
+  Matter 10~(42) (2014) 8464--8474.
+\newblock \href {https://doi.org/10.1039/c4sm01559b}
+  {\path{doi:10.1039/c4sm01559b}}.
 
 \bibitem{palaia2022patchy}
-I.~Palaia, A.~D{\'{i}}az-Pozuelo, A.~Reinhardt, E.~Lomba, C.~Valeriani,
-  Self-assembly of patchy particles into crystalline and glassy structures,
-  Phys. Chem. Chem. Phys. 24 (2022) 28545--28555.
-\newblock \href {https://doi.org/10.1039/D2CP04052C}
-  {\path{doi:10.1039/D2CP04052C}}.
+I.~Palaia, A.~{\v{S}}ari{\'{c}}, Controlling cluster size in {2D}
+  phase-separating binary mixtures with specific interactions, J. Chem. Phys.
+  156~(19) (2022) 194902.
+\newblock \href {https://doi.org/10.1063/5.0087769}
+  {\path{doi:10.1063/5.0087769}}.
 
 \bibitem{ninarello2017models}
 A.~Ninarello, L.~Berthier, D.~Coslovich, Models and algorithms for the next
@@ -105,16 +105,16 @@ J.~A. Anderson, E.~Jankowski, T.~L. Grubb, M.~Engel, S.~C. Glotzer, Massively
   {\path{doi:10.1016/j.jcp.2013.07.023}}.
 
 \bibitem{chen2000avbmc}
-B.~Chen, J.~I. Siepmann, Aggregation-volume-bias {Monte Carlo} simulations of
-  the liquid-vapor coexistence of water, J. Phys. Chem. B 104~(36) (2000)
-  8725--8734.
+B.~Chen, J.~I. Siepmann, A novel {Monte Carlo} algorithm for simulating
+  strongly associating fluids: Applications to water, hydrogen fluoride, and
+  acetic acid, J. Phys. Chem. B 104~(36) (2000) 8725--8734.
 \newblock \href {https://doi.org/10.1021/jp001952u}
   {\path{doi:10.1021/jp001952u}}.
 
 \bibitem{chen2001avbmc}
 B.~Chen, J.~I. Siepmann, K.~J. Oh, M.~L. Klein, Aggregation-volume-bias {Monte
-  Carlo} simulations of vapor-liquid equilibria of associating fluids, J. Chem.
-  Phys. 115~(23) (2001) 10903--10913.
+  Carlo} simulations of vapor-liquid nucleation barriers for
+  {Lennard-Jonesium}, J. Chem. Phys. 115~(23) (2001) 10903--10913.
 \newblock \href {https://doi.org/10.1063/1.1417536}
   {\path{doi:10.1063/1.1417536}}.
 

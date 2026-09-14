@@ -266,7 +266,7 @@ To incorporate collective conformational rearrangements, \texttt{MCCB-gpu} provi
 
 \begin{figure}[tbp]
 \centering
-\includegraphics[width=\columnwidth]{figures/hmc_overhead_benchmark_comparison.png}
+\includegraphics[width=\columnwidth]{figures/hmc_overhead_benchmark_comparison.pdf}
 \caption{\textbf{Profiling of In-Memory HMC Coupling with LAMMPS on NVIDIA RTX PRO 4500}: (a) Latency breakdown showing the $287\times$ speedup of direct in-memory C-API coordinate transfer ($0.43$ ms) over disk ASCII file I/O ($122.9$ ms). (b) MD trajectory propagation scaling with $N_{\text{md}}$, highlighting a $6.1\times$--$6.7\times$ throughput advantage for GPU-accelerated tabular potentials over analytic overlays. (c) Coupling overhead fraction versus $N_{\text{md}}$. (d) Comparison of task invocation paradigms for $N_{\text{md}} = 50$ steps.}
 \label{fig:hmc_profile}
 \end{figure}
@@ -445,24 +445,8 @@ To verify physical fidelity, we executed an automated two-stage workflow across 
 
 \begin{figure*}[tbp]
 \centering
-\begin{subfigure}[b]{0.32\textwidth}
-    \includegraphics[width=\textwidth]{figures/consistency_hs.png}
-    \caption{Hard Spheres (HS)}
-    \label{fig:consist_hs}
-\end{subfigure}
-\hfill
-\begin{subfigure}[b]{0.32\textwidth}
-    \includegraphics[width=\textwidth]{figures/consistency_lj.png}
-    \caption{Lennard-Jones (LJ)}
-    \label{fig:consist_lj}
-\end{subfigure}
-\hfill
-\begin{subfigure}[b]{0.32\textwidth}
-    \includegraphics[width=\textwidth]{figures/consistency_ssp.png}
-    \caption{Site-Site Patchy (SSP)}
-    \label{fig:consist_ssp}
-\end{subfigure}
-\caption{\textbf{Thermodynamic Consistency Benchmarks across $NpT$ and $NVT$ Ensembles for $N = 7{,}695$ Particles}: Time evolution of density $\rho^*(t)$ and potential energy $\langle U/N \rangle(t)$ (or virial pressure $P^*(t)$) demonstrating exact statistical overlap between ensembles.}
+\includegraphics[width=\textwidth]{figures/consistency_all.pdf}
+\caption{\textbf{Thermodynamic Consistency Benchmarks across $NpT$ and $NVT$ Ensembles for $N = 7{,}695$ Particles}: Time evolution of reduced density $\rho^*(t)$ (top row) and potential energy per particle $\langle U/N \rangle(t)$ or contact virial pressure $P^*(t)$ (bottom row) sharing the Monte Carlo sweep coordinate for: (a) Hard Spheres (HS) with analytical Carnahan-Starling equation-of-state verification, (b) Lennard-Jones (LJ), and (c) Site-Site Patchy (SSP) colloidal fluid, demonstrating exact statistical equivalence between ensembles.}
 \label{fig:consistency_all}
 \end{figure*}
 
@@ -533,7 +517,7 @@ To provide an unbiased comparison of actual sampling throughput, we report both 
 
 \begin{figure}[tbp]
 \centering
-\includegraphics[width=\columnwidth]{figures/scaling_benchmark.png}
+\includegraphics[width=\columnwidth]{figures/scaling_benchmark.pdf}
 \caption{\textbf{gpMC (CPU) vs. MCCB-gpu (GPU) Performance Scaling across $NVT$ and $NpT$ Ensembles}: (a) Wallclock execution times for 100 sweeps on Intel Xeon Gold 6548Y+ vs. NVIDIA RTX PRO 4500. (b) Effective throughput speedup factor $S_{\text{eff}}$ accounting for moves per particle, reaching $61.4\times$ in $NVT$ and $68.8\times$ in $NpT$.}
 \label{fig:scaling_bench}
 \end{figure}
@@ -602,7 +586,7 @@ Profiling the HMC coupling layer for $N = 7{,}695$ tetrahedral patchy colloids (
 
 \begin{figure}[tbp]
 \centering
-\includegraphics[width=\columnwidth]{figures/avbmc_benchmark_comparison.png}
+\includegraphics[width=\columnwidth]{figures/avbmc_benchmark_comparison.pdf}
 \caption{\textbf{Comparative Benchmark of Patchy Colloidal Cluster Sampling With vs. Without AVBMC}: (a) Cluster abundance kinetics $N_{\text{clust}}(t)$. (b) Maximum cluster size evolution $S_{\max}(t)$. (c) Final cluster size distribution $P(s)$. (d) Acceptance rates.}
 \label{fig:avbmc_bench}
 \end{figure}

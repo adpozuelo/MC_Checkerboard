@@ -27,6 +27,18 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+plt.rcParams.update({
+    'font.family': 'serif',
+    'font.size': 11,
+    'axes.labelsize': 12,
+    'axes.titlesize': 13,
+    'xtick.labelsize': 10.5,
+    'ytick.labelsize': 10.5,
+    'legend.fontsize': 10,
+    'lines.linewidth': 2.0,
+    'figure.dpi': 300
+})
+
 def parse_clusevol(filepath):
     """Parses clusevol_mc.dat file."""
     if not os.path.exists(filepath):
@@ -270,10 +282,18 @@ def run_analysis(base_dir='.'):
     ax4.grid(True, linestyle=':', alpha=0.6)
     ax4.legend(fontsize=11)
 
-    plot_file = os.path.join(base_dir, 'avbmc_benchmark_comparison.png')
-    plt.savefig(plot_file, dpi=300, bbox_inches='tight')
+    plot_file_png = os.path.join(base_dir, 'avbmc_benchmark_comparison.png')
+    plot_file_pdf = os.path.join(base_dir, 'avbmc_benchmark_comparison.pdf')
+    plt.savefig(plot_file_png, dpi=300, bbox_inches='tight')
+    plt.savefig(plot_file_pdf, bbox_inches='tight')
+
+    cpc_dir = os.path.abspath(os.path.join(base_dir, '..', '..', 'manuscript_cpc', 'figures'))
+    if os.path.isdir(cpc_dir):
+        plt.savefig(os.path.join(cpc_dir, 'avbmc_benchmark_comparison.png'), dpi=300, bbox_inches='tight')
+        plt.savefig(os.path.join(cpc_dir, 'avbmc_benchmark_comparison.pdf'), bbox_inches='tight')
+
     plt.close()
-    print(f"  >>> Benchmark comparison plot saved: {plot_file}")
+    print(f"  >>> Benchmark comparison plots saved: {plot_file_png} and {plot_file_pdf}")
 
 if __name__ == '__main__':
     run_analysis(base_dir='.')

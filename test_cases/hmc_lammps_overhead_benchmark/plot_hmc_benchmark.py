@@ -12,15 +12,15 @@ import os
 # Set publication style
 plt.rcParams.update({
     'font.family': 'serif',
-    'font.size': 11,
-    'axes.labelsize': 12,
-    'axes.titlesize': 13,
-    'xtick.labelsize': 10,
-    'ytick.labelsize': 10,
-    'legend.fontsize': 10,
-    'figure.titlesize': 14,
+    'font.size': 12,
+    'axes.labelsize': 13,
+    'axes.titlesize': 14,
+    'xtick.labelsize': 11,
+    'ytick.labelsize': 11,
+    'legend.fontsize': 10.5,
+    'figure.titlesize': 15,
     'lines.linewidth': 2.0,
-    'lines.markersize': 7,
+    'lines.markersize': 7.5,
     'figure.dpi': 300
 })
 
@@ -171,6 +171,15 @@ for rect in rects2:
                 xytext=(0, 3), textcoords="offset points", ha='center', va='bottom', fontsize=9, fontweight='bold')
 
 plt.tight_layout()
-output_fig = os.path.join(SCRIPT_DIR, 'hmc_overhead_benchmark_comparison.png')
-plt.savefig(output_fig, dpi=300)
-print(f"Figure saved successfully to: {output_fig}")
+output_fig_png = os.path.join(SCRIPT_DIR, 'hmc_overhead_benchmark_comparison.png')
+output_fig_pdf = os.path.join(SCRIPT_DIR, 'hmc_overhead_benchmark_comparison.pdf')
+plt.savefig(output_fig_png, dpi=300)
+plt.savefig(output_fig_pdf, bbox_inches='tight')
+
+# Also copy/save to manuscript figures directory
+cpc_dir = os.path.abspath(os.path.join(SCRIPT_DIR, '..', '..', 'manuscript_cpc', 'figures'))
+if os.path.isdir(cpc_dir):
+    plt.savefig(os.path.join(cpc_dir, 'hmc_overhead_benchmark_comparison.png'), dpi=300)
+    plt.savefig(os.path.join(cpc_dir, 'hmc_overhead_benchmark_comparison.pdf'), bbox_inches='tight')
+
+print(f"Figures saved successfully to: {output_fig_png} and {output_fig_pdf}")

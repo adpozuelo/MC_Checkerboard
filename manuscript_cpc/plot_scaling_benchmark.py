@@ -32,8 +32,18 @@ s_eff_nvt = t_cpu_nvt / t_gpu_norm_nvt
 s_eff_npt = t_cpu_npt / t_gpu_norm_npt
 
 # Style configuration
-plt.style.use('seaborn-v0_8-paper' if 'seaborn-v0_8-paper' in plt.style.available else 'default')
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.8), dpi=300)
+plt.rcParams.update({
+    'font.family': 'serif',
+    'font.size': 11,
+    'axes.labelsize': 12,
+    'axes.titlesize': 13,
+    'xtick.labelsize': 10.5,
+    'ytick.labelsize': 10.5,
+    'legend.fontsize': 9.5,
+    'lines.linewidth': 2.0,
+    'figure.dpi': 300
+})
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.8))
 
 colors = {
     'cpu_nvt': '#1f77b4',
@@ -89,6 +99,8 @@ ax2.annotate(r'$\mathbf{61.4\times}$ ($NVT$)',
              fontsize=10, fontweight='bold', color=colors['eff_nvt'])
 
 plt.tight_layout()
-out_path = '/home/e.lomba/MC_Checkerboard/manuscript_cpc/figures/scaling_benchmark.png'
-plt.savefig(out_path, dpi=300)
-print(f"Figure saved successfully to {out_path}")
+out_png = '/home/e.lomba/MC_Checkerboard/manuscript_cpc/figures/scaling_benchmark.png'
+out_pdf = '/home/e.lomba/MC_Checkerboard/manuscript_cpc/figures/scaling_benchmark.pdf'
+plt.savefig(out_png, dpi=300, bbox_inches='tight')
+plt.savefig(out_pdf, bbox_inches='tight')
+print(f"Figure saved successfully to {out_png} and {out_pdf}")

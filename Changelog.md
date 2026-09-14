@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.8.1] - 2026-09-14
+
+### Changed & Improved
+- **CPC Manuscript Vector Figures Replotting (`manuscript_cpc/figures/`)**:
+  - Re-plotted all manuscript figures in high-resolution vector PDF format (`hmc_overhead_benchmark_comparison.pdf`, `consistency_all.pdf`, `scaling_benchmark.pdf`, `avbmc_benchmark_comparison.pdf`) using publication-grade serif fonts, vector stroke geometry, and enlarged labels.
+  - Regrouped Figure 2 (Thermodynamic Consistency Benchmarks across $NpT$ and $NVT$ ensembles) into a unified 2-row $\times$ 3-column layout (`consistency_all.pdf`):
+    - Stacks reduced density $\rho^*(t)$ (top) and thermodynamic observables ($P^*(t)$ with analytical Carnahan-Starling EOS line for HS; potential energy $\langle U/N \rangle(t)$ for LJ and SSP) vertically per physical system column sharing the x-axis ("Monte Carlo Sweeps").
+    - More than doubled individual subpanel width and quadrupled visual plot area, significantly enhancing readability while preserving the exact 12-page manuscript length.
+- **Bibliography & DOI Verification (`manuscript_cpc/references.bib`)**:
+  - Validated all 19 bibliographic DOIs against the official Crossref registry API.
+  - Corrected Ref [6] (`noya2014phase`): Set authors to E. G. Noya, I. Kolovos, G. Doppelbauer, G. Kahl, E. Bianchi (*Soft Matter* 10 (42), 8464–8474 (2014)) and updated DOI to `10.1039/c4sm01559b`.
+  - Corrected Ref [7] (`palaia2022patchy`): Set authors to I. Palaia and A. Šarić (*J. Chem. Phys.* 156 (19), 194902 (2022)) and confirmed DOI `10.1063/5.0087769`.
+  - Refined titles for Chen et al. AVBMC papers (Refs [16], [17]) and Miller et al. (Ref [21]).
+  - Successfully recompiled `mccb_gpu_cpc.pdf` via TeX Live 2026 with updated `bibtex` database, verifying exact 12-page layout, citations, and author biographies.
+
 ## [2.8.0] - 2026-09-08
 
 ### Added
