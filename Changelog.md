@@ -26,7 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CPC Manuscript Updates (`manuscript_cpc/mccb_gpu_cpc.tex`, `manuscript_cpc/references.bib`)**:
   - Added bibliographic reference `sanchezburgos2021size` for Sanchez-Burgos *et al.* (2021) in `references.bib`.
   - Added Section 2.3 detailing the mathematical formulation of site-site patchy models, PHS core, CSW patch attraction, and biological scaffold-client stoichiometry.
-  - Documented namelist parameters (`eps_R`, `eps_CSW`, `rw_CSW`, `alpha_CSW`, `rc_CSW`) in Table 3.
+  - Documented namelist parameters (`eps_R`, `eps_CSW`, `rw_CSW`, `alpha_CSW`, `rc_CSW`) in Table 3 and Table 4 (`table_lammps`).
+  - Added dedicated paragraph in Section 2.7 explaining analytical vs. tabulated forces in LAMMPS HMC, clarifying when native pair styles apply (e.g. LJ, SSP) vs. when numerical tables are mandatory (SB CSW patch potential), alongside Hamiltonian consistency and short-range / long-range potential splitting.
   - Added validation benchmark against LAMMPS in Section 4.1.
 
 ## [2.8.1] - 2026-09-14
