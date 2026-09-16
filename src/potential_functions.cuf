@@ -1,10 +1,14 @@
 module potential_functions
    use set_precision
+   use rundata, only : pot_int
    use potential, only : table_mc, table_mc_dev, Npart_types, &
                          has_table_dev, table_rmin_dev, table_rmax_dev, table_N_dev, table_dr_inv_dev, table_V_dev, &
                          table_is_rsq_dev, &
                          has_table, table_rmin, table_rmax, table_N, table_dr_inv, table_V, &
-                         table_is_rsq
+                         table_is_rsq, &
+                         eps_R, eps_CSW, rw_CSW, alpha_CSW, rc_CSW, &
+                         eps_R_dev, eps_CSW_dev, rw_CSW_dev, alpha_CSW_dev, rc_CSW_dev, &
+                         pot_int_dev
    implicit none
 
    contains
@@ -48,7 +52,52 @@ module potential_functions
    end subroutine vlj_palaia
 
    ! ==============================================================================
-   ! ROUTINE: vpatch_sitesite_host (Palaia site-site patchy interaction - CPU version)
+   ! ROUTINE: vphs (Pseudo-Hard Sphere core potential)
+   ! Sanchez-Burgos et al., J. Chem. Phys. 154, 214902 (2021)
+   ! U_PHS(r) = C * ( (r/sigma)^-50 - (r/sigma)^-49 ) + eps_R  for r < (50/49)*sigma
+   ! with C = 50 * (50/49)^49 * eps_R
+   ! ==============================================================================
+   attributes(device, host) subroutine vphs(rsq, sigma, eps_R_in, Vrad)
+      real(wp), intent(in)  :: rsq, sigma, eps_R_in
+      real(wp), intent(out) :: Vrad
+      real(wp) :: rc, r, x, u, u2, u4, u8, u16, u32, u48, u49, u50, C
+      rc = (50.0_wp / 49.0_wp) * sigma
+      if (rsq >= rc * rc) then
+         Vrad = 0.0_wp
+         return
+      end if
+      r = sqrt(rsq)
+      x = r / sigma
+      u = 1.0_wp / x
+      C = 50.0_wp * ((50.0_wp / 49.0_wp)**49) * eps_R_in
+      u2 = u * u
+      u4 = u2 * u2
+      u8 = u4 * u4
+      u16 = u8 * u8
+      u32 = u16 * u16
+      u48 = u32 * u16
+      u49 = u48 * u
+      u50 = u49 * u
+      Vrad = C * (u50 - u49) + eps_R_in
+   end subroutine vphs
+
+   ! ==============================================================================
+   ! ROUTINE: vcsw (Continuous Square Well patch-patch potential)
+   ! Sanchez-Burgos et al., J. Chem. Phys. 154, 214902 (2021)
+   ! U_CSW(d) = -0.5 * eps_CSW * ( 1 - tanh((d - rw)/alpha) ) for d < rc
+   ! ==============================================================================
+   attributes(device, host) subroutine vcsw(dist, eps_CSW_in, rw_in, alpha_in, rc_in, Vpatch)
+      real(wp), intent(in)  :: dist, eps_CSW_in, rw_in, alpha_in, rc_in
+      real(wp), intent(out) :: Vpatch
+      if (dist >= rc_in) then
+         Vpatch = 0.0_wp
+         return
+      end if
+      Vpatch = -0.5_wp * eps_CSW_in * (1.0_wp - tanh((dist - rw_in) / alpha_in))
+   end subroutine vcsw
+
+   ! ==============================================================================
+   ! ROUTINE: vpatch_sitesite_host (Site-site patchy interaction - CPU version)
    ! ==============================================================================
    attributes(host) subroutine vpatch_sitesite_host(dx, dy, dz, &
          R1, R2, sigp_factor, Rcp_factor, patch_radial_factor, &
@@ -116,6 +165,11 @@ module potential_functions
                      if (has_table(t_mc1, t_mc2)) then
                         call eval_table_pot_host(dist_patch, t_mc1, t_mc2, V_val)
                         en_patches = en_patches + V_val
+                     end if
+                  else if (pot_int == 3) then
+                     if (dist_patch < rc_CSW) then
+                        call vcsw(dist_patch, eps_CSW, rw_CSW, alpha_CSW, rc_CSW, V_val)
+                        en_patches = en_patches + factor_energy * V_val
                      end if
                   else
                      if (dist_patch < Rcp) then
@@ -202,6 +256,11 @@ module potential_functions
                      if (has_table_dev(t_mc1, t_mc2)) then
                         call eval_table_pot_dev(dist_patch, t_mc1, t_mc2, V_val)
                         en_patches = en_patches + V_val
+                     end if
+                  else if (pot_int_dev == 3) then
+                     if (dist_patch < rc_CSW_dev) then
+                        call vcsw(dist_patch, eps_CSW_dev, rw_CSW_dev, alpha_CSW_dev, rc_CSW_dev, V_val)
+                        en_patches = en_patches + factor_energy * V_val
                      end if
                   else
                      if (dist_patch < Rcp) then

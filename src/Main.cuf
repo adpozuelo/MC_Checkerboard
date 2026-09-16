@@ -154,7 +154,7 @@ Program MCCB_gpu
 
    ! Calculate total number of sites
    total_sites = natoms
-   if (pot_int == 2) then
+   if (pot_int == 2 .or. pot_int == 3) then
       do i = 0, natoms - 1
          total_sites = total_sites + Nrb_sites(itype(i))
       end do

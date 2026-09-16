@@ -96,7 +96,7 @@ MODULE rundata
    Character*64 :: input_filename                      ! Input file name
    integer :: pot_int                                  ! Flag for
    ! interaction potential: hard spheres if -1, isotropic Lennard-Jones if 0,
-   ! angular patches if 1, site-site patches if 2 (values <=0 are radial/isotropic)
+   ! angular patches if 1, site-site patches (Palaia) if 2, Sanchez-Burgos patchy if 3 (values <=0 are radial/isotropic)
    Logical :: Ecpu_check=.false.                       ! If .true. Energies a twice computed in the CPU for checking
    Character(len=256) :: data_file = 'data.atoms'      ! Configuration file name
    Real(wp) :: rcl = 1.8_wp                            ! Cutoff distance for clustering
@@ -185,6 +185,21 @@ MODULE potential
     real(wp), constant :: table_dr_inv_dev(0:15, 0:15)
     real(wp), device, save :: table_V_dev(0:table_N_max, 0:15, 0:15)
     logical, constant :: table_mc_dev
+
+    ! Sanchez-Burgos 2021 potential parameters (pot_int == 3)
+    Real(wp) :: eps_R = 2.0_wp / 3.0_wp                 ! PHS repulsive energy scale (default 2/3)
+    Real(wp) :: eps_CSW = 1.0_wp / 0.09_wp              ! CSW well depth (default 1/T* = 1/0.09)
+    Real(wp) :: rw_CSW = 0.12_wp                        ! CSW well width
+    Real(wp) :: alpha_CSW = 0.005_wp                    ! CSW smoothing width
+    Real(wp) :: rc_CSW = 0.20_wp                        ! CSW patch interaction cutoff
+
+    ! Device copies
+    Real(wp), device, save :: eps_R_dev = 2.0_wp / 3.0_wp
+    Real(wp), device, save :: eps_CSW_dev = 1.0_wp / 0.09_wp
+    Real(wp), device, save :: rw_CSW_dev = 0.12_wp
+    Real(wp), device, save :: alpha_CSW_dev = 0.005_wp
+    Real(wp), device, save :: rc_CSW_dev = 0.20_wp
+    Integer, device, save  :: pot_int_dev = 0
 
 END MODULE potential
 

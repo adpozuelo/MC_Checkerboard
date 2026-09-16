@@ -120,7 +120,7 @@ Subroutine ener(i1, i2, en, overlap)
       Use configuration
       Use potential
       Use rundata        
-      Use potential_functions, only: vlj, vlj_palaia, eval_table_pot_host
+      Use potential_functions, only: vlj, vlj_palaia, eval_table_pot_host, vphs
       Implicit None
       
       Integer, Intent(In)   :: i1, i2
@@ -186,6 +186,8 @@ Subroutine ener(i1, i2, en, overlap)
                   Call vlj_palaia(RSQ, sigma_LJ_aux, eps_LJ_aux, vl0_aux, Rc_factor, en)
               Else if (pot_int == 1) then
                   Call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, vl0_aux, en)
+              Else if (pot_int == 3) then
+                  Call vphs(RSQ, sigma_LJ_aux, eps_R, en)
               endif
           END IF
       END IF
@@ -194,7 +196,7 @@ Subroutine ener(i1, i2, en, overlap)
               Call calculate_patchy_energy_angular(itypei, itypej, r12, rsq, dxp, dyp, dzp, &
                                            Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
                                            sigma_LJ_aux, eps_LJ_aux, xop_aux, vl0_aux, en)
-          Else if (pot_int == 2) then
+          Else if (pot_int == 2 .or. pot_int == 3) then
               Call calculate_patchy_energy_sitesite(itypei, itypej, dxp, dyp, dzp, &
                                            Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
                                            sigma_LJ_aux, en_patches)

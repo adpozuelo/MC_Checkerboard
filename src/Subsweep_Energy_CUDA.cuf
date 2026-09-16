@@ -11,7 +11,9 @@ module cuda_fortran
   use set_precision
   use potential_functions
   use potential, only : patch_radial_factor, table_mc, table_mc_dev, table_is_rsq_dev, &
-                        has_table_dev, table_rmin_dev, table_rmax_dev, table_N_dev, table_dr_inv_dev, table_V_dev
+                        has_table_dev, table_rmin_dev, table_rmax_dev, table_N_dev, table_dr_inv_dev, table_V_dev, &
+                        eps_R, eps_CSW, rw_CSW, alpha_CSW, rc_CSW, &
+                        eps_R_dev, eps_CSW_dev, rw_CSW_dev, alpha_CSW_dev, rc_CSW_dev, pot_int_dev
   implicit none
 
   real(wp), device, save :: patch_radial_factor_dev
@@ -376,6 +378,8 @@ contains
               else if (RSQ < range_aux*range_aux) then
                   if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
                       call eval_table_pot_dev(dist, itypei, itypej, Vrad)
+                  else if (pot_int_dev == 3) then
+                      call vphs(RSQ, s_LJ_aux, eps_R_dev, Vrad)
                   else
                       call vlj_palaia(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Rc_factor, Vrad)
                   end if
@@ -1461,6 +1465,8 @@ attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, N
         if (RSQ < rangeP_aux*rangeP_aux) then
              if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
                  call eval_table_pot_dev(dist, itypei, itypej, Vrad)
+             else if (pot_int_dev == 3) then
+                 call vphs(RSQ, sigma_LJ_aux, eps_R_dev, Vrad)
              else
                  call vlj_palaia(RSQ, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Rc_factor, Vrad)
              end if
@@ -1469,6 +1475,8 @@ attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, N
          if (RSQn < rangeP_aux*rangeP_aux) then
              if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
                  call eval_table_pot_dev(distn, itypei, itypej, VradN)
+             else if (pot_int_dev == 3) then
+                 call vphs(RSQn, sigma_LJ_aux, eps_R_dev, VradN)
              else
                  call vlj_palaia(RSQn, sigma_LJ_aux, eps_LJ_aux, VL0_aux, Rc_factor, VradN)
              end if
@@ -2631,6 +2639,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
     else if (RSQ < range_aux * range_aux) then
       if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
         call eval_table_pot_dev(dist, itypei, itypej, Vrad)
+      else if (pot_int_dev == 3) then
+        call vphs(RSQ, s_LJ_aux, eps_R_dev, Vrad)
       else
         call vlj_palaia(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Rc_factor, Vrad)
       end if
@@ -5053,6 +5063,12 @@ attributes(device) subroutine evaluate_cell_interactions( &
     
     init_pass = init
     patch_radial_factor_dev = patch_radial_factor
+    pot_int_dev = pot_int
+    eps_R_dev = eps_R
+    eps_CSW_dev = eps_CSW
+    rw_CSW_dev = rw_CSW
+    alpha_CSW_dev = alpha_CSW
+    rc_CSW_dev = rc_CSW
     Ndim1 = Ntypes*Npatches_max*Ntypes*Npatches_max
     Ndim2 = Ntypes*Npatches_max
     Ndim3 = Ndim2*Ntor_max
@@ -5174,7 +5190,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
                                           sigma_jon_dev, sigma_tor_jon, sigma_LJ_dev, epsilon_LJ_dev, VL0_dev, XOP_dev, &
                                           Vpot_Matrix_dev, hdev, Sphere_Celldev, List_Cell_dev, &
                                           Map_Cell_dev, Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, energydev)
-    else if (pot_int == 2) then
+    else if (pot_int == 2 .or. pot_int == 3) then
         call enerGPU_sitesite<<<nblock, NTHREAD>>>(Ndim, Nat_Cell_Max, Ntot_Cell, Npatches_max, Ntypes, &
                                           sigp_factor, Rcp_factor, Rc_factor, &
                                           Npatches_dev, patchdev, range_dev, sigma_LJ_dev, epsilon_LJ_dev, VL0_dev, &
@@ -5229,6 +5245,12 @@ attributes(device) subroutine evaluate_cell_interactions( &
     integer :: No_tras_ac_subsweep, No_rot_ac_subsweep
     integer, intent(in) :: pot_int
     patch_radial_factor_dev = patch_radial_factor
+    pot_int_dev = pot_int
+    eps_R_dev = eps_R
+    eps_CSW_dev = eps_CSW
+    rw_CSW_dev = rw_CSW
+    alpha_CSW_dev = alpha_CSW
+    rc_CSW_dev = rc_CSW
 
     if (init_subsweep == 0) then
       nblock = (10*Nsubset_Cell)/NTHREAD
@@ -5294,7 +5316,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
                                           Npatches_dev, patchdev, ref_tor_dev, sigma_jon_dev, sigma_tor, sigma_LJ_dev, epsilon_LJ_dev, range_dev, VL0_dev, XOP_dev, &
                                           Ntor_angle_dev, tor_angle_dev, Vpot_Matrix_dev, hdev, beta, hmax, omax, Sphere_Celldev, List_Cell_dev, Map_Cell_dev, &
                                           Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Offset_dev, W_RU_dev, Delta_E_dev, Ntras_ac_dev, Nrot_ac_dev)
-    else if (pot_int == 2) then
+    else if (pot_int == 2 .or. pot_int == 3) then
         call subsweep_sitesite<<<nblock,NTHREAD>>>(RND_States, TOTAL_THREADS, overlap_error_dev, Ndim, Nmove, Nat_Cell_Max, &
                                           Ntot_Cell, Nsubset_Cell, Npatches_max, Npart_types, &
                                           Npatches_dev, patchdev, sigma_LJ_dev, epsilon_LJ_dev, range_dev, VL0_dev, Vpot_Matrix_dev, &
@@ -5345,6 +5367,12 @@ attributes(device) subroutine evaluate_cell_interactions( &
     if (Npart_types < 2) return
 
     patch_radial_factor_dev = patch_radial_factor
+    pot_int_dev = pot_int
+    eps_R_dev = eps_R
+    eps_CSW_dev = eps_CSW
+    rw_CSW_dev = rw_CSW
+    alpha_CSW_dev = alpha_CSW
+    rc_CSW_dev = rc_CSW
 
     if (.not. allocated(Nswap_att_dev)) then
       allocate(Nswap_att_dev(0:Ntot_Cell-1))
@@ -5387,7 +5415,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
                                                 Sphere_Celldev, List_Cell_dev, Map_Cell_dev, &
                                                 Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Offset_dev, W_RU_dev, &
                                                 Delta_E_dev, Nswap_att_dev, Nswap_ac_dev)
-    else if (pot_int == 2) then
+    else if (pot_int == 2 .or. pot_int == 3) then
       call subsweep_sitesite_swap<<<nblock,NTHREAD>>>(RND_States, TOTAL_THREADS, Ndim, Nat_Cell_Max, &
                                                 Ntot_Cell, Nsubset_Cell, Nrb_sites_max, Npart_types, &
                                                 Npatches_dev, patchdev, sigma_LJ_dev, epsilon_LJ_dev, &
@@ -5434,6 +5462,12 @@ attributes(device) subroutine evaluate_cell_interactions( &
     if (Npart_types < 2) return
 
     patch_radial_factor_dev = patch_radial_factor
+    pot_int_dev = pot_int
+    eps_R_dev = eps_R
+    eps_CSW_dev = eps_CSW
+    rw_CSW_dev = rw_CSW
+    alpha_CSW_dev = alpha_CSW
+    rc_CSW_dev = rc_CSW
 
     if (.not. allocated(Nswap_att_dev)) then
       allocate(Nswap_att_dev(0:Ntot_Cell-1))
@@ -5476,7 +5510,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
                                                       Sphere_Celldev, List_Cell_dev, Map_Cell_dev, &
                                                       Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, Offset_dev, W_RU_dev, &
                                                       Delta_E_dev, Nswap_att_dev, Nswap_ac_dev)
-    else if (pot_int == 2) then
+    else if (pot_int == 2 .or. pot_int == 3) then
       call subsweep_sitesite_cross_swap<<<nblock,NTHREAD>>>(RND_States, TOTAL_THREADS, Ndim, Nat_Cell_Max, &
                                                       Ntot_Cell, Nsubset_Cell, Nrb_sites_max, Npart_types, &
                                                       Npatches_dev, patchdev, sigma_LJ_dev, epsilon_LJ_dev, &
@@ -5874,6 +5908,8 @@ attributes(device) subroutine evaluate_cell_interactions( &
               else if (RSQ < range_aux*range_aux) then
                   if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
                       call eval_table_pot_dev(dist, itypei, itypej, Vrad)
+                  else if (pot_int_dev == 3) then
+                      call vphs(RSQ, s_LJ_aux, eps_R_dev, Vrad)
                   else
                       call vlj_palaia(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Rc_factor, Vrad)
                   end if
@@ -5928,6 +5964,11 @@ attributes(device) subroutine evaluate_cell_interactions( &
                                   if (has_table_dev(t_mc1, t_mc2)) then
                                       call eval_table_pot_dev(dist_patch, t_mc1, t_mc2, V_val)
                                       en_i = en_i + 0.5_wp * V_val
+                                  end if
+                              else if (pot_int_dev == 3) then
+                                  if (dist_patch < rc_CSW_dev) then
+                                      call vcsw(dist_patch, eps_CSW_dev, rw_CSW_dev, alpha_CSW_dev, rc_CSW_dev, V_val)
+                                      en_i = en_i + 0.5_wp * factor_energy * V_val
                                   end if
                               else if (dist_patch < Rcp) then
                                   if (dist_patch <= sigp) then
@@ -6559,6 +6600,12 @@ attributes(device) subroutine evaluate_cell_interactions( &
     allocate(Sphere_Cell_dev(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1))
     
     patch_radial_factor_dev = patch_radial_factor
+    pot_int_dev = pot_int
+    eps_R_dev = eps_R
+    eps_CSW_dev = eps_CSW
+    rw_CSW_dev = rw_CSW
+    alpha_CSW_dev = alpha_CSW
+    rc_CSW_dev = rc_CSW
     
     ! ====================================================================
     ! CRITICAL SYNC FOR trj_analysis / AVBMC:
@@ -6594,7 +6641,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
                                          Npatches_dev, Ntor_angle_dev, tor_angle_dev, patchdev, ref_tor_dev, range_dev, sigma_jon_dev, sigma_tor_jon, &
                                          sigma_LJ_dev, epsilon_LJ_dev, VL0_dev, XOP_dev, Vpot_Matrix_dev, hdev, Sphere_Cell_dev, List_Cell_dev, Map_Cell_dev, Nl_Cell_dev, &
                                          Nat_Cell_dev, DR_Cell_dev, atom_ener_dev)
-    Else if (pot_int == 2) Then
+    Else if (pot_int == 2 .or. pot_int == 3) Then
        call cell_per_atom_enerGPU_sitesite<<<nblock, NTHREAD>>>(Ndim, Natoms_in, Nat_Cell_Max, Ntot_Cell, Npatches_max, Ntypes, &
                                          sigp_factor, Rcp_factor, Rc_factor, &
                                          Npatches_dev, patchdev, range_dev, sigma_LJ_dev, epsilon_LJ_dev, VL0_dev, Vpot_Matrix_dev, &

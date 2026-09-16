@@ -72,6 +72,11 @@ Subroutine Write_Input_File(istep)
    Write(21,*) "  Rc_factor = ", Rc_factor, ","
    Write(21,*) "  epsp_factor = ", epsp_factor, ","
    Write(21,*) "  patch_radial_factor = ", patch_radial_factor, ","
+   Write(21,*) "  eps_R = ", eps_R, ","
+   Write(21,*) "  eps_CSW = ", eps_CSW, ","
+   Write(21,*) "  rw_CSW = ", rw_CSW, ","
+   Write(21,*) "  alpha_CSW = ", alpha_CSW, ","
+   Write(21,*) "  rc_CSW = ", rc_CSW
    Write(21,*) "/"
 
    ! =========================================================================
@@ -192,7 +197,7 @@ Subroutine Read_Input_Data
    Integer :: i, j, k, l, m, Indx, Indx1, Indx2, ios, Indx_tor, Indx_tor2
    Integer :: i_fila, i_columna
    Logical :: found_mat
-   Real(wp) :: norm, px, py, pz, sigma_jon_ij, xopp, Rmin_ij
+   Real(wp) :: norm, px, py, pz, sigma_jon_ij, xopp, Rmin_ij, req_range
    real(wp), Allocatable :: Matrix(:,:)
    Character(len=256) :: line
 
@@ -216,7 +221,8 @@ Subroutine Read_Input_Data
     Namelist /MC_Params/ hmax, omax, vmax, displ_update, temp0, temp1, npt, Nvolf, iscale, pres, seed, swap_moves, Nswap, Nswapf
     Namelist /Potential_Params/ model, cosmax_KF, ctor_max_KF, delta_KF, Bool_tor, sigma_jon_aux, sigma_tor_jon, rangepp, &
                                 sigp_factor, Rcp_factor, Rc_factor, epsp_factor, patch_radial_factor, &
-                                table_mc, table_lammps, table_file_mc, table_file_lammps
+                                table_mc, table_lammps, table_file_mc, table_file_lammps, &
+                                eps_R, eps_CSW, rw_CSW, alpha_CSW, rc_CSW
 
    ! Lammps_Params namelist for internal LAMMPS simulation and HMC parameters
    ! Local/alias variables for Lammps_Params namelist
@@ -293,6 +299,8 @@ Subroutine Read_Input_Data
       pot_int = 1
    else if (trim(model)=='SSP') then
       pot_int = 2
+   else if (trim(model)=='SB' .or. trim(model)=='SANCHEZ_BURGOS' .or. trim(model)=='sanchez_burgos') then
+      pot_int = 3
    else if (trim(model)=='TABLE' .or. trim(model)=='table') then
       pot_int = 0
       table_mc = .true.
@@ -430,6 +438,13 @@ Subroutine Read_Input_Data
           else
               write(*,'(A)')       '     - Colloid tail depth:    Calculated (WCA-consistent)'
           end if
+      else if (pot_int == 3) then
+          write(*,'(A,F10.4)') '     - PHS eps_R:             ', eps_R
+          write(*,'(A,F10.4)') '     - CSW well depth (eps):  ', eps_CSW
+          write(*,'(A,F10.4)') '     - CSW well width (rw):   ', rw_CSW
+          write(*,'(A,F10.4)') '     - CSW smoothing (alpha): ', alpha_CSW
+          write(*,'(A,F10.4)') '     - CSW cutoff (rc):       ', rc_CSW
+          write(*,'(A,F10.4)') '     - Patch radial factor:   ', patch_radial_factor
       end if
    EndIf
    write(*,'(A,I5)') '  -> Number of Particle Types:', Npart_types
@@ -590,6 +605,7 @@ Subroutine Read_Input_Data
                ref_tor_vec( Indx2 ) =Px/norm; ref_tor_vec( Indx2+1 ) =Py/norm; ref_tor_vec( Indx2+2 ) =Pz/norm
                If(ios.ge.1) Then
                    Ntor_angle(Indx_tor+i) = 0
+                   Read(20,*)
                Else
                    Do K = 0, Ntor_angle( Indx_tor+I )-1; Read(20,'(F12.6)',advance='no') tor_angle( Indx_tor2 +I*Ntor_max + K ); EndDo
                    Read(20,*) 
@@ -714,6 +730,33 @@ Subroutine Read_Input_Data
    End If
 
     ! ==============================================================================
+    ! SANITY CHECK: Sanchez-Burgos 2021 Patchy Potential Cutoff
+    ! Ensure rangeP is large enough to capture patches at 0.5*sigma + 0.5*sigma + rc_CSW
+    ! ==============================================================================
+    If (pot_int == 3) Then
+        If (Allocated(sigma_LJ) .and. Allocated(rangeP)) Then
+            Do i = 0, Npart_types - 1
+                Do j = 0, Npart_types - 1
+                    Indx = i * Npart_types + j
+                    req_range = patch_radial_factor * (sigma_LJ(i * Npart_types + i) + sigma_LJ(j * Npart_types + j)) + rc_CSW
+                    If (rangeP(Indx) < req_range) Then
+                        Print *, c_red, "=========================================================="
+                        Print *, " FATAL ERROR: CUTOFF TOO SHORT FOR SANCHEZ-BURGOS MODEL"
+                        Print *, "=========================================================="
+                        Print *, "Particle Types : ", i, " and ", j
+                        Print *, "Current rangeP : ", rangeP(Indx)
+                        Print *, "Required rangeP: ", req_range, " (or greater)"
+                        Print *, "Reason: Maximum patch interaction distance is r_patch1 + r_patch2 + rc_CSW."
+                        Print *, "Please increase 'rangepp' in your datos.nml file."
+                        Print *, "==========================================================", c_reset
+                        Stop 1
+                    End If
+                End Do
+            End Do
+        End If
+    End If
+
+    ! ==============================================================================
     ! OVERRIDE ATTRACTIVE TAIL DEPTH (V1.4): If epsp_factor is specified (>= 0.0)
     ! in the namelist Potential_Params, override VL0 to be -epsp_factor.
     ! ==============================================================================
@@ -722,6 +765,14 @@ Subroutine Read_Input_Data
             VL0 = -epsp_factor
         End If
     End If
+
+    ! Synchronize potential parameters to device
+    eps_R_dev = eps_R
+    eps_CSW_dev = eps_CSW
+    rw_CSW_dev = rw_CSW
+    alpha_CSW_dev = alpha_CSW
+    rc_CSW_dev = rc_CSW
+    pot_int_dev = pot_int
 
    close(20)
 End Subroutine Read_input_data! =
@@ -857,9 +908,9 @@ Subroutine Print_system_data_summary
    End Do
    write(*,'(A)') '  ----------------------------------------------------------------'
 
-   If (pot_int == 2 .and. Allocated(Nrb_sites) .and. Allocated(patch)) Then
+   If ((pot_int == 2 .or. pot_int == 3) .and. Allocated(Nrb_sites) .and. Allocated(patch)) Then
       write(*,'(A)') ''
-      write(*,'(A)') c_green // ' --- SSP Patch Geometry Details ---' // c_reset
+      write(*,'(A)') c_green // ' --- Patch Geometry Details ---' // c_reset
       Do k = 0, Npart_types - 1
          write(*,'(A,I2,A,I2,A,I3,A)') '  Species ', k+1, ' (Int ', k, '): ', Nrb_sites(k), ' patches'
          Do p = 0, Nrb_sites(k) - 1
