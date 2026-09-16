@@ -308,7 +308,7 @@ Subroutine Read_Input_Data
       write(*,'(/A,"*** Fatal error: interaction ", A, " not implemented ***",A)')c_red, trim(model), c_reset
       stop  
    end if
-   if (table_mc .and. pot_int /= 2) then
+   if (table_mc .and. pot_int /= 2 .and. pot_int /= 3) then
       pot_int = 0
    end if
 
@@ -1074,10 +1074,10 @@ Subroutine load_table_potentials()
 
     unit_id = 98
 
-    do t_lmp1 = 1, merge(2*Npart_types, Npart_types, pot_int == 2)
-        do t_lmp2 = t_lmp1, merge(2*Npart_types, Npart_types, pot_int == 2)
+    do t_lmp1 = 1, merge(2*Npart_types, Npart_types, pot_int == 2 .or. pot_int == 3)
+        do t_lmp2 = t_lmp1, merge(2*Npart_types, Npart_types, pot_int == 2 .or. pot_int == 3)
             ! Map to MC site types
-            if (pot_int == 2) then
+            if (pot_int == 2 .or. pot_int == 3) then
                 if (mod(t_lmp1, 2) == 1) then
                     t_mc1 = (t_lmp1 - 1) / 2
                 else
