@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.8.2] - 2026-09-16
+
+### Added
+- **Sanchez-Burgos Patchy Protein Condensation Model (`model = 'SB'`, `pot_int = 3`)**:
+  - Implemented the minimal patchy protein model of Sanchez-Burgos *et al.* (*Sci. Rep.* 11, 15241 (2021)) for simulating liquid-liquid phase separation (LLPS) and size-conserved biomolecular condensates in binary mixtures of multivalent scaffolds and surfactant clients.
+  - **Pseudo-Hard Sphere (PHS) Core Potential**:
+    $$U_{\text{PHS}}(r) = C \epsilon_R \left[ \left(\frac{\sigma}{r}\right)^{50} - \left(\frac{\sigma}{r}\right)^{49} \right] + \epsilon_R \quad (r < \tfrac{50}{49}\sigma), \quad 0 \quad (r \ge \tfrac{50}{49}\sigma)$$
+    with $\epsilon_R = 2/3$ and prefactor $C = 50(50/49)^{49} \approx 136.0888$, vanishing smoothly with zero derivative at $r_c^{\text{PHS}} = \frac{50}{49}\sigma \approx 1.0204\sigma$.
+  - **Continuous Square-Well (CSW) Patch Potential**:
+    $$U_{\text{CSW}}(d) = -\frac{\epsilon_{\text{CSW}}}{2} \left[ 1 - \tanh\left(\frac{d - r_w}{\alpha}\right) \right] \quad (d < r_c), \quad 0 \quad (d \ge r_c)$$
+    with well depth $\epsilon_{\text{CSW}} = 1/T^* = 1/0.09 \approx 11.1111$, well radius $r_w = 0.12\sigma$, smoothing parameter $\alpha = 0.005\sigma$, and cutoff $r_c = 0.20\sigma$.
+  - Implemented dual CPU/CUDA GPU routines `vphs` and `vcsw` in `src/potential_functions.cuf`.
+  - Added module parameters and device reflections (`eps_R`, `eps_CSW`, `rw_CSW`, `alpha_CSW`, `rc_CSW`, `pot_int_dev`) in `src/Definitions.cuf`.
+  - Integrated into checkerboard sweep kernels (`subsweep_sitesite`, `enerGPU_sitesite`, `cell_per_atom_enerGPU_sitesite`, `accumulate_atom_energy_sitesite`) in `src/Subsweep_Energy_CUDA.cuf` and CPU evaluation in `src/energy.cuf`.
+  - Added namelist support in `&Potential_Params` (`model = 'SB'`, `'SANCHEZ_BURGOS'`), strict column-width I/O parsing, and geometric cutoff validation ensuring $r_{\text{cut}} \ge r_{p,i} + r_{p,j} + r_{c,\text{CSW}}$ in `src/Read_input_data_nml.cuf`.
+  - Created validation test suite in `test_cases/sanchez_burgos_validation/` with LAMMPS configuration converter `convert_lammps_to_mc.py`. Verified initial total potential energy against a 2,000-particle LAMMPS benchmark snapshot (`-151.70959` vs LAMMPS `-151.70991`, discrepancy $< 0.0002\%$).
+- **CPC Manuscript Updates (`manuscript_cpc/mccb_gpu_cpc.tex`, `manuscript_cpc/references.bib`)**:
+  - Added bibliographic reference `sanchezburgos2021size` for Sanchez-Burgos *et al.* (2021) in `references.bib`.
+  - Added Section 2.3 detailing the mathematical formulation of site-site patchy models, PHS core, CSW patch attraction, and biological scaffold-client stoichiometry.
+  - Documented namelist parameters (`eps_R`, `eps_CSW`, `rw_CSW`, `alpha_CSW`, `rc_CSW`) in Table 3.
+  - Added validation benchmark against LAMMPS in Section 4.1.
+
 ## [2.8.1] - 2026-09-14
 
 ### Changed & Improved
