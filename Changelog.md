@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.8.3] - 2026-09-21
+
+### Fixed
+- **Simulation Checkpoint & Restart Generation (`input-restart.nml`, `Write_Input_File`, `Read_Input_Data`)**:
+  - Fixed Fortran EOF read crash (`FIO-F-252`) when restarting from `input-restart.nml` caused by case-sensitivity differences in section headers (`Sigma_ang` vs `sigmas_ang`/`SIGMAS_ANG` and `Sigma_LJ` vs `sigma_LJ`/`SIGMA_LJ`).
+  - Added centralized `uppercase` subroutine in `MODULE utils` (`src/Definitions.cuf`) enabling case-insensitive matching across all input section headers (`TOPOLOGY`, `VPOT`, `SIGMAS_ANG`, `SIGMA_LJ`, `HS SIGMA MATRIX`, `LJ SIGMA MATRIX`) with informative fatal error messages on missing sections or premature EOF.
+  - Fixed missing namelist parameters in checkpointed `input-restart.nml` (`Write_Input_File`):
+    - Added `data_file = 'data.restart'` so restarts correctly load the latest configuration rather than falling back to `data.atoms`.
+    - Preserved active AVBMC parameters (`avbmc`, `border_criterion`, `avbmc_k_trials`, `avbmc_max_trials`, `energy_threshold`, `energy_border_ratio`, `use_energy_ratio`).
+    - Preserved DBSCAN cluster analysis parameters (`ncluster`, `rcl`, `minPts`, `asym_threshold`, `cluster_types`).
+    - Preserved tabulated potential settings (`table_mc`, `table_file_mc`).
+    - Preserved CPU energy check flag `Ecpu_check`.
+    - Standardized matrix headers (`-- vpot matrix --`, `-- sigmas_ang --`, `-- sigma_LJ --`).
+
 ## [2.8.2] - 2026-09-16
 
 ### Added

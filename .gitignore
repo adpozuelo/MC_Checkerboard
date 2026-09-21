@@ -31,6 +31,7 @@ run-data-*.dat
 output_*.out
 thermo*.dat
 gmix.dat
+clusevol_mc.dat
 fort.*
 
 # Benchmark runtime directories and large raw dumps

@@ -254,6 +254,17 @@ MODULE utils
    Character(len=8), Parameter :: c_yellow = char(27)//'[1;33m'
    Character(len=8), Parameter :: c_red    = char(27)//'[1;31m'
    Character(len=8), Parameter :: c_reset  = char(27)//'[0m'
+CONTAINS
+   subroutine uppercase(str)
+      character(len=*), intent(inout) :: str
+      integer :: k, char_code
+      do k = 1, len_trim(str)
+          char_code = ichar(str(k:k))
+          if (char_code >= 97 .and. char_code <= 122) then
+              str(k:k) = char(char_code - 32)
+          end if
+      end do
+   end subroutine uppercase
 END MODULE utils 
 
 

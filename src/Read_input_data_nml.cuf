@@ -25,7 +25,43 @@ Subroutine Write_Input_File(istep)
    Write(21,*) "  Nrestart = ", Nrestart, ","
    Write(21,*) "  imovie = ", imovie, ","
    Write(21,*) "  traj_format = '", trim(traj_format), "',"
+   Write(21,*) "  data_file = 'data.restart',"
    Write(21,*) "  Npart_types = ", Npart_types, ","
+   Write(21,*) "  Ecpu_check = ", Ecpu_check, ","
+   if (ncluster > 0) then
+      Write(21,*) "  ncluster = ", ncluster, ","
+      Write(21,*) "  rcl = ", rcl, ","
+      Write(21,*) "  minPts = ", minPts, ","
+      Write(21,*) "  asym_threshold = ", asym_threshold, ","
+      block
+         integer :: num_ct, k_ct
+         num_ct = 0
+         do k_ct = 1, 10
+            if (cluster_types(k_ct) /= -1) num_ct = num_ct + 1
+         end do
+         if (num_ct > 0) then
+            Write(21,'(A)',advance='no') "  cluster_types = "
+            do k_ct = 1, num_ct
+               if (k_ct < num_ct) then
+                  Write(21,'(I0,A)',advance='no') cluster_types(k_ct), ", "
+               else
+                  Write(21,'(I0,A)') cluster_types(k_ct), ","
+               end if
+            end do
+         end if
+      end block
+   end if
+   if (avbmc) then
+      Write(21,*) "  avbmc = ", avbmc, ","
+      Write(21,*) "  border_criterion = '", trim(border_criterion), "',"
+      Write(21,*) "  avbmc_k_trials = ", avbmc_k_trials, ","
+      Write(21,*) "  avbmc_max_trials = ", avbmc_max_trials, ","
+      if (trim(border_criterion) == 'energy') then
+         Write(21,*) "  energy_threshold = ", energy_threshold, ","
+         Write(21,*) "  energy_border_ratio = ", energy_border_ratio, ","
+         Write(21,*) "  use_energy_ratio = ", use_energy_ratio, ","
+      end if
+   end if
    Write(21,*) "  lammps = ", lammps
    Write(21,*) "/"
 
@@ -72,6 +108,8 @@ Subroutine Write_Input_File(istep)
    Write(21,*) "  Rc_factor = ", Rc_factor, ","
    Write(21,*) "  epsp_factor = ", epsp_factor, ","
    Write(21,*) "  patch_radial_factor = ", patch_radial_factor, ","
+   Write(21,*) "  table_mc = ", table_mc, ","
+   if (len_trim(table_file_mc) > 0) Write(21,*) "  table_file_mc = '", trim(table_file_mc), "',"
    Write(21,*) "  eps_R = ", eps_R, ","
    Write(21,*) "  eps_CSW = ", eps_CSW, ","
    Write(21,*) "  rw_CSW = ", rw_CSW, ","
@@ -143,7 +181,7 @@ Subroutine Write_Input_File(istep)
          Endif
       EndDo
 
-      Write(21,*) "-vpot matrix --"
+      Write(21,*) "-- vpot matrix --"
       Do I = 0, Npart_types -1
         Indx1= I * Npart_types * Nrb_sites_max *Nrb_sites_max
         Do J = 0, Nrb_sites(I) -1
@@ -159,7 +197,7 @@ Subroutine Write_Input_File(istep)
 
       If(sigma_jon_aux.gt.0.d0) then
       Else
-         Write(21,*) 'Sigma_ang' 
+         Write(21,*) '-- sigmas_ang --' 
          Do I= 0, Npart_types-1
             Indx= I *Nrb_sites_max
             Do J = 0, Nrb_sites(i)-1
@@ -168,7 +206,7 @@ Subroutine Write_Input_File(istep)
             write(21,*)
          EndDo
 
-         Write(21,*) 'Sigma_LJ'
+         Write(21,*) '-- sigma_LJ --'
          Do I=0,Npart_types-1
               Indx = I*Npart_types
               Do J = 0, Npart_types-1
@@ -199,7 +237,7 @@ Subroutine Read_Input_Data
    Logical :: found_mat
    Real(wp) :: norm, px, py, pz, sigma_jon_ij, xopp, Rmin_ij, req_range
    real(wp), Allocatable :: Matrix(:,:)
-   Character(len=256) :: line
+   Character(len=256) :: line, uline
 
   
    ! Namelists for simulation control, MC parameters, and potential parameters.
@@ -469,8 +507,13 @@ Subroutine Read_Input_Data
       ! Fast forward input_filename to the HS diameter matrix section
       Do
          Read(20, '(A)', IOSTAT=ios) line
-         If (ios /= 0) Exit
-         If (index(line, '--- HS SIGMA MATRIX ---') > 0) Exit
+         If (ios /= 0) Then
+            write(*, '(/A,"*** Fatal error: HS SIGMA MATRIX not found in ", A, "***",A)') c_red, trim(input_filename), c_reset
+            stop 1
+         End If
+         uline = line
+         call uppercase(uline)
+         If (index(uline, 'HS SIGMA MATRIX') > 0) Exit
       End Do
 
       Allocate ( sigma_LJ(0:Npart_types*Npart_types-1) )
@@ -516,8 +559,10 @@ Subroutine Read_Input_Data
       Do
          Read(20, '(A)', IOSTAT=ios) line
          If (ios /= 0) Exit
-         If (index(line, '--- LJ SIGMA MATRIX ---') > 0 .or. &
-             index(line, '--- SIGMA MATRIX ---') > 0) Then
+         uline = line
+         call uppercase(uline)
+         If (index(uline, 'LJ SIGMA MATRIX') > 0 .or. &
+             index(uline, 'SIGMA MATRIX') > 0) Then
             found_mat = .true.
             Exit
          End If
@@ -547,8 +592,10 @@ Subroutine Read_Input_Data
       Do 
          Read(20, '(A)', IOSTAT=ios) line
          If (ios /= 0) Exit
-         If (index(line, '--- LJ EPSILON MATRIX ---') > 0 .or. &
-             index(line, '--- EPSILON MATRIX ---') > 0) Then
+         uline = line
+         call uppercase(uline)
+         If (index(uline, 'LJ EPSILON MATRIX') > 0 .or. &
+             index(uline, 'EPSILON MATRIX') > 0) Then
             found_mat = .true.
             Exit
          End If
@@ -567,13 +614,18 @@ Subroutine Read_Input_Data
          stop 1
       End If
    Else
-        Do 
-           Read(20, '(A)', IOSTAT=ios) line
-           If (ios /= 0) Exit
-           line = adjustl(line)
-           if (line(1:1) == '!' .or. line(1:1) == '#') cycle
-           If (index(line, 'TOPOLOGY') > 0) Exit
-        End Do
+         Do 
+            Read(20, '(A)', IOSTAT=ios) line
+            If (ios /= 0) Then
+               write(*, '(/A,"*** Fatal error: TOPOLOGY AND PATCH GEOMETRY DATA not found in ", A, "***",A)') c_red, trim(input_filename), c_reset
+               stop 1
+            End If
+            line = adjustl(line)
+            if (line(1:1) == '!' .or. line(1:1) == '#') cycle
+            uline = line
+            call uppercase(uline)
+            If (index(uline, 'TOPOLOGY') > 0) Exit
+         End Do
         Read(20,*) (Nrb_sites(J),J=0,Npart_types-1)
 
       Do i = 0, Npart_types-1
@@ -634,8 +686,13 @@ Subroutine Read_Input_Data
       Allocate ( Vpot_Matrix( 0 : Npart_types*Npart_types*Nrb_sites_max*Nrb_sites_max -1 ) ); Vpot_Matrix = 0.
       Do 
          Read(20, '(A)', IOSTAT=ios) line
-         If (ios /= 0) Exit
-         If (index(line, 'vpot') > 0 .or. index(line, 'VPOT') > 0) Exit
+         If (ios /= 0) Then
+            write(*, '(/A,"*** Fatal error: vpot matrix section not found in ", A, "***",A)') c_red, trim(input_filename), c_reset
+            stop 1
+         End If
+         uline = line
+         call uppercase(uline)
+         If (index(uline, 'VPOT') > 0) Exit
       End Do
       Do I = 0, Npart_types -1
         Indx1= I * Npart_types * Nrb_sites_max *Nrb_sites_max 
@@ -671,8 +728,13 @@ Subroutine Read_Input_Data
       Else
          Do 
             Read(20, '(A)', IOSTAT=ios) line
-            If (ios /= 0) Exit
-            If (index(line, 'sigmas_ang') > 0 .or. index(line, 'SIGMAS_ANG') > 0) Exit
+            If (ios /= 0) Then
+               write(*, '(/A,"*** Fatal error: sigmas_ang section not found in ", A, "***",A)') c_red, trim(input_filename), c_reset
+               stop 1
+            End If
+            uline = line
+            call uppercase(uline)
+            If (index(uline, 'SIGMA_ANG') > 0 .or. index(uline, 'SIGMAS_ANG') > 0) Exit
          End Do
          Do I= 0, Npart_types-1
             Indx = I*Nrb_sites_max
@@ -683,8 +745,13 @@ Subroutine Read_Input_Data
          EndDo
          Do 
             Read(20, '(A)', IOSTAT=ios) line
-            If (ios /= 0) Exit
-            If (index(line, 'sigma_LJ') > 0 .or. index(line, 'SIGMA_LJ') > 0) Exit
+            If (ios /= 0) Then
+               write(*, '(/A,"*** Fatal error: sigma_LJ section not found in ", A, "***",A)') c_red, trim(input_filename), c_reset
+               stop 1
+            End If
+            uline = line
+            call uppercase(uline)
+            If (index(uline, 'SIGMA_LJ') > 0) Exit
          End Do
          Do I=0,Npart_types-1
               Indx = I*Npart_types
@@ -1049,6 +1116,7 @@ Subroutine load_table_potentials()
     use set_precision
     use potential
     use rundata, only : pot_int
+    use utils, only : uppercase
     implicit none
     integer :: unit_id, ierr, i, idx, t_lmp1, t_lmp2, t_mc1, t_mc2, N
     character(len=256) :: line, keyword, filename, cand_file
@@ -1340,15 +1408,4 @@ contains
             end if
         end if
     end subroutine parse_n_line
-
-    subroutine uppercase(str)
-        character(len=*), intent(inout) :: str
-        integer :: k, char_code
-        do k = 1, len_trim(str)
-            char_code = ichar(str(k:k))
-            if (char_code >= 97 .and. char_code <= 122) then
-                str(k:k) = char(char_code - 32)
-            end if
-        end do
-    end subroutine uppercase
 End Subroutine load_table_potentials
