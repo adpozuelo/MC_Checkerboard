@@ -7,7 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.8.4] - 2026-09-21
+
+### Added
+- **Comprehensive Documentation & Parameter Comments in Input Files (`*.nml`)**:
+  - Added descriptive comments, section banners, and units across all 27 `.nml` simulation input files in `examples/` and `test_cases/`.
+  - Documented physical meanings, reduced units, defaults, and algorithmic roles for all parameters across namelists:
+    - `&Control_Params`: Step counters (`istep_ini`, `istep_fin`, `Neq`, `Nmove`), I/O and checkpoint frequencies (`Nsave`, `Ndump`, `Nrestart`, `imovie`, `traj_format`, `data_file`), multicomponent types (`Npart_types`), CPU energy consistency verification (`Ecpu_check`), DBSCAN clustering parameters (`ncluster`, `rcl`, `minPts`, `asym_threshold`, `cluster_types`), AVBMC cluster moves (`avbmc`, `border_criterion`, `energy_threshold`, `energy_border_ratio`, `use_energy_ratio`, `avbmc_k_trials`, `avbmc_max_trials`), and LAMMPS HMC parameters (`lammps`, `Nmc_hmc`, `Nmd_hmc`, `tstep_hmc`).
+    - `&MC_Params`: Maximum displacements (`hmax`, `omax`, `vmax`), adaptive displacement tuning (`displ_update`), temperature controls (`temp0`, `temp1`), ensemble flags (`npt`, `Nvolf`, `iscale`, `pres`), PRNG seed (`seed`), and GPU checkerboard identity swap moves (`swap_moves`, `Nswap`, `Nswapf`).
+    - `&Potential_Params`: Interaction models (`HS`, `LJ`, `SSP`, `SB`, `TABLE`), angular patch widths and tolerances (`sigma_jon_aux`, `sigma_tor_jon`, `Bool_tor`), interaction ranges (`rangepp`), Palaia SSP potential parameters (`sigp_factor`, `Rcp_factor`, `Rc_factor`, `epsp_factor`), Sanchez-Burgos parameters (`eps_R`, `eps_CSW`, `rw_CSW`, `alpha_CSW`, `rc_CSW`, `patch_radial_factor`), and GPU table potential configurations (`table_mc`, `table_lammps`, `table_file_mc`, `table_file_lammps`).
+    - `&Lammps_Params`: Hybrid Monte Carlo integration parameters (`timestep`, `Nmd`, `hmc_freq`, `neigh_skin`, `thermo_freq`, `use_gpu`, `gpu_id`, `table_lammps`, `table_file_lammps`).
+  - Documented trailing geometry, topology, and matrix definitions (number of patches, orientation unit vectors, torsional reference vectors, torsional angle counts, patch-patch energy matrices `vpot`, patch angular widths `sigmas_ang`, and core diameter/well depth matrices `sigma_LJ` / `epsilon_LJ`).
+
+### Fixed
+- **Fortran Formatted Matrix Reader Compatibility in Examples (`examples/HS/datos.nml`, `examples/LJ/datos.nml`)**:
+  - Repositioned explanatory comments immediately before section headers (`--- HS SIGMA MATRIX ---`, `--- LJ SIGMA MATRIX ---`, `--- LJ EPSILON MATRIX ---`) rather than between headers and numeric data rows.
+  - Resolves Fortran floating-point input conversion errors (`Bad value during floating point read`) during non-advancing formatted reads (`F6.3`) in `src/Read_input_data_nml.cuf`.
+
 ## [2.8.3] - 2026-09-21
+
 
 ### Fixed
 - **Simulation Checkpoint & Restart Generation (`input-restart.nml`, `Write_Input_File`, `Read_Input_Data`)**:

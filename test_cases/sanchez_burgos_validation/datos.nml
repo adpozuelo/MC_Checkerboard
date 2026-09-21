@@ -1,41 +1,57 @@
+! ==============================================================================
+! MONTE CARLO SIMULATION CONTROL PARAMETERS
+! ==============================================================================
 &Control_Params
-  istep_ini      = 0,
-  istep_fin      = 10,
-  Neq            = 0,
-  Nmove          = 20,
-  Nsave          = 5,
-  Ndump          = 5,
-  Nrestart       = 10,
-  imovie         = .true.,
-  traj_format    = 'netcdf',
-  Npart_types    = 2,
-  data_file      = 'data.atoms',
-  Ecpu_check     = .true.
+  istep_ini      = 0,          ! Initial step number (0 for new simulation, >0 for restart)
+  istep_fin      = 10,         ! Total number of production MC sweeps (steps) to execute
+  Neq            = 0,          ! Number of equilibration sweeps before accumulating averages
+  Nmove          = 20,         ! Trial displacement moves per particle attempted in each MC sweep (10 trans + 10 rot)
+  Nsave          = 5,          ! Frequency (in sweeps) for writing progress stdout & block averages
+  Ndump          = 5,          ! Frequency (in sweeps) for writing trajectory frames
+  Nrestart       = 10,         ! Frequency (in sweeps) for saving restart checkpoints
+  imovie         = .true.,     ! Enable trajectory output (.true. / .false.)
+  traj_format    = 'netcdf',   ! Trajectory output format: 'plain' (text), 'netcdf' (binary), or 'both'
+  Npart_types    = 2,          ! Number of particle species in system (2 for binary mixture)
+  data_file      = 'data.atoms', ! Initial atomic configuration file (LAMMPS data format)
+  Ecpu_check     = .true.      ! Enable CPU energy validation check at start and completion
 /
+
+! ==============================================================================
+! MONTE CARLO SAMPLING & THERMODYNAMIC PARAMETERS
+! ==============================================================================
 &MC_Params
-  hmax         = 0.01,
-  omax         = 0.1,
-  displ_update = .true.,
-  temp0        = 1.0,
-  temp1        = 1.0,
-  npt          = .false.,
-  seed         = 12345
+  hmax         = 0.01,         ! Maximum particle translation step size (in units of sigma)
+  omax         = 0.1,          ! Maximum particle rotation step size (in radians)
+  displ_update = .true.,       ! Enable automatic adjustment of hmax/omax (~40% acceptance)
+  temp0        = 1.0,          ! Initial reduced temperature T0* = kB*T/epsilon
+  temp1        = 1.0,          ! Final reduced temperature T1*
+  npt          = .false.,      ! Isobaric-isothermal ensemble (.true. for NpT, .false. for NVT canonical)
+  seed         = 12345         ! Random number generator seed
 /
+
+! ==============================================================================
+! POTENTIAL MODEL SELECTION & SANCHEZ-BURGOS MODEL PARAMETERS
+! ==============================================================================
 &Potential_Params
-  model         = 'SB',
-  sigma_jon_aux = -0.3,
-  sigma_tor_jon = 0.0,
-  rangepp       = 2.0,
-  Bool_tor      = 0,
-  patch_radial_factor = 0.5,
-  eps_R         = 0.6666666666666667,
-  eps_CSW       = 11.111111111111111,
-  rw_CSW        = 0.12,
-  alpha_CSW     = 0.005,
-  rc_CSW        = 0.20
+  model               = 'SB',               ! Potential model: 'SB' (Sanchez-Burgos continuous patchy model)
+  sigma_jon_aux       = -0.3,               ! Auxiliary angular patch width (< 0 reads individual sigmas_ang)
+  sigma_tor_jon       = 0.0,                ! Torsional patch interaction width parameter
+  rangepp             = 2.0,                ! Radial potential cutoff distance factor (Rcut = rangepp * sigma)
+  Bool_tor            = 0,                  ! Enable torsional patch alignment (1 = active, 0 = disabled)
+  patch_radial_factor = 0.5,                ! Radial distance of patches from colloid center (0.5 = at surface sigma/2)
+  eps_R               = 0.6666666666666667, ! Pseudo-Hard Sphere (PHS) repulsive energy scale parameter (2/3)
+  eps_CSW             = 11.111111111111111, ! Continuous Square Well (CSW) patch well depth (1/T* = 1/0.09)
+  rw_CSW              = 0.12,               ! CSW potential attractive well width
+  alpha_CSW           = 0.005,              ! CSW potential well smoothing width parameter
+  rc_CSW              = 0.20                ! CSW patch-patch interaction cutoff distance
 /
+
+! ==============================================================================
+! TOPOLOGY AND PATCH GEOMETRY DATA
+! ==============================================================================
 --- TOPOLOGY AND PATCH GEOMETRY DATA ---
-          4           3
+          4           3        ! Number of patches: Species 1 (4, tetrahedral) and Species 2 (3, planar triangular)
+! Patch orientation vectors and symmetry axes: px py pz vop_x vop_y vop_z bool_tor
   0.57735027  0.57735027  0.57735027  0.70710678 -0.70710678  0.00000000     0
   0.57735027 -0.57735027 -0.57735027  0.70710678  0.70710678  0.00000000     0
  -0.57735027  0.57735027 -0.57735027  0.70710678  0.70710678  0.00000000     0
@@ -43,6 +59,8 @@
   1.00000000  0.00000000  0.00000000  0.00000000  1.00000000  0.00000000     0
  -0.50000000  0.86602540  0.00000000  0.00000000  1.00000000  0.00000000     0
  -0.50000000 -0.86602540  0.00000000  0.00000000  1.00000000  0.00000000     0
+
+! Patch-patch pairwise interaction energy matrix Vpot(alpha, beta) (7 x 7)
 -- vpot matrix --
  1.00 1.00 1.00 1.00 1.00 1.00 1.00
  1.00 1.00 1.00 1.00 1.00 1.00 1.00
@@ -51,9 +69,13 @@
  1.00 1.00 1.00 1.00 0.00 0.00 0.00
  1.00 1.00 1.00 1.00 0.00 0.00 0.00
  1.00 1.00 1.00 1.00 0.00 0.00 0.00
+
+! Patch angular interaction width parameters sigmas_ang for each species
 -- sigmas_ang --
  0.300 0.300 0.300 0.300
  0.300 0.300 0.300
+
+! Colloid core diameter parameters sigma_LJ (2 x 2 matrix)
 -- sigma_LJ --
  1.000 1.000
  1.000 1.000

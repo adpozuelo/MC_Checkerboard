@@ -1,36 +1,52 @@
+! ==============================================================================
+! MONTE CARLO SIMULATION CONTROL PARAMETERS
+! ==============================================================================
 &Control_Params
-  istep_ini = 0,
-  istep_fin = 100,
-  Neq = 0,
-  Nmove = 125,
-  Nsave = 10,
-  Ndump = 100,
-  Nrestart = 25000,
-  imovie = .false.,
-  traj_format = 'netcdf',
-  Npart_types = 2
+  istep_ini   = 0,          ! Initial step number (0 for new simulation, >0 for restart)
+  istep_fin   = 100,        ! Total number of production MC sweeps (steps) to execute
+  Neq         = 0,          ! Number of equilibration sweeps before accumulating averages
+  Nmove       = 125,        ! Trial displacement moves per particle attempted in each MC sweep
+  Nsave       = 10,         ! Frequency (in sweeps) for writing progress stdout & block averages
+  Ndump       = 100,        ! Frequency (in sweeps) for writing trajectory frames
+  Nrestart    = 25000,      ! Frequency (in sweeps) for saving restart checkpoints
+  imovie      = .false.,    ! Enable trajectory output (.true. / .false.)
+  traj_format = 'netcdf',   ! Trajectory output format: 'plain' (text), 'netcdf' (binary), or 'both'
+  Npart_types = 2           ! Number of particle species in system (2 for binary mixture)
 /
+
+! ==============================================================================
+! MONTE CARLO SAMPLING & THERMODYNAMIC PARAMETERS
+! ==============================================================================
 &MC_Params
-  hmax = 0.0065,
-  omax = 0.5,
-  vmax = 0.087, 0.087, 0.087,
-  displ_update = .true.,
-  temp0 = 3.0,
-  temp1 = 3.0,
-  npt = .false.,
-  iscale = 0,
-  pres = 0.1,
-  seed = 345
+  hmax         = 0.0065,          ! Maximum particle translation step size (in units of sigma)
+  omax         = 0.5,             ! Maximum particle rotation step size (in radians, unused for LJ)
+  vmax         = 0.087, 0.087, 0.087, ! Maximum box edge length displacement (Lx, Ly, Lz) for NpT moves
+  displ_update = .true.,          ! Enable automatic adjustment of hmax/omax (~40% acceptance)
+  temp0        = 3.0,             ! Initial reduced temperature T0* = kB*T/epsilon
+  temp1        = 3.0,             ! Final reduced temperature T1*
+  npt          = .false.,         ! Isobaric-isothermal ensemble (.true. for NpT, .false. for NVT canonical)
+  iscale       = 0,               ! Isotropic box scaling flag (0 = independent Lx,Ly,Lz, 1 = isotropic)
+  pres         = 0.1,             ! Reduced pressure P* (unused for NVT)
+  seed         = 345              ! Random number generator seed
 /
+
+! ==============================================================================
+! POTENTIAL MODEL SELECTION & LJ PARAMETERS
+! ==============================================================================
 &Potential_Params
-  model = 'LJ',
-  rangepp = 2.5,
+  model   = 'LJ',                 ! Potential model: 'LJ' (Truncated & Shifted Lennard-Jones)
+  rangepp = 2.5                   ! Cutoff distance factor in units of sigma_ij (Rcut = rangepp * sigma_ij)
 /
-  --- LJ SIGMA MATRIX ---
+
+! ==============================================================================
+! LENNARD-JONES PAIR PARAMETER MATRICES
+! ==============================================================================
+! Symmetric Npart_types x Npart_types matrix of LJ diameter parameters sigma_ij
+--- LJ SIGMA MATRIX ---
 1.000  1.200
 1.200  1.400
 
+! Symmetric Npart_types x Npart_types matrix of LJ potential well depth parameters epsilon_ij
 --- LJ EPSILON MATRIX ---
 1.000  1.500
 1.500  0.500
-

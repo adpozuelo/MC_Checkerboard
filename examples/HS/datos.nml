@@ -43,9 +43,12 @@
   model = 'HS',             ! Potential model: 'HS' (Hard Sphere athermal mixture)
 /
 
-  ! --- HS SIGMA MATRIX ---
-  ! Symmetric Npart_types x Npart_types matrix of hard-core particle pair diameters sigma_ij
-  ! Row i, Col j specifies contact distance between species i and species j
+! ==============================================================================
+! HARD SPHERE PAIR DIAMETER MATRIX
+! ==============================================================================
+! Symmetric Npart_types x Npart_types matrix of hard-core particle pair diameters sigma_ij
+! Row i, Col j specifies contact distance between species i and species j
+--- HS SIGMA MATRIX ---
 1.000  1.100
 1.100  1.400
 

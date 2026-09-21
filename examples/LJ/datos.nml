@@ -47,13 +47,16 @@
   rangepp = 2.5,               ! Potential radial cutoff distance in units of sigma_ij (Rcut = rangepp*sigma_ij)
 /
 
-  ! --- LJ SIGMA MATRIX ---
-  ! Symmetric Npart_types x Npart_types matrix of LJ diameter parameters sigma_ij
+! ==============================================================================
+! LENNARD-JONES PAIR PARAMETER MATRICES
+! ==============================================================================
+! Symmetric Npart_types x Npart_types matrix of LJ diameter parameters sigma_ij
+--- LJ SIGMA MATRIX ---
 1.000  1.200
 1.200  1.400
 
-  ! --- LJ EPSILON MATRIX ---
-  ! Symmetric Npart_types x Npart_types matrix of LJ potential well depth parameters epsilon_ij
+! Symmetric Npart_types x Npart_types matrix of LJ potential well depth parameters epsilon_ij
+--- LJ EPSILON MATRIX ---
 1.000  1.500
 1.500  0.500
 

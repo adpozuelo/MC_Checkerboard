@@ -1,51 +1,67 @@
+! ==============================================================================
+! MONTE CARLO SIMULATION CONTROL PARAMETERS
+! ==============================================================================
 &Control_Params
-  istep_ini      = 0,
-  istep_fin      = 200,
-  Neq            = 0,
-  Nmove          = 20,
-  Nsave          = 5,
-  Ndump          = 50,
-  Nrestart       = 200,
-  imovie         = .false.,
-  traj_format    = 'netcdf',
-  Npart_types    = 2,
-  data_file      = 'data_box_expanded.atoms',
-  ncluster       = 5,
-  rcl            = 1.8,
-  minPts         = 3,
-  cluster_types  = 1, 2,
-  asym_threshold = 0.5,
-  border_criterion = 'asymmetry',
-  avbmc          = .false.,
-  avbmc_k_trials = 5,
-  avbmc_max_trials = 20
+  istep_ini        = 0,          ! Initial step number (0 for new simulation, >0 for restart)
+  istep_fin        = 200,        ! Total number of production MC sweeps (steps) to execute
+  Neq              = 0,          ! Number of equilibration sweeps before accumulating averages
+  Nmove            = 20,         ! Trial displacement moves per particle attempted in each MC sweep (10 trans + 10 rot)
+  Nsave            = 5,          ! Frequency (in sweeps) for writing progress stdout & block averages
+  Ndump            = 50,         ! Frequency (in sweeps) for writing trajectory frames
+  Nrestart         = 200,        ! Frequency (in sweeps) for saving restart checkpoints
+  imovie           = .false.,    ! Enable trajectory output (.true. / .false.)
+  traj_format      = 'netcdf',   ! Trajectory output format: 'plain' (text), 'netcdf' (binary), or 'both'
+  Npart_types      = 2,          ! Number of particle species in system (2 for binary mixture)
+  data_file        = 'data_box_expanded.atoms', ! Initial atomic configuration file (LAMMPS data format)
+  ncluster         = 5,          ! Frequency (in sweeps) for DBSCAN cluster analysis
+  rcl              = 1.8,        ! Radial neighbor connectivity threshold for DBSCAN clustering
+  minPts           = 3,          ! Minimum neighbor particles to classify a core cluster particle
+  cluster_types    = 1, 2,       ! Particle species selected for cluster detection analysis
+  asym_threshold   = 0.5,        ! Geometric asymmetry threshold for identifying border cluster particles
+  border_criterion = 'asymmetry',! Border particle detection criterion ('asymmetry' or 'energy')
+  avbmc            = .false.,    ! Enable Aggregation Volume Bias Monte Carlo (AVBMC) moves (.true. / .false.)
+  avbmc_k_trials   = 5,          ! Number of Rosenbluth trial insertions in bulk phase per AVBMC attempt
+  avbmc_max_trials = 20          ! Maximum AVBMC pair trial attempts per step
 /
+
+! ==============================================================================
+! MONTE CARLO SAMPLING & THERMODYNAMIC PARAMETERS
+! ==============================================================================
 &MC_Params
-  hmax         = 0.0125,
-  omax         = 0.5,
-  vmax         = 0.1, 0.1, 0.1,
-  displ_update = .true.,
-  temp0        = 0.154,
-  temp1        = 0.154,
-  npt          = .false.,
-  Nvolf        = 1,
-  iscale       = 0,
-  pres         = 0.1,
-  seed         = 345
+  hmax         = 0.0125,       ! Maximum particle translation step size (in units of sigma)
+  omax         = 0.5,          ! Maximum particle rotation step size (in radians)
+  vmax         = 0.1, 0.1, 0.1,! Maximum box edge length displacement (Lx, Ly, Lz) for NpT moves
+  displ_update = .true.,       ! Enable automatic adjustment of hmax/omax (~40% acceptance)
+  temp0        = 0.154,        ! Initial reduced temperature T0* = kB*T/epsilon
+  temp1        = 0.154,        ! Final reduced temperature T1*
+  npt          = .false.,      ! Isobaric-isothermal ensemble (.true. for NpT, .false. for NVT canonical)
+  Nvolf        = 1,            ! Frequency (in sweeps) of NpT volume change attempts
+  iscale       = 0,            ! Isotropic box scaling flag (0 = independent Lx,Ly,Lz, 1 = isotropic)
+  pres         = 0.1,          ! Reduced pressure P* (unused for NVT)
+  seed         = 345           ! Random number generator seed
 /
+
+! ==============================================================================
+! POTENTIAL MODEL SELECTION & SSP PALAIA MODEL PARAMETERS
+! ==============================================================================
 &Potential_Params
-  model         = 'SSP',
-  sigma_jon_aux = -0.3,
-  sigma_tor_jon = 0.0,
-  rangepp       = 2.5,
-  Bool_tor      = 0,
-  sigp_factor   = 0.1,
-  Rcp_factor    = 0.3,
-  Rc_factor     = 2.0,
-  epsp_factor   = 0.2
+  model         = 'SSP',       ! Potential model: 'SSP' (Site-Site Patchy Palaia model)
+  sigma_jon_aux = -0.3,        ! Auxiliary angular patch width (< 0 reads individual sigmas_ang)
+  sigma_tor_jon = 0.0,         ! Torsional patch interaction width parameter
+  rangepp       = 2.5,         ! Radial potential cutoff distance factor (Rcut = rangepp * sigma)
+  Bool_tor      = 0,           ! Enable torsional patch alignment (1 = active, 0 = disabled)
+  sigp_factor   = 0.1,         ! Patch radius scaling factor r_patch = sigp_factor * sigma
+  Rcp_factor    = 0.3,         ! Patch interaction cutoff scaling factor Rcp = Rcp_factor * sigma
+  Rc_factor     = 2.0,         ! Colloid core attractive tail cutoff scaling factor R_tail = Rc_factor * Rc
+  epsp_factor   = 0.2          ! Colloid core attractive tail well depth eps_tail
 /
+
+! ==============================================================================
+! TOPOLOGY AND PATCH GEOMETRY DATA
+! ==============================================================================
 --- TOPOLOGY AND PATCH GEOMETRY DATA ---
-          4           4
+          4           4        ! Number of patches for Species 1 (4) and Species 2 (4) (tetrahedral)
+! Patch orientation vectors and symmetry axes: px py pz vop_x vop_y vop_z bool_tor
   0.57735027  0.57735027  0.57735027  0.70710678 -0.70710678  0.00000000     0
   0.57735027 -0.57735027 -0.57735027  0.70710678  0.70710678  0.00000000     0
  -0.57735027  0.57735027 -0.57735027  0.70710678  0.70710678  0.00000000     0
@@ -54,6 +70,8 @@
   0.57735027 -0.57735027 -0.57735027  0.70710678  0.70710678  0.00000000     0
  -0.57735027  0.57735027 -0.57735027  0.70710678  0.70710678  0.00000000     0
  -0.57735027 -0.57735027  0.57735027  0.70710678 -0.70710678  0.00000000     0
+
+! Patch-patch pairwise interaction energy matrix Vpot(alpha, beta) (8 x 8)
 -- vpot matrix --
  0.00 0.00 0.00 0.00 1.00 1.00 1.00 1.00
  0.00 0.00 0.00 0.00 1.00 1.00 1.00 1.00
@@ -63,9 +81,13 @@
  1.00 1.00 1.00 1.00 0.00 0.00 0.00 0.00
  1.00 1.00 1.00 1.00 0.00 0.00 0.00 0.00
  1.00 1.00 1.00 1.00 0.00 0.00 0.00 0.00
+
+! Patch angular interaction width parameters sigmas_ang for each species
 -- sigmas_ang --
  0.300 0.300 0.300 0.300
  0.300 0.300 0.300 0.300
+
+! Colloid core diameter parameters sigma_LJ (2 x 2 matrix)
 -- sigma_LJ --
  1.000 1.000
  1.000 1.000
