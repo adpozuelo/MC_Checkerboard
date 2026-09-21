@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.8.5] - 2026-09-21
+
+### Added
+- **Sanchez-Burgos 50:50 3x3x3 Supercell Simulation Case (`test_cases/sb_avbmc_50_50_3x3x3/`)**:
+  - Added configuration generator script `replicate_restart.py` for replicating LAMMPS ellipsoid data files into arbitrary $(n_x \times n_y \times n_z)$ supercells while preserving particle types, orientations (quaternions), and thermodynamic density.
+  - Generated $N = 54,000$-particle initial configuration `data.atoms` ($L = 73.499592\sigma$, $\rho^* = 0.136000$) from the 2,000-particle equilibrated restart file `test_cases/sb_avbmc_50_50/data.restart`.
+  - Configured simulation deck `datos.nml` for 50,000 equilibration sweeps and 100,000 production sweeps with AVBMC and tabulated potentials.
+  - Benchmarked GPU performance on NVIDIA RTX PRO 4500 Blackwell ($0.057\text{ s} / \text{sweep}$, completing 150,000 sweeps in $\sim 2.38\text{ hours}$ within the `gpu_v4_short` queue).
+  - Added SLURM batch submission script `run_sb_avbmc_3x3x3.slurm` and trajectory analysis deck `trj.nml`.
+
 ## [2.8.4] - 2026-09-21
 
 ### Added

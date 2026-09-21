@@ -32,6 +32,10 @@ output_*.out
 thermo*.dat
 gmix.dat
 clusevol_mc.dat
+clusevol.dat
+densprof*.dat
+sq*.dat
+gmixsim*.dat
 fort.*
 
 # Benchmark runtime directories and large raw dumps
@@ -42,6 +46,7 @@ test_cases/scaling/data.atoms
 # SLURM job scripts (often contain user-specific paths)
 *.slurm
 !test_cases/npt_nvt_consistency/*/*.slurm
+!test_cases/sb_avbmc_*/*.slurm
 
 # Log and TeX auxiliary files
 *.log

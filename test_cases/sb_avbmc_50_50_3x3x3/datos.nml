@@ -1,0 +1,81 @@
+ &Control_Params
+   istep_ini      = 0 ,
+   istep_fin      = 100000 ,
+   Neq            = 50000 ,
+   Nmove          = 20 ,
+   Nsave          = 10 ,
+   Ndump          = 100 ,
+   Nrestart       = 500 ,
+   imovie         = .true. ,
+   traj_format    = 'netcdf',
+   data_file      = 'data.atoms',
+   Npart_types    = 2 ,
+   Ecpu_check     = .false. ,
+   ncluster       = 100 ,
+   rcl            = 1.200000 ,
+   minPts         = 3 ,
+   cluster_types  = 1, 2,
+   asym_threshold = 0.5000000 ,
+   border_criterion = 'asymmetry',
+   avbmc          = .true. ,
+   avbmc_k_trials = 10 ,
+   avbmc_max_trials = 50 ,
+   lammps         = .false.
+ /
+ &MC_Params
+   hmax           = 2.6500451E-03 ,
+   omax           = 7.3744237E-02 ,
+   vmax           = 0.000000 0.000000 0.000000,
+   displ_update   = .true. ,
+   temp0          = 1.000000 ,
+   npt            = .false. ,
+   Nvolf          = 1 ,
+   iscale         = 0 ,
+   pres           = 0.000000 ,
+   seed           = 492845 ,
+   swap_moves     = .false. ,
+   Nswap          = 1 ,
+   Nswapf         = 1
+ /
+ &Potential_Params
+   model          = 'SB',
+   sigma_jon_aux  = -0.3000000 ,
+   sigma_tor_jon  = 0.000000000000000 ,
+   rangepp        = 2.000000 ,
+   Bool_tor       = 0 ,
+   sigp_factor    = 0.1000000 ,
+   Rcp_factor     = 0.3000000 ,
+   Rc_factor      = 2.000000 ,
+   epsp_factor    = -1.000000 ,
+   patch_radial_factor = 0.5000000 ,
+   table_mc       = .true. ,
+   table_file_mc  = 'pot',
+   eps_R          = 0.6666667 ,
+   eps_CSW        = 11.11111 ,
+   rw_CSW         = 0.1200000 ,
+   alpha_CSW      = 4.9999999E-03 ,
+   rc_CSW         = 0.2000000
+ /
+ --- TOPOLOGY AND PATCH GEOMETRY DATA ---
+            4            3
+  0.57735026  0.57735026  0.57735026  0.70710683 -0.70710683  0.00000000     0
+  0.57735026 -0.57735026 -0.57735026  0.70710683  0.70710683  0.00000000     0
+ -0.57735026  0.57735026 -0.57735026  0.70710683  0.70710683  0.00000000     0
+ -0.57735026 -0.57735026  0.57735026  0.70710683 -0.70710683  0.00000000     0
+  1.00000000  0.00000000  0.00000000  0.00000000  1.00000000  0.00000000     0
+ -0.50000000  0.86602539  0.00000000  0.00000000  1.00000000  0.00000000     0
+ -0.50000000 -0.86602539  0.00000000  0.00000000  1.00000000  0.00000000     0
+ -- vpot matrix --
+ 0.00 0.00 0.00 0.00 1.00 1.00 1.00
+ 0.00 0.00 0.00 0.00 1.00 1.00 1.00
+ 0.00 0.00 0.00 0.00 1.00 1.00 1.00
+ 0.00 0.00 0.00 0.00 1.00 1.00 1.00
+ 1.00 1.00 1.00 1.00 0.00 0.00 0.00
+ 1.00 1.00 1.00 1.00 0.00 0.00 0.00
+ 1.00 1.00 1.00 1.00 0.00 0.00 0.00
+ -- sigmas_ang --
+ 0.300 0.300 0.300 0.300
+ 0.300 0.300 0.300
+ -- sigma_LJ --
+ 1.000 1.000
+ 1.000 1.000

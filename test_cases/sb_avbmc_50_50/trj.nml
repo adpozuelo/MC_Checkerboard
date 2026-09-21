@@ -1,0 +1,42 @@
+! Test confinement along x (idir = 1)
+&INPUT
+  log_output_file='test_conf.log'
+  trj_input_file='trajectory.nc'
+  ndim=3
+  nsp=2
+  nthread=64
+  ncfs_from_to=1000, 24000, 25000
+  rdf_sq_cl_dyn_sqw_conf_ord=.true., .true., .true., .false., .false., .false., .false.
+  nslice=1
+  rcl=1.11
+  topol=.false.
+  nprint=2
+/
+
+&INPUT_SP
+  sp_types_selected=1, 2
+  mat=1.0, 1.0
+/
+
+&INPUT_RDF
+  deltar=0.02
+  rcrdf=8.0
+/
+
+&INPUT_SQ
+  qmax=15.0
+  qmin=0.5
+  bsc=1.0, 1.0
+/
+
+&INPUT_CL
+  dcl=1.0                            ! Grid spacing for cluster size distribution
+  minPts=3
+  ndrclus=200                        ! Bins for cluster radial density profiles
+/
+
+&INPUT_CONF
+  idir=1
+  zslice=21.85
+  zgrid=4.0
+/
