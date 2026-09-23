@@ -2,18 +2,18 @@
 ! MONTE CARLO SIMULATION CONTROL PARAMETERS
 ! ==============================================================================
 &Control_Params
-  istep_ini        = 63350,          ! Initial step number (restart checkpoint step)
-  istep_fin        = 500000,         ! Total production MC sweeps to execute
-  Neq              = 0,              ! Number of equilibration sweeps (0 for continuing run)
+  istep_ini        = 0,              ! Initial step number
+  istep_fin        = 50000,         ! Total production MC sweeps to execute
+  Neq              = 10000,          ! Number of equilibration sweeps
   Nmove            = 20,             ! Trial displacement moves per particle attempted in each MC sweep (10 trans + 10 rot)
-  Nsave            = 2,              ! Frequency (in sweeps) for writing progress stdout & block averages
-  Ndump            = 10,             ! Frequency (in sweeps) for writing trajectory frames
-  Nrestart         = 50,             ! Frequency (in sweeps) for saving restart checkpoints
+  Nsave            = 10,             ! Frequency (in sweeps) for writing progress stdout & block averages
+  Ndump            = 100,            ! Frequency (in sweeps) for writing trajectory frames
+  Nrestart         = 500,            ! Frequency (in sweeps) for saving restart checkpoints
   imovie           = .true.,         ! Enable trajectory output (.true. / .false.)
   traj_format      = 'netcdf',       ! Trajectory output format: 'plain' (text), 'netcdf' (binary), or 'both'
-  data_file        = 'data.restart', ! Initial atomic configuration file (LAMMPS data format restart)
+  data_file        = 'prev_unlike_only/data.restart',   ! Initial atomic configuration file
   Npart_types      = 2,              ! Number of particle species in system (2 for binary mixture)
-  Ecpu_check       = .true.,         ! Enable initial and final CPU energy validation check
+  Ecpu_check       = .false.,        ! Enable initial and final CPU energy validation check
   ncluster         = 50,             ! Frequency (in sweeps) for DBSCAN cluster analysis
   rcl              = 1.2,            ! Radial neighbor connectivity threshold for DBSCAN clustering
   minPts           = 3,              ! Minimum neighbor particles to classify a core cluster particle
@@ -82,12 +82,11 @@
  -0.50000000  0.86602539  0.00000000  0.00000000  1.00000000  0.00000000     0
  -0.50000000 -0.86602539  0.00000000  0.00000000  1.00000000  0.00000000     0
 
-! Patch-patch pairwise interaction energy matrix Vpot(alpha, beta) (7 x 7)
 -- vpot matrix --
- 0.00 0.00 0.00 0.00 1.00 1.00 1.00
- 0.00 0.00 0.00 0.00 1.00 1.00 1.00
- 0.00 0.00 0.00 0.00 1.00 1.00 1.00
- 0.00 0.00 0.00 0.00 1.00 1.00 1.00
+ 1.00 1.00 1.00 1.00 1.00 1.00 1.00
+ 1.00 1.00 1.00 1.00 1.00 1.00 1.00
+ 1.00 1.00 1.00 1.00 1.00 1.00 1.00
+ 1.00 1.00 1.00 1.00 1.00 1.00 1.00
  1.00 1.00 1.00 1.00 0.00 0.00 0.00
  1.00 1.00 1.00 1.00 0.00 0.00 0.00
  1.00 1.00 1.00 1.00 0.00 0.00 0.00

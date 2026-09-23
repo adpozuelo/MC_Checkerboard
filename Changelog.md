@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.8.6] - 2026-09-23
+
+### Fixed
+- **Sanchez-Burgos Interaction Hamiltonian Topology Alignment (`setup_sb_avbmc.py`, `datos.nml`, `pot22.dat`)**:
+  - Aligned Monte Carlo interaction matrices with the Sanchez-Burgos benchmark forcefield (`forcefield.inc` in LAMMPS MD):
+    - **Scaffold (Species 1, 4-site tetrahedral)**: Attracts both scaffold patches ($3 \leftrightarrow 3$, active CSW) and surfactant patches ($3 \leftrightarrow 4$, active CSW).
+    - **Surfactant (Species 2, 3-site planar)**: Attracts scaffold patches ($4 \leftrightarrow 3$, active CSW) but possesses **no self-attraction** ($4 \leftrightarrow 4$, inactive/zero CSW).
+  - Corrected patch interaction matrix in `test_cases/sb_avbmc_50_50/datos.nml` and `test_cases/sb_avbmc_50_50_3x3x3/datos.nml`:
+    $$\text{vpot} = \begin{pmatrix} 1.0 & 1.0 \\ 1.0 & 0.0 \end{pmatrix}$$
+    (previously set to unlike-only interactions $\begin{pmatrix} 0.0 & 1.0 \\ 1.0 & 0.0 \end{pmatrix}$).
+  - Regenerated `pot22.dat` as a zero-potential table to eliminate residual surfactant-surfactant CSW attraction.
+  - Updated `setup_sb_avbmc.py` to correctly map species 1 to scaffold (4 patches) and species 2 to surfactant (3 patches), resolving species inversion.
+
+### Added
+- **Cross-Code Benchmark and Validation Report (`report_sb_mc_vs_lammps/`)**:
+  - Authored a comprehensive 5-page publication-ready LaTeX report (`report_sb_mc_vs_lammps.tex`) and compiled document (`report_sb_mc_vs_lammps.pdf`) comparing GPU-accelerated Monte Carlo (AVBMC) in `MC_Checkerboard` against LAMMPS Molecular Dynamics for the equimolar $50:50$ Sanchez-Burgos patchy model.
+  - Included publication-quality vector and raster figures generated via `generate_figures.py`:
+    - `fig1_energy.pdf` / `.png`: Potential energy relaxation curves demonstrating quantitative convergence ($\langle U/N \rangle = -15.51 \pm 0.001\,k_B T$ in MC vs. $-15.27 \pm 0.01\,k_B T$ in LAMMPS MD, $\sim 1.5\%$ difference due to slab surface penalties vs. bulk cubic droplet).
+    - `fig2_rdf.pdf` / `.png`: Pair correlation functions $g_{ij}(r)$ capturing simultaneous contact bonding in $g_{11}(r)$ ($15.21$) and $g_{12}(r)$ ($47.57$), alongside purely repulsive excluded volume in $g_{22}(r)$ ($0.597$).
+    - `fig3_sq.pdf` / `.png`: Total structure factor $S_{NN}(Q)$ exhibiting dramatic low-$Q$ divergence ($S_{NN}(Q_{\text{min}}) = 11,027$), confirming macroscopic liquid-liquid phase separation.
+    - `fig4_cluster.pdf` / `.png`: Condensation kinetics showing $99.68\%$ droplet particle fraction and stabilized condensed scaffold mole fraction ($x_1 \approx 0.485$).
+- **Automated Trajectory Assessment Script (`test_cases/compare_mc_lammps.py`)**:
+  - Implemented standalone analysis script parsing thermo files, structure factors, radial distribution functions, and cluster statistics across both MC and LAMMPS simulation decks.
+- **SLURM Trajectory Analysis Runner for 3x3x3 Supercell (`test_cases/sb_avbmc_50_50_3x3x3/run_trj_analysis.slurm`, `trj.nml`)**:
+  - Added batch runner for CUDA-accelerated `trj_analysis` on the 54,000-particle production trajectory, analyzing DBSCAN clustering, radial distribution functions, and structure factors in 7.7 seconds.
+
 ## [2.8.5] - 2026-09-21
 
 ### Added

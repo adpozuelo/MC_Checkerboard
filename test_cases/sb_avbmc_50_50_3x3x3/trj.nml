@@ -1,0 +1,36 @@
+! trj_analysis for 3x3x3 supercell (54,000 particles)
+&INPUT
+  log_output_file='trj_analysis.log'
+  trj_input_file='trajectory.nc'
+  ndim=3
+  nsp=2
+  nthread=16
+  ncfs_from_to=100, 901, 1000
+  rdf_sq_cl_dyn_sqw_conf_ord=.true., .true., .true., .false., .false., .false., .false.
+  nslice=1
+  rcl=1.20
+  topol=.false.
+  nprint=10
+/
+
+&INPUT_SP
+  sp_types_selected=1, 2
+  mat=1.0, 1.0
+/
+
+&INPUT_RDF
+  deltar=0.02
+  rcrdf=12.0
+/
+
+&INPUT_SQ
+  qmax=15.0
+  qmin=0.2
+  bsc=1.0, 1.0
+/
+
+&INPUT_CL
+  dcl=1.0
+  minPts=3
+  ndrclus=100
+/

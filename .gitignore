@@ -124,3 +124,13 @@ T*/run-data-*.dat
 docs/
 scripts/
 T*/clean-outputs.sh
+
+# Sanchez-Burgos runtime files and analysis dumps
+test_cases/sb_avbmc_*/prev_unlike_only/
+test_cases/sb_avbmc_*/dispersed_run/
+test_cases/sb_avbmc_*/*_cluster
+test_cases/sb_avbmc_*/clustdistr*.dat
+test_cases/sb_avbmc_*/dens*.dat
+test_cases/sb_avbmc_*/fshape*.dat
+test_cases/sb_avbmc_*/radii*.dat
+test_cases/sb_avbmc_*/rhoprof*.dat
