@@ -44,6 +44,12 @@ echo "Preferring system linker /usr/bin/ld over module binutils ld to bypass NVH
 export PATH=/usr/bin:$PATH
 hash -r
 
+# 1c. Bypass EasyBuild x64_v4 zlib AVX-512FP16 crash (SIGILL in vmovw) on Ice Lake CPUs
+if [ -f /lib64/libz.so.1 ]; then
+    echo "Preloading system libz.so.1 to prevent AVX-512FP16 SIGILL crashes..."
+    export LD_PRELOAD=/lib64/libz.so.1${LD_PRELOAD:+:$LD_PRELOAD}
+fi
+
 # 2. Verify compilers are available
 if ! command -v nvfortran &> /dev/null; then
     echo "Error: nvfortran compiler not found. Please load the NVHPC module."
@@ -105,7 +111,7 @@ cmake ../cmake \
   -DPKG_MOLECULE=ON \
   -DPKG_RIGID=ON \
   -DPKG_NETCDF=ON \
-  -DNETCDF_DIR=/usr/local/netcdf-nv
+  -DNETCDF_DIR="${EBROOTNETCDF:-/usr/local/netcdf-nv}"
 
 # 6. Compile LAMMPS shared library
 echo "Compiling LAMMPS dynamic library..."
