@@ -18,11 +18,27 @@
 !   - Accurate periodic CPU & GPU execution timings
 !
 ! AUTHORS:
+!   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
+!   Enrique Lomba          - e.lomba@iqf.csic.es
 !   Eva González Noya      - eva.noya@iqf.csic.es
-!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
+!
+! ORIGINAL IMPLEMENTATION CREDIT:
+!   This code builds upon and expands the original Monte Carlo simulation
+!   program written in CUDA-C by Eva González Noya (E.G. Noya), available at:
+!     https://github.com/evanoya/MC_GPU
+!   and referenced in the following publications:
+!     1. E. G. Noya, C. K. Wong, P. Llombart, and J. P. K. Doye,
+!        "How to design an icosahedral quasicrystal through directional bonding",
+!        Nature 596, 367-371 (2021). https://doi.org/10.1038/s41586-021-03700-2
+!     2. E. G. Noya and J. P. K. Doye,
+!        "A One-Component Patchy-Particle Icosahedral Quasicrystal",
+!        ACS Nano 19 (14), 13714-13722 (2025). https://doi.org/10.1021/acsnano.4c14885
+!     3. A. Kowaguchi, S. Mehta, J. P. K. Doye, and E. G. Noya,
+!        "A patchy-particle three-dimensional octagonal quasicrystal",
+!        J. Chem. Phys. 163 (24), 244904 (2025). https://doi.org/10.1063/5.0292922
 !
 ! DATE:
-!   February 2026
+!   February 2026 - October 2026
 ! ==============================================================================
 
 Program MCCB_gpu
@@ -119,6 +135,9 @@ Program MCCB_gpu
    write(*,'(A)') c_blue // '========================================================================================' // c_reset
    write(*,'(A)') c_cyan // '                            HYBRID MCCB-gpu/LAMMPS SIMULATION ENGINE                            ' // c_reset
    write(*,'(A)') c_cyan // '                                     Version 2.8.0                                      ' // c_reset
+   write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
+   write(*,'(A)') c_cyan // ' Authors: A. Diaz-Pozuelo, E. Lomba, and E.G. Noya (IQF-CSIC)                           ' // c_reset
+   write(*,'(A)') c_cyan // ' Based on original CUDA-C MC code by E.G. Noya (https://github.com/evanoya/MC_GPU)       ' // c_reset
    write(*,'(A)') c_blue // '========================================================================================' // c_reset
    write(*,'(A,I4,A,I2.2,A,I2.2,A,I2.2,A,I2.2,A,I2.2,A)') c_green // ' >>> Run started on: ', &
       dt_values(1), '-', dt_values(2), '-', dt_values(3), ' at ', &

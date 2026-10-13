@@ -6,8 +6,9 @@
 !   the program. Sets working precision (wp) to single precision by default.
 !
 ! AUTHORS:
+!   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
+!   Enrique Lomba          - e.lomba@iqf.csic.es
 !   Eva González Noya      - eva.noya@iqf.csic.es
-!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
 !
 ! DATE:
 !   February 2026
@@ -29,8 +30,9 @@ END MODULE  set_precision
 !   particle type information.
 !
 ! AUTHORS:
+!   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
+!   Enrique Lomba          - e.lomba@iqf.csic.es
 !   Eva González Noya      - eva.noya@iqf.csic.es
-!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
 !
 ! DATE:
 !   February 2026
@@ -62,8 +64,9 @@ END MODULE configuration
 !   displacement parameters, and simulation flags.
 !
 ! AUTHORS:
+!   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
+!   Enrique Lomba          - e.lomba@iqf.csic.es
 !   Eva González Noya      - eva.noya@iqf.csic.es
-!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
 !
 ! DATE:
 !   February 2026
@@ -131,8 +134,9 @@ END MODULE rundata
 !   angle specifications.
 !
 ! AUTHORS:
+!   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
+!   Enrique Lomba          - e.lomba@iqf.csic.es
 !   Eva González Noya      - eva.noya@iqf.csic.es
-!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
 !
 ! DATE:
 !   February 2026
@@ -212,8 +216,9 @@ END MODULE potential
 !   values of energy, density, volume, and box dimensions.
 !
 ! AUTHORS:
+!   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
+!   Enrique Lomba          - e.lomba@iqf.csic.es
 !   Eva González Noya      - eva.noya@iqf.csic.es
-!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
 !
 ! DATE:
 !   February 2026
@@ -238,8 +243,9 @@ END MODULE properties
 !   Utility constants and parameters used throughout the program.
 !
 ! AUTHORS:
+!   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
+!   Enrique Lomba          - e.lomba@iqf.csic.es
 !   Eva González Noya      - eva.noya@iqf.csic.es
-!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
 !
 ! DATE:
 !   February 2026
@@ -279,8 +285,9 @@ END MODULE utils
 !   neighbor lists, and checkerboard set information.
 !
 ! AUTHORS:
+!   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
+!   Enrique Lomba          - e.lomba@iqf.csic.es
 !   Eva González Noya      - eva.noya@iqf.csic.es
-!   Antonio Díaz Pozuelo   - adiaz@iqf.csic.es
 !
 ! DATE:
 !   February 2026

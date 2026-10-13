@@ -5,6 +5,35 @@
 \expandafter\ifx\csname href\endcsname\relax
   \def\href#1#2{#2} \def\path#1{#1}\fi
 
+\bibitem{palaia2022patchy}
+I.~Palaia, A.~{\v{S}}ari{\'{c}}, Controlling cluster size in {2D}
+  phase-separating binary mixtures with specific interactions, J. Chem. Phys.
+  156~(19) (2022) 194902.
+\newblock \href {https://doi.org/10.1063/5.0087769}
+  {\path{doi:10.1063/5.0087769}}.
+
+\bibitem{sanchezburgos2021size}
+I.~Sanchez-Burgos, J.~A. Joseph, R.~Collepardo-Guevara, J.~R. Espinosa, Size
+  conservation emerges spontaneously in biomolecular condensates formed by
+  scaffolds and surfactant clients, Sci. Rep. 11~(1) (2021) 15241.
+\newblock \href {https://doi.org/10.1038/s41598-021-94309-y}
+  {\path{doi:10.1038/s41598-021-94309-y}}.
+
+\bibitem{thompson2022lammps}
+A.~P. Thompson, H.~M. Aktulga, R.~Berger, D.~S. Bolintineanu, W.~M. Brown,
+  P.~S. Crozier, P.~J. in~'t Veld, A.~Kohlmeyer, S.~G. Moore, T.~D. Nguyen,
+  R.~Shan, M.~J. Stevens, J.~Tranchida, C.~Trott, S.~J. Plimpton, {LAMMPS} - a
+  flexible simulation tool for particle-based materials modeling at the atomic,
+  meso, and continuum scales, Comput. Phys. Commun. 271 (2022) 108171.
+\newblock \href {https://doi.org/10.1016/j.cpc.2021.108171}
+  {\path{doi:10.1016/j.cpc.2021.108171}}.
+
+\bibitem{trjanaly2026}
+A.~D{\'{i}}az-Pozuelo, R.~Lomba, E.~Lomba, {\texttt{trj\_analysis}:
+  High-Performance GPU-Accelerated Trajectory Analysis and Graph-Mining Package
+  for Complex Colloidal Assemblies}, Available at:
+  \url{https://github.com/adpozuelo/trj_analysis} (2026).
+
 \bibitem{frenkel2001understanding}
 D.~Frenkel, B.~Smit, Understanding Molecular Simulation: From Algorithms to
   Applications, 2nd Edition, Academic Press, San Diego, 2001.
@@ -40,13 +69,6 @@ E.~G. Noya, I.~Kolovos, G.~Doppelbauer, G.~Kahl, E.~Bianchi, Phase diagram of
 \newblock \href {https://doi.org/10.1039/c4sm01559b}
   {\path{doi:10.1039/c4sm01559b}}.
 
-\bibitem{palaia2022patchy}
-I.~Palaia, A.~{\v{S}}ari{\'{c}}, Controlling cluster size in {2D}
-  phase-separating binary mixtures with specific interactions, J. Chem. Phys.
-  156~(19) (2022) 194902.
-\newblock \href {https://doi.org/10.1063/5.0087769}
-  {\path{doi:10.1063/5.0087769}}.
-
 \bibitem{ninarello2017models}
 A.~Ninarello, L.~Berthier, D.~Coslovich, Models and algorithms for the next
   generation of glass transition studies, Phys. Rev. X 7~(2) (2017) 021039.
@@ -67,15 +89,6 @@ J.~A. Anderson, C.~D. Lorenz, A.~Travesset, General purpose molecular dynamics
   227~(10) (2008) 5342--5359.
 \newblock \href {https://doi.org/10.1016/j.jcp.2008.01.047}
   {\path{doi:10.1016/j.jcp.2008.01.047}}.
-
-\bibitem{thompson2022lammps}
-A.~P. Thompson, H.~M. Aktulga, R.~Berger, D.~S. Bolintineanu, W.~M. Brown,
-  P.~S. Crozier, P.~J. in~'t Veld, A.~Kohlmeyer, S.~G. Moore, T.~D. Nguyen,
-  R.~Shan, M.~J. Stevens, J.~Tranchida, C.~Trott, S.~J. Plimpton, {LAMMPS} - a
-  flexible simulation tool for particle-based materials modeling at the atomic,
-  meso, and continuum scales, Comput. Phys. Commun. 271 (2022) 108171.
-\newblock \href {https://doi.org/10.1016/j.cpc.2021.108171}
-  {\path{doi:10.1016/j.cpc.2021.108171}}.
 
 \bibitem{whitelam2007avoiding}
 S.~Whitelam, P.~L. Geissler, Avoiding unphysical kinetic traps in {Monte Carlo}
@@ -125,11 +138,58 @@ G.~Andrade, G.~Ramos, D.~Madeira, R.~Sachetto, R.~Ferreira, L.~Rocha,
 \newblock \href {https://doi.org/10.1016/j.procs.2013.05.200}
   {\path{doi:10.1016/j.procs.2013.05.200}}.
 
-\bibitem{trjanaly2026}
-A.~D{\'{i}}az-Pozuelo, R.~Lomba, E.~Lomba, {\texttt{trj\_analysis}:
-  High-Performance GPU-Accelerated Trajectory Analysis and Graph-Mining Package
-  for Complex Colloidal Assemblies}, Available at:
-  \url{https://github.com/adpozuelo/trj_analysis} (2026).
+\bibitem{Nejahi2019GOMC}
+Y.~Nejahi, M.~S. Barhaghi, J.~Mick, B.~Jackman, K.~Rushaidat, Y.~Li,
+  L.~Schwiebert, J.~J. Potoff, {GOMC}: {GPU} optimized monte carlo for the
+  simulation of phase equilibria and physical properties of complex fluids,
+  SoftwareX 9 (2019) 20--27.
+\newblock \href {https://doi.org/10.1016/j.softx.2018.11.005}
+  {\path{doi:10.1016/j.softx.2018.11.005}}.
+
+\bibitem{Nejahi2021GOMC}
+Y.~Nejahi, M.~S. Barhaghi, G.~Schwing, L.~Schwiebert, J.~J. Potoff, Update 2.70
+  to ``{GOMC}: {GPU} optimized monte carlo for the simulation of phase
+  equilibria and physical properties of complex fluids'', SoftwareX 13 (2021)
+  100627.
+\newblock \href {https://doi.org/10.1016/j.softx.2020.100627}
+  {\path{doi:10.1016/j.softx.2020.100627}}.
+
+\bibitem{Anderson2016HPMC}
+J.~A. Anderson, M.~E. Irrgang, S.~C. Glotzer, Scalable metropolis monte carlo
+  for simulation of hard shapes, Computer Physics Communications 204 (2016)
+  21--30.
+\newblock \href {https://doi.org/10.1016/j.cpc.2016.02.024}
+  {\path{doi:10.1016/j.cpc.2016.02.024}}.
+
+\bibitem{noya_mcgpu_repo}
+E.~G. Noya, {\texttt{MC\_GPU}: GPU-Accelerated Monte Carlo for Patchy
+  Particles}, Available at: \url{https://github.com/evanoya/MC_GPU} (2021).
+
+\bibitem{noya2021nature}
+E.~G. Noya, C.~K. Wong, P.~Llombart, J.~P.~K. Doye, How to design an
+  icosahedral quasicrystal through directional bonding, Nature 596~(7872)
+  (2021) 367--371.
+\newblock \href {https://doi.org/10.1038/s41586-021-03700-2}
+  {\path{doi:10.1038/s41586-021-03700-2}}.
+
+\bibitem{noya2025acsnano}
+E.~G. Noya, J.~P.~K. Doye, A one-component patchy-particle icosahedral
+  quasicrystal, ACS Nano 19~(14) (2025) 13714--13722.
+\newblock \href {https://doi.org/10.1021/acsnano.4c14885}
+  {\path{doi:10.1021/acsnano.4c14885}}.
+
+\bibitem{kowaguchi2025jcp}
+A.~Kowaguchi, S.~Mehta, J.~P.~K. Doye, E.~G. Noya, A patchy-particle
+  three-dimensional octagonal quasicrystal, The Journal of Chemical Physics
+  163~(24) (2025) 244904.
+\newblock \href {https://doi.org/10.1063/5.0292922}
+  {\path{doi:10.1063/5.0292922}}.
+
+\bibitem{Vrabecz2006}
+A.~Vrabecz, G.~T{\'o}th, Simulation of binary hard-sphere systems with 1:5 and
+  1:10 size ratios, Mol. Phys. 104~(12) (2006) 1843--1853.
+\newblock \href {https://doi.org/10.1080/00268970600602313}
+  {\path{doi:10.1080/00268970600602313}}.
 
 \bibitem{duane1987hybrid}
 S.~Duane, A.~D. Kennedy, B.~J. Pendleton, D.~Roweth, Hybrid {Monte Carlo},
@@ -146,5 +206,12 @@ B.~Mehlig, D.~W. Heermann, B.~M. Forrest, Hybrid {Monte Carlo} method for
 \bibitem{gpmc2026}
 E.~Lomba, E.~G. Noya, {\texttt{gpMC}: A General Purpose Monte Carlo Program},
   Available at: \url{https://github.com/elomba/MCcol.git} (2026).
+
+\bibitem{bannerman2011dynamo}
+M.~N. Bannerman, R.~Sargant, L.~Lue, {DynamO}: A free $\mathcal{O}(n)$ general
+  event-driven molecular dynamics simulator, Journal of Computational Chemistry
+  32~(15) (2011) 3329--3338.
+\newblock \href {https://doi.org/10.1002/jcc.21915}
+  {\path{doi:10.1002/jcc.21915}}.
 
 \end{thebibliography}

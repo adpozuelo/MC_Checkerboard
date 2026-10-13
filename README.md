@@ -4,9 +4,9 @@ A high-performance GPU-accelerated Monte Carlo simulation code for patchy partic
 
 ## Authors
 
-- **Eva González Noya** - eva.noya@iqf.csic.es
-- **Antonio Díaz Pozuelo** - adiaz@iqf.csic.es
+- **Antonio Díaz-Pozuelo** - adiaz@iqf.csic.es
 - **Enrique Lomba** - enrique.lomba@csic.es
+- **Eva González Noya** - eva.noya@iqf.csic.es
 
 Instituto de Química Física Blas Cabrera (IQF-CSIC)
 
@@ -17,6 +17,27 @@ Instituto de Química Física Blas Cabrera (IQF-CSIC)
 ## Overview
 
 This code implements a GPU-parallelized Monte Carlo simulation for systems of patchy particles with Lennard-Jones-Gauss (LJG) potential, Kern-Frenkel (K-F) and Lennard-Jones mixtures, as well as (possibly non-additive) Hard-Sphere (HS) mixtures. The implementation uses a checkerboard cell decomposition scheme [1] to enable conflict-free parallel Monte Carlo moves on GPU, achieving significant speedup compared to traditional CPU implementations.
+
+### Lineage & Original CUDA-C Implementation
+
+This codebase builds upon and expands the original GPU Monte Carlo simulation code written in CUDA-C by **Eva González Noya (E.G. Noya)**, available on GitHub:
+- **Original Repository:** [https://github.com/evanoya/MC_GPU](https://github.com/evanoya/MC_GPU)
+
+The foundational methodology, patchy interaction models, and GPU checkerboard algorithms were originally developed and applied in the following works:
+1. **E. G. Noya, C. K. Wong, P. Llombart, and J. P. K. Doye**,  
+   *"How to design an icosahedral quasicrystal through directional bonding"*,  
+   *Nature*, **596**, 367–371 (2021).  
+   DOI: [10.1038/s41586-021-03700-2](https://doi.org/10.1038/s41586-021-03700-2)
+
+2. **E. G. Noya and J. P. K. Doye**,  
+   *"A One-Component Patchy-Particle Icosahedral Quasicrystal"*,  
+   *ACS Nano*, **19**(14), 13714–13722 (2025).  
+   DOI: [10.1021/acsnano.4c14885](https://doi.org/10.1021/acsnano.4c14885)
+
+3. **A. Kowaguchi, S. Mehta, J. P. K. Doye, and E. G. Noya**,  
+   *"A patchy-particle three-dimensional octagonal quasicrystal"*,  
+   *The Journal of Chemical Physics*, **163**(24), 244904 (2025).  
+   DOI: [10.1063/5.0292922](https://doi.org/10.1063/5.0292922)
 
 ### Note
 
@@ -464,8 +485,27 @@ This scheme enables efficient GPU parallelization while maintaining detailed bal
 If you use this code in your research, please cite:
 
 ```
-Eva González Noya, Enrique Lomba, and Antonio Díaz Pozuelo, "GPU-Accelerated Monte Carlo for Simple Fluid and Patchy Particle mixtures: A high-performance GPU-accelerated Monte Carlo simulation code for patchy particle systems with anisotropic interactions and simple mixtures in NVT and NpT ensembles.", CSIC-Madrid (2026)
+Antonio Díaz-Pozuelo, Enrique Lomba, and Eva González Noya, "GPU-Accelerated Monte Carlo for Simple Fluid and Patchy Particle mixtures: A high-performance GPU-accelerated Monte Carlo simulation code for patchy particle systems with anisotropic interactions and simple mixtures in NVT and NpT ensembles.", CSIC-Madrid (2026)
 ```
+
+### Foundational CUDA-C Code & Seminal Publications
+
+The core GPU checkerboard Monte Carlo algorithms and patchy particle interactions build directly upon the original CUDA-C implementation by **E. G. Noya**, available on GitHub at [https://github.com/evanoya/MC_GPU](https://github.com/evanoya/MC_GPU). If you use these patchy particle capabilities, please cite the original publications:
+
+1. **E. G. Noya, C. K. Wong, P. Llombart, and J. P. K. Doye**,  
+   *"How to design an icosahedral quasicrystal through directional bonding"*,  
+   *Nature*, **596**, 367–371 (2021).  
+   DOI: [10.1038/s41586-021-03700-2](https://doi.org/10.1038/s41586-021-03700-2)
+
+2. **E. G. Noya and J. P. K. Doye**,  
+   *"A One-Component Patchy-Particle Icosahedral Quasicrystal"*,  
+   *ACS Nano*, **19**(14), 13714–13722 (2025).  
+   DOI: [10.1021/acsnano.4c14885](https://doi.org/10.1021/acsnano.4c14885)
+
+3. **A. Kowaguchi, S. Mehta, J. P. K. Doye, and E. G. Noya**,  
+   *"A patchy-particle three-dimensional octagonal quasicrystal"*,  
+   *The Journal of Chemical Physics*, **163**(24), 244904 (2025).  
+   DOI: [10.1063/5.0292922](https://doi.org/10.1063/5.0292922)
 
 ### Methodological References
 
@@ -518,9 +558,9 @@ GNU GENERAL PUBLIC LICENSE Version 3
 ### Getting Help
 
 For questions or issues, contact the authors:
-- Eva González Noya: eva.noya@iqf.csic.es
-- Antonio Díaz Pozuelo: adiaz@iqf.csic.es
+- Antonio Díaz-Pozuelo: adiaz@iqf.csic.es
 - Enrique Lomba: enrique.lomba@csic.es
+- Eva González Noya: eva.noya@iqf.csic.es
 
 ---
 

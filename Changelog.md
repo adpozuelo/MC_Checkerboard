@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.8.8] - 2026-10-13
+
+### Changed & Documented
+- **Author Ordering & Attribution**:
+  - Updated author ordering across `README.md`, all Fortran source headers in `src/`, runtime startup banner, and CPC manuscript to:
+    **A. Díaz-Pozuelo, E. Lomba, and E. G. Noya**.
+- **Foundational Code Lineage & Citations**:
+  - Explicitly credited the foundational Monte Carlo simulation code written in CUDA-C by **E. G. Noya** (available on GitHub at [https://github.com/evanoya/MC_GPU](https://github.com/evanoya/MC_GPU)) in `README.md`, `src/Main.cuf` (header and runtime banner), and the CPC manuscript.
+  - Included full bibliographic citations for the seminal publications establishing this methodology:
+    1. *Nature* **596**, 367–371 (2021), DOI: `10.1038/s41586-021-03700-2`
+    2. *ACS Nano* **19** (14), 13714–13722 (2025), DOI: `10.1021/acsnano.4c14885`
+    3. *J. Chem. Phys.* **163** (24), 244904 (2025), DOI: `10.1063/5.0292922`
+
+---
+
 ## [2.8.7] - 2026-10-13
 
 ### Fixed
