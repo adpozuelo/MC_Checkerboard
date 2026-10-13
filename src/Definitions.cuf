@@ -7,7 +7,7 @@
 !
 ! AUTHORS:
 !   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
-!   Enrique Lomba          - e.lomba@iqf.csic.es
+!   Enrique Lomba          - enrique.lomba@csic.es
 !   Eva González Noya      - eva.noya@iqf.csic.es
 !
 ! DATE:
@@ -31,7 +31,7 @@ END MODULE  set_precision
 !
 ! AUTHORS:
 !   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
-!   Enrique Lomba          - e.lomba@iqf.csic.es
+!   Enrique Lomba          - enrique.lomba@csic.es
 !   Eva González Noya      - eva.noya@iqf.csic.es
 !
 ! DATE:
@@ -65,7 +65,7 @@ END MODULE configuration
 !
 ! AUTHORS:
 !   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
-!   Enrique Lomba          - e.lomba@iqf.csic.es
+!   Enrique Lomba          - enrique.lomba@csic.es
 !   Eva González Noya      - eva.noya@iqf.csic.es
 !
 ! DATE:
@@ -135,7 +135,7 @@ END MODULE rundata
 !
 ! AUTHORS:
 !   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
-!   Enrique Lomba          - e.lomba@iqf.csic.es
+!   Enrique Lomba          - enrique.lomba@csic.es
 !   Eva González Noya      - eva.noya@iqf.csic.es
 !
 ! DATE:
@@ -217,7 +217,7 @@ END MODULE potential
 !
 ! AUTHORS:
 !   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
-!   Enrique Lomba          - e.lomba@iqf.csic.es
+!   Enrique Lomba          - enrique.lomba@csic.es
 !   Eva González Noya      - eva.noya@iqf.csic.es
 !
 ! DATE:
@@ -244,7 +244,7 @@ END MODULE properties
 !
 ! AUTHORS:
 !   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
-!   Enrique Lomba          - e.lomba@iqf.csic.es
+!   Enrique Lomba          - enrique.lomba@csic.es
 !   Eva González Noya      - eva.noya@iqf.csic.es
 !
 ! DATE:
@@ -286,7 +286,7 @@ END MODULE utils
 !
 ! AUTHORS:
 !   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
-!   Enrique Lomba          - e.lomba@iqf.csic.es
+!   Enrique Lomba          - enrique.lomba@csic.es
 !   Eva González Noya      - eva.noya@iqf.csic.es
 !
 ! DATE:
