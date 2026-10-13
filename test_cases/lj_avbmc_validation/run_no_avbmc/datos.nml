@@ -1,0 +1,57 @@
+ &Control_Params
+   istep_ini =          6000 ,
+   istep_fin = 15000 ,
+   Neq = 0,
+   Nmove =            10 ,
+   Nsave =            10 ,
+   Ndump =           100 ,
+   Nrestart =          1000 ,
+   imovie =   F ,
+   traj_format = 'plain',
+   data_file = 'data.restart',
+   Npart_types =             1 ,
+   Ecpu_check =   F ,
+   ncluster =            20 ,
+   rcl =     1.500000     ,
+   minPts =             3 ,
+   asym_threshold =    0.3500000     ,
+  cluster_types = 1,
+   lammps =   F
+ /
+ &MC_Params
+   hmax =    5.0000001E-02 ,
+   omax =    0.5000000     ,
+  vmax =     0.000000    0.000000    0.000000,
+   displ_update =   T ,
+   temp0 =    0.7500000     ,
+   npt =   F ,
+   Nvolf =             1 ,
+   iscale =             0 ,
+   pres =    9.9999998E-03 ,
+   seed =                   1234567 ,
+   swap_moves =   F ,
+   Nswap =             1 ,
+   Nswapf =             1
+ /
+ &Potential_Params
+   model = 'LJ',
+   sigma_jon_aux =     0.000000     ,
+   sigma_tor_jon =     0.000000000000000      ,
+   rangepp =     2.500000     ,
+   Bool_tor =             0 ,
+   sigp_factor =    0.1000000     ,
+   Rcp_factor =    0.3000000     ,
+   Rc_factor =     2.000000     ,
+   epsp_factor =    -1.000000     ,
+   patch_radial_factor =    0.5000000     ,
+   table_mc =   F ,
+   eps_R =    0.6666667     ,
+   eps_CSW =     11.11111     ,
+   rw_CSW =    0.1200000     ,
+   alpha_CSW =    4.9999999E-03 ,
+   rc_CSW =    0.2000000    
+ /
+ --- LJ SIGMA MATRIX ---
+ 1.000
+ --- LJ EPSILON MATRIX ---
+ 1.000

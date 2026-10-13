@@ -28,9 +28,12 @@ NVHPC_DEFAULT   = $(firstword $(NVHPC_ROOT))
 NVBIN         ?= $(if $(EBROOTNVHPC),$(EBROOTNVHPC)/Linux_x86_64/$(EBVERSIONNVHPC)/compilers/bin,$(if $(NVHPC_DEFAULT),$(NVHPC_DEFAULT)/compilers/bin))
 NVINCLUDE     ?= $(if $(EBROOTNVHPC),$(EBROOTNVHPC)/Linux_x86_64/$(EBVERSIONNVHPC)/compilers/include,$(if $(NVHPC_DEFAULT),$(NVHPC_DEFAULT)/compilers/include))
 NVLIBS        ?= $(if $(EBROOTNVHPC),$(EBROOTNVHPC)/Linux_x86_64/$(EBVERSIONNVHPC)/compilers/lib,$(if $(NVHPC_DEFAULT),$(NVHPC_DEFAULT)/compilers/lib))
-NETCDFINC     ?= $(if $(EBROOTNETCDFMINFORTRAN),$(EBROOTNETCDFMINFORTRAN)/include,$(wildcard /usr/local/netcdf-nv/include))
-NETCDFLIB     ?= $(if $(EBROOTNETCDFMINFORTRAN),$(EBROOTNETCDFMINFORTRAN)/lib,$(wildcard /usr/local/netcdf-nv/lib))
-NETCDF_C_LIB  ?= $(if $(EBROOTNETCDF),$(EBROOTNETCDF)/lib,$(wildcard /usr/local/netcdf-nv/lib))
+NETCDF_FORTRAN_ROOT ?= $(if $(EBROOTNETCDFMINFORTRAN),$(EBROOTNETCDFMINFORTRAN),$(wildcard /usr/local/modules/x64_v4/software/netCDF-Fortran/4.6.1-NVHPC-25.3-CUDA-12.8.0 /usr/local/netcdf-nv))
+NETCDF_C_ROOT       ?= $(if $(EBROOTNETCDF),$(EBROOTNETCDF),$(wildcard /usr/local/modules/x64_v4/software/netCDF/4.9.2-NVHPC-25.3-CUDA-12.8.0 /usr/local/netcdf-nv))
+
+NETCDFINC     ?= $(if $(NETCDF_FORTRAN_ROOT),$(NETCDF_FORTRAN_ROOT)/include)
+NETCDFLIB     ?= $(if $(NETCDF_FORTRAN_ROOT),$(firstword $(wildcard $(NETCDF_FORTRAN_ROOT)/lib64 $(NETCDF_FORTRAN_ROOT)/lib)))
+NETCDF_C_LIB  ?= $(if $(NETCDF_C_ROOT),$(firstword $(wildcard $(NETCDF_C_ROOT)/lib64 $(NETCDF_C_ROOT)/lib)))
 
 ifneq ($(NVBIN),)
 export PATH   := $(NVBIN):$(PATH)
@@ -58,7 +61,7 @@ LKLIBS         = $(if $(NETCDFLIB),-L$(NETCDFLIB)) \
                  $(if $(NETCDF_C_LIB),-L$(NETCDF_C_LIB)) \
                  $(if $(NVLIBS),-L$(NVLIBS)) \
                  $(if $(FFTWLIB),-L$(FFTWLIB)) \
-                 -L$(LAMMPSLIB) -llammps -lnetcdff
+                 -L$(LAMMPSLIB) -llammps -lnetcdff -lnetcdf
 
 LKOPTS         = -cuda -cudalib=curand $(RPATH_FLAGS)
 

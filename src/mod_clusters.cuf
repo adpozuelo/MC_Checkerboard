@@ -653,16 +653,16 @@ CONTAINS
                 If (label(i) > 0 .And. neighbors(i) > 0) Then
                     S(1) = 0.0_wp; S(2) = 0.0_wp; S(3) = 0.0_wp
                     indx_i = (i - 1) * ndim
-                    xi = r(indx_i + 1)
-                    yi = r(indx_i + 2)
-                    zi = r(indx_i + 3)
+                    xi = r(indx_i)
+                    yi = r(indx_i + 1)
+                    zi = r(indx_i + 2)
                     
                     Do k = offset(i), offset(i) + neighbors(i) - 1
                         id = adjacency(k)
                         indx_j = (id - 1) * ndim
-                        dx = r(indx_j + 1) - xi
-                        dy = r(indx_j + 2) - yi
-                        dz = r(indx_j + 3) - zi
+                        dx = r(indx_j) - xi
+                        dy = r(indx_j + 1) - yi
+                        dz = r(indx_j + 2) - zi
                         
                         dx = dx - anint(dx)
                         dy = dy - anint(dy)
