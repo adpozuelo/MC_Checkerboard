@@ -560,7 +560,11 @@ paper.
 \texttt{asym\_threshold}& Real & 0.5 & Dipole asymmetry threshold ($\eta_{\text{thresh}}$) for cluster surface identification. \\
 \texttt{cluster\_types}& Integer(10) & -1 & Species types included in cluster search (-1 = all species). \\
 \texttt{avbmc} & Logical & \texttt{.false.} & Master flag to enable Association Volume Bias Monte Carlo moves. \\
-\texttt{border\_criterion}& Character & \texttt{'asymmetry'}& Border identification method: \texttt{'asymmetry'} (geometric dipole) or \texttt{'energy'}. \\
+\texttt{n\_avbmc} & Integer & 10 & Frequency (in sweeps) of lightweight AVBMC exchange moves in Tier 1. \\
+\texttt{ncluster\_init} & Integer & 500 & Periodicity (in sweeps) of full DBSCAN nucleation checks in Tier 1. \\
+\texttt{cluster\_threshold}& Integer & 5 & Size threshold ($S_{\text{thresh}}$) to transition from Tier 1 to Tier 2. \\
+\texttt{bound\_min\_neighbors}& Integer & 1 & Minimum coordination ($z_{\text{bound}}$) for bound particle classification in Tier 1. \\
+\texttt{border\_criterion}& Character & \texttt{'asymmetry'}& Border identification method in Tier 2: \texttt{'asymmetry'} or \texttt{'energy'}. \\
 \texttt{avbmc\_k\_trials}& Integer & 10 & Number of bulk Rosenbluth trial positions ($K$) per AVBMC attempt. \\
 \texttt{avbmc\_max\_trials}& Integer & 50 & Maximum number of pair attempts per AVBMC invocation. \\
 \texttt{lammps} & Logical & \texttt{.false.} & Master flag to enable in-memory Hybrid Monte Carlo moves via LAMMPS. \\
@@ -953,6 +957,38 @@ $\mathcal{F}$. Alternatively, an energy-based criterion ($u_i /
 \langle u_{\text{bulk}} \rangle \le \text{ratio}$) is also available
 via namelist control. 
 
+\subsubsection{Two-Tier Dynamic AVBMC Scheduling: Nucleation vs. Condensed Phases}
+\label{sec:algo_twotier_avbmc}
+
+While \textsc{G-DBSCAN} and geometric dipole asymmetry $\eta_i$ accurately isolate surface sites on macroscopic condensed droplets, they present two physical and computational limitations during the early stages of nucleation or when only small oligomers exist:
+\begin{enumerate}
+    \item \textbf{Redundancy in Small Clusters}: For oligomers composed of a few particles ($S \le 5$, such as dimers, trimers, and pentamers), every constituent atom resides on the boundary. Calculating the geometric dipole vector $\eta_i$ or evaluating per-atom energy thresholds across all particles is computationally redundant.
+    \item \textbf{DBSCAN Noise Classification of Dimers}: In standard density-based clustering, nodes require a minimum coordination $z_i \ge \text{minPts} - 1$ to serve as core seeds. For the conventional setting $\text{minPts} = 3$, dimers ($z_i = 1$) and linear trimers are classified as unclustered noise ($\texttt{cluster\_id} = 0$). Consequently, unassociated particles cannot be targeted for association moves onto dimers, impeding the initial nucleation transition.
+\end{enumerate}
+
+To resolve this limitation, \texttt{MCCB-gpu} implements a dynamic two-tier scheduling architecture that automatically switches between two operational regimes based on the instantaneous maximum cluster size $S_{\max}$:
+
+\paragraph{Tier 1: Pre-Nucleation / Small-Cluster Regime ($S_{\max} \le S_{\text{thresh}}$)}
+When all clusters in the system contain $S \le S_{\text{thresh}}$ particles (configured via \texttt{cluster\_threshold}, default 5):
+\begin{itemize}
+    \item Full host DBSCAN BFS traversal, cluster size distribution analysis, trajectory logging (\texttt{mclast\_clconf.lammpstrj}), and surface dipole asymmetry evaluations are completely bypassed.
+    \item Particles with cluster mask active are classified using fast $O(N)$ GPU cell-list neighbor counting (\texttt{neighbor\_search}) into:
+      \begin{align}
+          \text{Bound Pool } \mathcal{B} &: \{ i \mid z_i \ge z_{\text{bound}} \} \\
+          \text{Isolated Pool } \mathcal{F} &: \{ i \mid z_i = 0 \}
+      \end{align}
+      where $z_{\text{bound}}$ (namelist \texttt{bound\_min\_neighbors}, default 1) ensures all bonded oligomers (including dimers with $z_i = 1$) constitute the target binding pool $\mathcal{B}$, while unbonded monomers constitute the bulk pool $\mathcal{F}$.
+    \item Lightweight AVBMC exchange attempts are executed frequently, once every $n_{\text{avbmc}}$ sweeps (configured via \texttt{n\_avbmc}, default 10), accelerating monomer association into dimers and oligomers with sub-millisecond execution overhead.
+    \item A full DBSCAN cluster search is performed periodically once every $n_{\text{cluster\_init}}$ sweeps (namelist \texttt{ncluster\_init}, default 500) to monitor whether a critical nucleus has formed.
+\end{itemize}
+
+\paragraph{Tier 2: Post-Nucleation / Condensed Regime ($S_{\max} > S_{\text{thresh}}$)}
+As soon as a nucleus exceeding $S_{\text{thresh}}$ particles is detected during a periodic check, the simulation triggers an automatic regime switch (\texttt{cluster\_regime\_large = .true.}):
+\begin{itemize}
+    \item The effective AVBMC frequency is dynamically linked to the full cluster analysis period, setting $n_{\text{avbmc}} = n_{\text{cluster}}$.
+    \item Every $n_{\text{cluster}}$ sweeps (namelist \texttt{ncluster}), \textsc{G-DBSCAN} connected component identification, geometric dipole surface detection ($\eta_i \ge \eta_{\text{thresh}}$), and boundary logging (\texttt{mclast\_brdconf.lammpstrj}) are activated, targeting trial association moves exclusively to the physical interface of the growing cluster.
+    \item \textbf{Dynamic Reversibility}: If the cluster subsequently evaporates or dissolves ($S_{\max} \le S_{\text{thresh}}$), \texttt{MCCB-gpu} automatically reverts to Tier 1, restoring lightweight high-frequency sampling without user intervention.
+\end{itemize}
 
 \subsection{Multicomponent Particle Identity Swaps (\texorpdfstring{$A \leftrightarrow B$}{A <-> B})}
 \label{sec:algo_swaps}

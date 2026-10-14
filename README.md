@@ -50,7 +50,7 @@ Lennard-Jones reduced units are used. Potentials are truncated and shifted at ra
 - **GPU-Accelerated Identity Swaps**: Massively parallel identity swap moves for multicomponent mixtures ($N_{\text{species}} \ge 2$, with trial species pairs chosen uniformly at random) across all potential models (Hard Spheres, Lennard-Jones/table, angular patchy, and site-site patchy) leveraging checkerboard cellular decomposition and long-range sublattice swaps [5]
 - **Anisotropic Interactions**: Lennard-Jones core with angular (patch-patch) and torsional terms
 - **Multiple Ensembles**: Supports both NVT (canonical) and NpT (isothermal-isobaric)
-- **Aggregation Volume Bias MC (AVBMC)**: Advanced cluster swap moves (association & dissociation) [3] with Configurable Rosenbluth (CBMC) bulk probing scheme and $O(1)$ single-particle cell list updates
+- **Aggregation Volume Bias MC (AVBMC)**: Advanced cluster swap moves (association & dissociation) [3] with two-tier dynamic scheduling (lightweight small-cluster nucleation vs. full G-DBSCAN surface-guided aggregation), Configurable Rosenbluth (CBMC) bulk probing scheme, and $O(1)$ single-particle cell list updates
 - **Flexible Particle Models**: Up to 7 patches per particle with customizable geometries
 - **Adaptive MC Parameters**: Automatic adjustment of displacement parameters for optimal acceptance rates
 - **Temperature Annealing**: Linear temperature ramping capability
@@ -235,10 +235,29 @@ The namelist filename passed as the first command-line argument to `MCCB-gpu` is
 
 ### Aggregation Volume Bias MC (AVBMC) Control
 - `avbmc` - Enable AVBMC cluster association/dissociation moves (`.true.` / `.false.`, default: `.false.`)
-- `border_criterion` - Surface/border particle detection method: `'energy'` (energy threshold relative to bulk) or `'asymmetry'` (geometric displacement asymmetry) (default: `'energy'`)
-- `energy_border_ratio` - Energy ratio relative to bulk binding energy for border particle identification when `border_criterion = 'energy'` (default: `0.9`)
+- `n_avbmc` - Frequency (in MC sweeps) of lightweight AVBMC exchange moves in Tier 1 (small-cluster regime, default: `10`)
+- `ncluster_init` - Periodic frequency (in MC sweeps) of full DBSCAN cluster checks in Tier 1 to detect nucleation (default: `500`)
+- `cluster_threshold` - Cluster size threshold ($S_{\text{thresh}}$) separating Tier 1 and Tier 2 (default: `5`)
+- `bound_min_neighbors` - Minimum coordination number ($z_{\text{bound}}$) for a particle to be classified as bound in Tier 1 (default: `1`, capturing dimers and higher oligomers)
+- `border_criterion` - Surface/border particle detection method in Tier 2: `'energy'` (energy threshold relative to bulk) or `'asymmetry'` (geometric displacement asymmetry) (default: `'asymmetry'`)
+- `energy_border_ratio` - Energy ratio relative to bulk binding energy for border particle identification when `border_criterion = 'energy'` (default: `0.5`)
 - `avbmc_k_trials` - Number of trial positions ($K$) generated in the bulk for Configurable Rosenbluth (CBMC) bulk volume probing (default: `10`)
 - `avbmc_max_trials` - Maximum number of pair attempts per AVBMC step to bound execution time for large systems (default: `50`)
+
+#### Two-Tier Dynamic AVBMC Scheduling (Nucleation vs. Condensed Phase)
+AVBMC in `MCCB-gpu` employs a dynamic two-tier scheduler that automatically adapts according to the instantaneous maximum cluster size $S_{\max}$:
+1. **Tier 1: Pre-Nucleation / Small-Cluster Regime ($S_{\max} \le S_{\text{thresh}}$, default $\le 5$ particles)**:
+   - For small clusters (dimers, trimers, etc.), every particle is on the surface. Standard DBSCAN with $\text{minPts} \ge 3$ classifies dimers as noise ($\text{label} = 0$), which previously prevented monomer association onto dimers.
+   - Tier 1 completely bypasses full DBSCAN BFS search, cluster size distribution analysis, trajectory file logging (`mclast_clconf.lammpstrj`), and geometric dipole asymmetry $\eta_i$ or per-atom energy calculations.
+   - Particles are partitioned via fast $O(N)$ GPU cell-list neighbor counting (`neighbor_search`) into:
+     - **Bound Pool** ($\mathcal{B}$): particles with $z_i \ge \text{bound\_min\_neighbors}$ (default 1, capturing dimers and oligomers).
+     - **Isolated Pool** ($\mathcal{F}$): particles with $z_i = 0$ (unbonded monomers).
+   - Lightweight AVBMC pair exchanges execute frequently, every `n_avbmc` sweeps (default 10), accelerating initial aggregation with sub-millisecond execution time.
+   - A full DBSCAN check runs periodically every `ncluster_init` sweeps (default 500) to monitor whether a critical nucleus has formed.
+2. **Tier 2: Post-Nucleation / Condensed Phase Regime ($S_{\max} > S_{\text{thresh}}$)**:
+   - When a cluster exceeding `cluster_threshold` (default 5) is discovered, the code dynamically switches to `n_avbmc = ncluster`.
+   - Every `ncluster` sweeps, full DBSCAN clustering, geometric dipole asymmetry detection ($\eta_i \ge \eta_{\text{thresh}}$), border logging (`mclast_brdconf.lammpstrj`), and AVBMC surface exchanges are executed.
+   - If the cluster dissolves ($S_{\max} \le S_{\text{thresh}}$), the simulation dynamically reverts to Tier 1 without user intervention.
 
 ### Identity Swap Moves (Multicomponent Mixtures)
 - `swap_moves` - Enable GPU-accelerated identity swap moves (`.true.` / `.false.`, default: `.false.`). Supported for multicomponent mixtures ($N_{\text{part\_types}} \ge 2$) across all interaction potentials: Hard Spheres (`HS`), Lennard-Jones (`LJ`), Tabulated potentials (`TABLE`), Angular Patchy (`LJG`), and Site-Site Patchy (`SSP`). In multicomponent systems ($N_{\text{species}} > 2$), the two distinct species involved in each swap attempt are chosen uniformly at random.
@@ -575,6 +594,12 @@ Computing resources provided by CSIC.
 ## Version History
 
 For a complete record of all versions and features, see [Changelog.md](Changelog.md).
+
+- **V2.8.9** (October 2026) Two-Tier Dynamic AVBMC Scheduling & Small-Cluster Nucleation Regime
+  - **Two-Tier Dynamic Scheduling**: Introduced automatic switching between Tier 1 (pre-nucleation / small clusters $\le 5$ particles) and Tier 2 (post-nucleation / large condensed clusters).
+  - **Small-Cluster Optimization (Tier 1)**: Bypasses DBSCAN BFS queue traversals and surface dipole asymmetry evaluations for small oligomers ($S \le 5$). Uses fast $O(N)$ GPU cell-list neighbor counts to classify bound ($z_i \ge 1$) and isolated ($z_i = 0$) particles.
+  - **Configurable Control**: Added namelist parameters `n_avbmc` (default `10`), `ncluster_init` (default `500`), `cluster_threshold` (default `5`), and `bound_min_neighbors` (default `1`).
+  - **Automatic Reversibility**: Automatically transitions to Tier 2 when a cluster exceeding `cluster_threshold` is detected, and reverts back to Tier 1 if the cluster evaporates.
 
 - **V2.8.0** (September 2026) Generalized Identity Swap Moves for All Potential Models
   - Extended GPU checkerboard identity swap moves ($A \leftrightarrow B$) from hard spheres to all interaction models: Lennard-Jones/table (`LJ`, `TABLE`), angular patchy (`LJG`), and site-site patchy (`SSP`).
