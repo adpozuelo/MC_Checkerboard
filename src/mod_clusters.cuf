@@ -2,7 +2,8 @@ MODULE mod_clusters
     Use set_precision
     Use configuration
     Use rundata, Only : rcl, minPts, ncluster, cluster_types, istep_ini, pot_int, asym_threshold, avbmc, &
-                        border_criterion, energy_threshold, energy_border_ratio, use_energy_ratio
+                        border_criterion, energy_threshold, energy_border_ratio, use_energy_ratio, &
+                        n_avbmc, ncluster_init, cluster_threshold, bound_min_neighbors, cluster_regime_large
     Use potential, Only : bool_tor, Npart_types, Nrb_sites_max, Ntor_max, sigma_tor_jon, sigp_factor, Rcp_factor, Rc_factor
     Use mod_avbmc
     Use cudafor
@@ -438,6 +439,61 @@ CONTAINS
         
     End Subroutine neighbor_search
 
+    ! Subroutine to initialize cluster mask based on selected particle types
+    Subroutine get_cluster_mask(cluster_mask_host)
+        Integer, Intent(OUT) :: cluster_mask_host(natoms)
+        Integer :: i
+        cluster_mask_host(:) = 0
+        If (All(cluster_types == -1)) Then
+            If (pot_int == 2) Then
+                Do i = 1, natoms
+                    If (itype(i-1) == 1 .Or. itype(i-1) == 3) Then
+                        cluster_mask_host(i) = 1
+                    End If
+                End Do
+                If (All(cluster_mask_host == 0)) Then
+                    cluster_mask_host(:) = 1
+                End If
+            Else
+                cluster_mask_host(:) = 1
+            End If
+        Else
+            Do i = 1, natoms
+                If (Any(cluster_types == itype(i-1)) .Or. Any(cluster_types == itype(i-1) + 1)) Then
+                    cluster_mask_host(i) = 1
+                End If
+            End Do
+        End If
+    End Subroutine get_cluster_mask
+
+    ! Subroutine for lightweight AVBMC step in small-cluster regime (max cluster size <= cluster_threshold):
+    ! Performs GPU cell-list neighbor search, classifies into bound (neighbors >= bound_min_neighbors)
+    ! and isolated (neighbors == 0), and executes AVBMC pair exchanges without DBSCAN or surface detection.
+    Subroutine run_lightweight_avbmc_step()
+        Integer :: cluster_mask_host(natoms)
+
+        ! 1. Allocate memory if needed
+        Call clusters_alloc()
+
+        ! 2. Initialize cluster mask
+        Call get_cluster_mask(cluster_mask_host)
+        gcluster_mask(1:natoms) = cluster_mask_host(1:natoms)
+
+        ! 3. Configure GPU grid block
+        nthread = 256
+        nbcuda = (natoms + nthread - 1)/nthread
+
+        ! 4. Search for neighbors and build adjacency list on GPU
+        Call neighbor_search(natoms)
+
+        ! 5. Extract AVBMC data using lightweight bound/isolated classification
+        Call extract_avbmc_data_lightweight(natoms, r, neighbors, cluster_mask_host, bound_min_neighbors)
+
+        ! 6. Attempt AVBMC pair moves
+        Call attempt_avbmc_pair_moves(neighbors, offset, adjacency)
+        Call print_avbmc_stats()
+    End Subroutine run_lightweight_avbmc_step
+
     Subroutine run_cluster_analysis(istep)
         Use rundata, only : istep_ini, istep_fin
         Integer, Intent(IN) :: istep
@@ -460,32 +516,7 @@ CONTAINS
         Call clusters_alloc()
         
         ! 2. Initialize cluster mask based on selected types
-        ! NOTE: If cluster_types is not configured (all -1), we default to clustering
-        ! based on interaction patches if present, or all particles otherwise.
-        cluster_mask_host(:) = 0
-        If (All(cluster_types == -1)) Then
-            If (pot_int == 2) Then
-                Do i = 1, natoms
-                    If (itype(i-1) == 1 .Or. itype(i-1) == 3) Then
-                        cluster_mask_host(i) = 1
-                    End If
-                End Do
-                If (All(cluster_mask_host == 0)) Then
-                    cluster_mask_host(:) = 1
-                End If
-            Else
-                cluster_mask_host(:) = 1
-            End If
-        Else
-            ! Check against both 0-based internal type (itype) and 1-based LAMMPS type (itype + 1)
-            ! so both 0-based (0..Npart_types-1) and 1-based LAMMPS (1..Npart_types) namelist inputs work seamlessly
-            Do i = 1, natoms
-                If (Any(cluster_types == itype(i-1)) .Or. Any(cluster_types == itype(i-1) + 1)) Then
-                    cluster_mask_host(i) = 1
-                End If
-            End Do
-        End If
-        
+        Call get_cluster_mask(cluster_mask_host)
         gcluster_mask(1:natoms) = cluster_mask_host(1:natoms)
         
         ! 3. Configure grid block
@@ -559,7 +590,7 @@ CONTAINS
         last_pct_clustered = pct
             
         Inquire(File=clusevol_filename, Exist=file_exists)
-        If (.Not. file_exists .Or. istep == istep_ini + ncluster) Then
+        If (.Not. file_exists .Or. istep == istep_ini) Then
             Open(io_clusevol_file, File=clusevol_filename, Status='unknown')
             Write(io_clusevol_file, '(A)') '# step  n_clusters  max_size  n_clustered  pct_clustered'
         Else
@@ -610,88 +641,93 @@ CONTAINS
         Allocate(is_border(natoms))
         is_border(:) = .false.
 
-        If (trim(border_criterion) == 'energy') Then
-            Allocate(atom_energies_host(0:natoms-1))
-            Call compute_per_atom_energy_gpu(pot_int, bool_tor, ndim, Nat_cell_max, Ntot_Cell, Npart_types, &
-               Nrb_sites_max, Ntor_max, sigma_tor_jon, sigp_factor, Rcp_factor, Rc_factor, natoms, atom_energies_host)
-            
-            If (use_energy_ratio) Then
-                e_sum = 0.0_wp
-                count_cluster_atoms = 0
-                Do i = 1, natoms
-                    If (label(i) > 0) Then
-                        e_sum = e_sum + atom_energies_host(i-1)
-                        count_cluster_atoms = count_cluster_atoms + 1
-                    End If
-                End Do
-                If (count_cluster_atoms > 0) Then
-                    e_avg = e_sum / Real(count_cluster_atoms, wp)
-                Else
-                    e_avg = 0.0_wp
-                End If
-                thresh_val = energy_border_ratio * e_avg
-            Else
-                thresh_val = energy_threshold
-            End If
-
+        If (avbmc .and. size_max <= cluster_threshold) Then
+            ! Small-cluster regime (max cluster size <= cluster_threshold):
+            ! All bound particles (neighbors >= bound_min_neighbors) are considered on the surface.
+            ! Completely bypass asymmetry and per-atom energy calculations.
             Do i = 1, natoms
-                If (label(i) > 0 .And. atom_energies_host(i-1) >= thresh_val) Then
+                If (cluster_mask_host(i) == 1 .and. neighbors(i) >= bound_min_neighbors) Then
                     is_border(i) = .true.
                 End If
             End Do
-            Deallocate(atom_energies_host)
-
-!            Write(*,'(A, F8.3, A, I10)') &
-!                '     [BORDER] Per-atom energy (threshold: ', thresh_val, ') | Total border atoms: ', Count(is_border)
-
         Else
-            ! Default: Geometric asymmetry criterion (normalized net neighbor vector magnitude)
-            Allocate(asym(natoms))
-            asym(:) = 0.0_wp
-            
-            Do i = 1, natoms
-                If (label(i) > 0 .And. neighbors(i) > 0) Then
-                    S(1) = 0.0_wp; S(2) = 0.0_wp; S(3) = 0.0_wp
-                    indx_i = (i - 1) * ndim
-                    xi = r(indx_i)
-                    yi = r(indx_i + 1)
-                    zi = r(indx_i + 2)
-                    
-                    Do k = offset(i), offset(i) + neighbors(i) - 1
-                        id = adjacency(k)
-                        indx_j = (id - 1) * ndim
-                        dx = r(indx_j) - xi
-                        dy = r(indx_j + 1) - yi
-                        dz = r(indx_j + 2) - zi
-                        
-                        dx = dx - anint(dx)
-                        dy = dy - anint(dy)
-                        dz = dz - anint(dz)
-                        
-                        dx_real = dx * Box(0)
-                        dy_real = dy * Box(1)
-                        dz_real = dz * Box(2)
-                        
-                        dist = Sqrt(dx_real**2 + dy_real**2 + dz_real**2)
-                        If (dist > 0.0_wp) Then
-                            S(1) = S(1) + dx_real / dist
-                            S(2) = S(2) + dy_real / dist
-                            S(3) = S(3) + dz_real / dist
+            If (trim(border_criterion) == 'energy') Then
+                Allocate(atom_energies_host(0:natoms-1))
+                Call compute_per_atom_energy_gpu(pot_int, bool_tor, ndim, Nat_cell_max, Ntot_Cell, Npart_types, &
+                   Nrb_sites_max, Ntor_max, sigma_tor_jon, sigp_factor, Rcp_factor, Rc_factor, natoms, atom_energies_host)
+                
+                If (use_energy_ratio) Then
+                    e_sum = 0.0_wp
+                    count_cluster_atoms = 0
+                    Do i = 1, natoms
+                        If (label(i) > 0) Then
+                            e_sum = e_sum + atom_energies_host(i-1)
+                            count_cluster_atoms = count_cluster_atoms + 1
                         End If
                     End Do
-                    asym(i) = Sqrt(S(1)**2 + S(2)**2 + S(3)**2) / Real(neighbors(i), wp)
+                    If (count_cluster_atoms > 0) Then
+                        e_avg = e_sum / Real(count_cluster_atoms, wp)
+                    Else
+                        e_avg = 0.0_wp
+                    End If
+                    thresh_val = energy_border_ratio * e_avg
+                Else
+                    thresh_val = energy_threshold
                 End If
-            End Do
 
-            Do i = 1, natoms
-                If (label(i) > 0 .And. asym(i) >= asym_threshold) Then
-                    is_border(i) = .true.
-                End If
-            End Do
-            Deallocate(asym)
+                Do i = 1, natoms
+                    If (label(i) > 0 .And. atom_energies_host(i-1) >= thresh_val) Then
+                        is_border(i) = .true.
+                    End If
+                End Do
+                Deallocate(atom_energies_host)
 
-!            Write(*,'(A, F4.2, A, I10)') &
-!                '     [BORDER] Geometric asymmetry (threshold: ', asym_threshold, ') | Total border atoms: ', Count(is_border)
+            Else
+                ! Default: Geometric asymmetry criterion (normalized net neighbor vector magnitude)
+                Allocate(asym(natoms))
+                asym(:) = 0.0_wp
+                
+                Do i = 1, natoms
+                    If (label(i) > 0 .And. neighbors(i) > 0) Then
+                        S(1) = 0.0_wp; S(2) = 0.0_wp; S(3) = 0.0_wp
+                        indx_i = (i - 1) * ndim
+                        xi = r(indx_i)
+                        yi = r(indx_i + 1)
+                        zi = r(indx_i + 2)
+                        
+                        Do k = offset(i), offset(i) + neighbors(i) - 1
+                            id = adjacency(k)
+                            indx_j = (id - 1) * ndim
+                            dx = r(indx_j) - xi
+                            dy = r(indx_j + 1) - yi
+                            dz = r(indx_j + 2) - zi
+                            
+                            dx = dx - anint(dx)
+                            dy = dy - anint(dy)
+                            dz = dz - anint(dz)
+                            
+                            dx_real = dx * Box(0)
+                            dy_real = dy * Box(1)
+                            dz_real = dz * Box(2)
+                            
+                            dist = Sqrt(dx_real**2 + dy_real**2 + dz_real**2)
+                            If (dist > 0.0_wp) Then
+                                S(1) = S(1) + dx_real / dist
+                                S(2) = S(2) + dy_real / dist
+                                S(3) = S(3) + dz_real / dist
+                            End If
+                        End Do
+                        asym(i) = Sqrt(S(1)**2 + S(2)**2 + S(3)**2) / Real(neighbors(i), wp)
+                    End If
+                End Do
+
+                Do i = 1, natoms
+                    If (label(i) > 0 .And. asym(i) >= asym_threshold) Then
+                        is_border(i) = .true.
+                    End If
+                End Do
+                Deallocate(asym)
+            End If
         End If
 
         Allocate(nbrd_in_cl(Max(1, cluster_id)))
@@ -700,7 +736,9 @@ CONTAINS
         Do i = 1, natoms
             If (is_border(i)) Then
                 nbrd = nbrd + 1
-                nbrd_in_cl(label(i)) = nbrd_in_cl(label(i)) + 1
+                If (label(i) > 0) Then
+                    nbrd_in_cl(label(i)) = nbrd_in_cl(label(i)) + 1
+                End If
             End If
         End Do
         
@@ -724,7 +762,11 @@ CONTAINS
         do i = 1, natoms
             if (is_border(i)) then
                 indx = (i - 1) * ndim
-                type_cl = 1 + mod(nbrd_in_cl(label(i)), maxcolor)
+                If (label(i) > 0) Then
+                    type_cl = 1 + mod(nbrd_in_cl(label(i)), maxcolor)
+                Else
+                    type_cl = 1
+                End If
                 If (pot_int < 1) Then
                     write(io_lastbrdconf, '(I8,x,I8,x,I4,x,3F16.8)') &
                         i, label(i), type_cl, &
@@ -741,7 +783,11 @@ CONTAINS
         close(io_lastbrdconf)
         
         If (avbmc) Then
-            Call extract_avbmc_data(natoms, r, label, is_border, cluster_mask_host)
+            If (size_max <= cluster_threshold) Then
+                Call extract_avbmc_data_lightweight(natoms, r, neighbors, cluster_mask_host, bound_min_neighbors)
+            Else
+                Call extract_avbmc_data(natoms, r, label, is_border, cluster_mask_host)
+            End If
         End If
 
         Deallocate(nbrd_in_cl)

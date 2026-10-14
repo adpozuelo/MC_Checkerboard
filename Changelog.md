@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.8.9] - 2026-10-14
+
+### Added & Optimized
+- **Two-Tier Dynamic Scheduling & Lightweight Nucleation Regime for AVBMC**:
+  - Implemented a two-tier dynamic scheduling optimization for Aggregation Volume Bias Monte Carlo (AVBMC) moves that distinguishes between the early nucleation regime (small clusters/oligomers $\le 5$ particles) and the condensed aggregate regime:
+    1. **Tier 1 (Small-Cluster / Pre-Nucleation Regime, $\text{max\_size} \le 5$)**:
+       - Bypasses full host DBSCAN BFS clustering, cluster size distribution analysis, trajectory file output (`mclast_clconf.lammpstrj`), and computationally expensive surface detection (geometric dipole asymmetry $\bm{\eta}_i$ or GPU per-atom energy).
+       - Classifies particles into **bound** (`neighbors >= bound_min_neighbors`, default 1) and **isolated** (`neighbors == 0`) using fast $O(N)$ GPU cell-list neighbor counting (`neighbor_search`).
+       - Executes lightweight AVBMC exchange attempts between isolated monomers ($V_{\text{bulk}}$) and bound particles ($V_{\text{bind}}$) every `n_avbmc` sweeps (default 10).
+       - Periodically evaluates full DBSCAN cluster size every `ncluster_init` sweeps (default 500) to detect whether nucleation has occurred.
+    2. **Tier 2 (Large-Cluster / Condensed Regime, $\text{max\_size} > 5$)**:
+       - Automatically triggered when a cluster exceeding `cluster_threshold` (default 5 particles) is discovered (`cluster_regime_large = .true.`).
+       - Sets `n_avbmc = ncluster`, executing full DBSCAN clustering, surface boundary detection (geometric asymmetry or energy criterion), border trajectory output (`mclast_brdconf.lammpstrj`), and AVBMC surface pair exchanges every `ncluster` sweeps.
+       - Reverts dynamically to Tier 1 if the maximum cluster size drops $\le \text{cluster\_threshold}$ (e.g. aggregate evaporation).
+  - Added new configurable namelist parameters under `&Control_Params`:
+    - `n_avbmc`: Frequency (in MC sweeps) of lightweight AVBMC moves in Tier 1 (default `10`).
+    - `ncluster_init`: Periodicity (in MC sweeps) of full DBSCAN nucleation checks in Tier 1 (default `500`).
+    - `cluster_threshold`: Cluster size threshold defining the transition between Tier 1 and Tier 2 (default `5`).
+    - `bound_min_neighbors`: Minimum coordination number for bound classification in Tier 1 (default `1`, identifying dimers and higher oligomers).
+  - Implemented `extract_avbmc_data_lightweight` in `src/mod_avbmc.cuf` and `run_lightweight_avbmc_step` / `get_cluster_mask` in `src/mod_clusters.cuf`.
+  - Added an initial cluster state check before the main simulation loop in `src/Main.cuf` to select the correct regime on startup.
+  - Successfully validated on a 1000-particle Lennard-Jones fluid test case (`test_cases/test_twotier_avbmc/`), confirming seamless Tier 1 operation, automatic Tier 2 regime transition upon cluster nucleation at sweep 200, and exact zero energy drift (`0.0000E+00`).
+
+---
+
 ## [2.8.8] - 2026-10-13
 
 ### Changed & Documented

@@ -114,6 +114,11 @@ MODULE rundata
    Logical  :: use_energy_ratio = .false.              ! Use relative energy ratio instead of absolute threshold
    Integer  :: avbmc_k_trials = 10                     ! Number of CBMC Rosenbluth trial positions (K) in bulk for AVBMC moves
    Integer  :: avbmc_max_trials = 50                   ! Maximum AVBMC pair trials per step to cap execution time
+   Integer  :: n_avbmc = 10                             ! Frequency (in MC sweeps) of AVBMC exchange moves in small-cluster regime
+   Integer  :: ncluster_init = 500                      ! Periodic cluster check frequency in small-cluster regime (default 500)
+   Integer  :: cluster_threshold = 5                    ! Cluster size threshold to switch to full DBSCAN & surface detection
+   Integer  :: bound_min_neighbors = 1                  ! Minimum neighbors to classify as bound particle in small regime (default 1)
+   Logical  :: cluster_regime_large = .false.           ! True when cluster size > cluster_threshold
    ! Identity Swap Moves for Binary Mixtures (A <-> B)
    Logical  :: swap_moves = .false.                    ! Flag for enabling GPU checkerboard identity swap moves (binary mixtures, all potentials)
    Integer  :: Nswap = 1                               ! Number of swap sub-passes per MC cycle (each sub-pass: 8 intra + 4 cross sets)

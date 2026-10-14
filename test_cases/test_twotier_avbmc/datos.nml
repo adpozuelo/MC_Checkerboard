@@ -1,0 +1,60 @@
+ &Control_Params
+   istep_ini = 0,
+   istep_fin = 600,
+   Neq = 0,
+   Nmove = 10,
+   Nsave = 10,
+   Ndump = 100,
+   Nrestart = 500,
+   imovie = F,
+   traj_format = 'plain',
+   data_file = 'data.atoms',
+   Npart_types = 1,
+   Ecpu_check = F,
+   ncluster = 50,
+   n_avbmc = 10,
+   ncluster_init = 200,
+   cluster_threshold = 5,
+   bound_min_neighbors = 1,
+   rcl = 1.500000,
+   minPts = 3,
+   asym_threshold = 0.3500000,
+   cluster_types = 1,
+   avbmc = T,
+   border_criterion = 'asymmetry',
+   avbmc_k_trials = 10,
+   avbmc_max_trials = 20,
+   lammps = F
+ /
+ &MC_Params
+   hmax = 0.05,
+   omax = 0.5,
+   vmax = 0.0 0.0 0.0,
+   displ_update = T,
+   temp0 = 0.75,
+   npt = F,
+   Nvolf = 1,
+   iscale = 0,
+   pres = 0.01,
+   seed = 1234567,
+   swap_moves = F,
+   Nswap = 1,
+   Nswapf = 1
+ /
+ &Potential_Params
+   model = 'LJ',
+   sigma_jon_aux = 0.0,
+   sigma_tor_jon = 0.0,
+   rangepp = 2.5,
+   Bool_tor = 0,
+   sigp_factor = 0.1,
+   Rcp_factor = 0.3,
+   Rc_factor = 2.0,
+   epsp_factor = -1.0,
+   patch_radial_factor = 0.5,
+   table_mc = F
+ /
+ --- LJ SIGMA MATRIX ---
+ 1.000
+ --- LJ EPSILON MATRIX ---
+ 1.000

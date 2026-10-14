@@ -136,6 +136,92 @@ CONTAINS
 
    End Subroutine extract_avbmc_data
 
+   ! Subroutine to extract bound particles (neighbors >= bound_min_neigh) as target pool
+   ! and isolated particles (neighbors == 0) as non-associated pool, transferring to GPU.
+   ! Completely bypasses DBSCAN BFS clustering and surface asymmetry/energy calculations.
+   Subroutine extract_avbmc_data_lightweight(natoms_in, r_in, neighbors_in, cluster_mask_in, bound_min_neigh)
+      Integer, Intent(IN) :: natoms_in
+      Real(wp), Intent(IN) :: r_in(natoms_in * ndim)
+      Integer, Intent(IN) :: neighbors_in(natoms_in)
+      Integer, Intent(IN) :: cluster_mask_in(natoms_in)
+      Integer, Intent(IN), Optional :: bound_min_neigh
+
+      Integer :: i, k_brd, k_non, indx_src, indx_dst, min_neigh
+
+      min_neigh = 1
+      If (Present(bound_min_neigh)) min_neigh = bound_min_neigh
+
+      ! First pass: count bound particles and isolated particles
+      nbrd = 0
+      nnonassoc = 0
+
+      Do i = 1, natoms_in
+         If (cluster_mask_in(i) == 1) Then
+            If (neighbors_in(i) >= min_neigh) Then
+               nbrd = nbrd + 1
+            Else If (neighbors_in(i) == 0) Then
+               nnonassoc = nnonassoc + 1
+            End If
+         End If
+      End Do
+
+      ! Deallocate old host arrays if allocated
+      If (Allocated(r_brd)) Deallocate(r_brd)
+      If (Allocated(idx_brd)) Deallocate(idx_brd)
+      If (Allocated(r_nonassoc)) Deallocate(r_nonassoc)
+      If (Allocated(idx_nonassoc)) Deallocate(idx_nonassoc)
+
+      ! Deallocate old device arrays if allocated
+      If (Allocated(gr_brd)) Deallocate(gr_brd)
+      If (Allocated(gidx_brd)) Deallocate(gidx_brd)
+      If (Allocated(gr_nonassoc)) Deallocate(gr_nonassoc)
+      If (Allocated(gidx_nonassoc)) Deallocate(gidx_nonassoc)
+
+      ! Allocate host arrays
+      Allocate(r_brd(Max(1, nbrd * ndim)))
+      Allocate(idx_brd(Max(1, nbrd)))
+      Allocate(r_nonassoc(Max(1, nnonassoc * ndim)))
+      Allocate(idx_nonassoc(Max(1, nnonassoc)))
+
+      ! Populate host arrays
+      k_brd = 0
+      k_non = 0
+
+      Do i = 1, natoms_in
+         indx_src = (i - 1) * ndim
+         If (cluster_mask_in(i) == 1) Then
+            If (neighbors_in(i) >= min_neigh) Then
+               k_brd = k_brd + 1
+               idx_brd(k_brd) = i
+               indx_dst = (k_brd - 1) * ndim
+               r_brd(indx_dst + 1 : indx_dst + ndim) = r_in(indx_src + 1 : indx_src + ndim)
+            Else If (neighbors_in(i) == 0) Then
+               k_non = k_non + 1
+               idx_nonassoc(k_non) = i
+               indx_dst = (k_non - 1) * ndim
+               r_nonassoc(indx_dst + 1 : indx_dst + ndim) = r_in(indx_src + 1 : indx_src + ndim)
+            End If
+         End If
+      End Do
+
+      ! Allocate and copy to device memory
+      Allocate(gr_brd(Max(1, nbrd * ndim)))
+      Allocate(gidx_brd(Max(1, nbrd)))
+      Allocate(gr_nonassoc(Max(1, nnonassoc * ndim)))
+      Allocate(gidx_nonassoc(Max(1, nnonassoc)))
+
+      If (nbrd > 0) Then
+         gr_brd(1:nbrd*ndim) = r_brd(1:nbrd*ndim)
+         gidx_brd(1:nbrd)    = idx_brd(1:nbrd)
+      End If
+
+      If (nnonassoc > 0) Then
+         gr_nonassoc(1:nnonassoc*ndim) = r_nonassoc(1:nnonassoc*ndim)
+         gidx_nonassoc(1:nnonassoc)    = idx_nonassoc(1:nnonassoc)
+      End If
+
+   End Subroutine extract_avbmc_data_lightweight
+
    ! Subroutine to deallocate host and device arrays
    Subroutine avbmc_deallocate()
       If (Allocated(r_brd)) Deallocate(r_brd)

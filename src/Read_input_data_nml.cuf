@@ -53,6 +53,10 @@ Subroutine Write_Input_File(istep)
    end if
    if (avbmc) then
       Write(21,*) "  avbmc = ", avbmc, ","
+      Write(21,*) "  n_avbmc = ", n_avbmc, ","
+      Write(21,*) "  ncluster_init = ", ncluster_init, ","
+      Write(21,*) "  cluster_threshold = ", cluster_threshold, ","
+      Write(21,*) "  bound_min_neighbors = ", bound_min_neighbors, ","
       Write(21,*) "  border_criterion = '", trim(border_criterion), "',"
       Write(21,*) "  avbmc_k_trials = ", avbmc_k_trials, ","
       Write(21,*) "  avbmc_max_trials = ", avbmc_max_trials, ","
@@ -247,10 +251,15 @@ Subroutine Read_Input_Data
    !   energy_border_ratio: Ratio for energy-based border identification (default 0.5)
    !   avbmc_k_trials: Number of Rosenbluth trial positions (K) in bulk (default 10)
    !   avbmc_max_trials: Cap on maximum AVBMC pair attempts per step (default 50)
+   !   n_avbmc: AVBMC move period in small-cluster regime (default 10)
+   !   ncluster_init: DBSCAN check period in small-cluster regime (default 500)
+   !   cluster_threshold: Size threshold to switch between regimes (default 5)
+   !   bound_min_neighbors: Min neighbors for bound classification in small regime (default 1)
    !   lammps: .true. / .false. (Enable hybrid LAMMPS HMC moves, .false. by default)
    Namelist /Control_Params/ istep_ini, istep_fin, Neq, Nmove, Nsave, Ndump, Nrestart, imovie, traj_format, Npart_types, Ecpu_check, data_file, &
                               rcl, minPts, asym_threshold, ncluster, cluster_types, lammps, Nmc_hmc, Nmd_hmc, tstep_hmc, avbmc, &
-                              border_criterion, energy_threshold, energy_border_ratio, use_energy_ratio, avbmc_k_trials, avbmc_max_trials
+                              border_criterion, energy_threshold, energy_border_ratio, use_energy_ratio, avbmc_k_trials, avbmc_max_trials, &
+                              n_avbmc, ncluster_init, cluster_threshold, bound_min_neighbors
     ! MC_Params include:
     !   Nvolf: Frequency (in MC sweeps) of NpT volume moves (default 1)
     !   swap_moves: .true. / .false. (Enable GPU checkerboard identity swaps, binary mixtures)
@@ -277,6 +286,7 @@ Subroutine Read_Input_Data
    imovie = .false.; displ_update = .false.; npt = .false.; Nvolf = 1; swap_moves = .false.; Nswap = 1; Nswapf = 1
    sigp_factor = 0.1_wp; Rcp_factor = 0.3_wp; Rc_factor = 2.0_wp; epsp_factor = -1.0_wp; patch_radial_factor = 0.5_wp
    rcl = 1.8_wp; minPts = 3; asym_threshold = 0.5_wp; ncluster = 0; cluster_types(:) = -1; avbmc = .false.
+   n_avbmc = 10; ncluster_init = 500; cluster_threshold = 5; bound_min_neighbors = 1
    border_criterion = 'asymmetry'; energy_threshold = -2.0_wp; energy_border_ratio = 0.5_wp; use_energy_ratio = .false.
    lammps = .false.
    timestep = -1.0_wp; tstep_hmc = 0.0025_wp
@@ -327,6 +337,15 @@ Subroutine Read_Input_Data
    ! If lammps is disabled, ensure Nmc_hmc is 0
    if (.not. lammps) then
       Nmc_hmc = 0
+   end if
+
+   ! If AVBMC is enabled, ensure valid positive frequencies for both regimes
+   if (avbmc) then
+      if (ncluster <= 0) ncluster = 50
+      if (n_avbmc <= 0) n_avbmc = 10
+      if (ncluster_init <= 0) ncluster_init = 500
+      if (cluster_threshold <= 0) cluster_threshold = 5
+      if (bound_min_neighbors <= 0) bound_min_neighbors = 1
    end if
 
    if (trim(model)=='HS') then
@@ -412,7 +431,11 @@ Subroutine Read_Input_Data
       write(*,'(A)') c_yellow // '  -> Identity Swap Moves:     DISABLED' // c_reset
    End If
    If (avbmc) Then
-      write(*,'(A)') c_green // '  -> AVBMC Moves:             ENABLED' // c_reset
+      write(*,'(A)') c_green // '  -> AVBMC Moves:             ENABLED (Two-Tier Dynamic Scheduling)' // c_reset
+      write(*,'(A,I6)')         '     - AVBMC Move Frequency:  ', n_avbmc
+      write(*,'(A,I6)')         '     - DBSCAN Check Interval: ', ncluster_init
+      write(*,'(A,I6)')         '     - Transition Threshold:  ', cluster_threshold
+      write(*,'(A,I6)')         '     - Min Bound Neighbors:   ', bound_min_neighbors
       write(*,'(A,A)')          '     - Border Criterion:      ', trim(border_criterion)
       If (trim(border_criterion) == 'energy') Then
          If (use_energy_ratio) Then
@@ -423,6 +446,8 @@ Subroutine Read_Input_Data
       Else
          write(*,'(A,F10.4)')    '     - Asymmetry Threshold:   ', asym_threshold
       End If
+      write(*,'(A,I6)')         '     - Bulk Trials (K):       ', avbmc_k_trials
+      write(*,'(A,I6)')         '     - Max Attempts / Sweep:  ', avbmc_max_trials
    Else
       write(*,'(A)') c_yellow // '  -> AVBMC Moves:             DISABLED' // c_reset
    End If
