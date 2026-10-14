@@ -177,7 +177,71 @@ def parse_output_log(filepath):
         'total_gpu_time': total_gpu_time
     }
 
-def run_analysis(base_dir='.'):
+def compute_binned_particle_fraction(sizes, total_particles=None, bins=None, n_bins=24, n_avg=3):
+    """
+    Computes the fraction of particles in clusters of size s,
+    weighted by cluster size s and averaged over neighboring bins
+    so that the resulting plot is clean and not crowded.
+
+    Parameters:
+    -----------
+    sizes : np.ndarray
+        Array of cluster sizes (particles per cluster).
+    total_particles : int or float, optional
+        Total number of particles in the system for normalization.
+        If None, defaults to sum(sizes).
+    bins : np.ndarray, optional
+        Bin edges. If None, logarithmic bins from min to max are generated.
+    n_bins : int, optional
+        Number of initial logarithmic bins if bins is None (default: 24).
+    n_avg : int, optional
+        Number of neighboring bins to average over (default: 3).
+
+    Returns:
+    --------
+    centers : np.ndarray
+        Geometric centers of the averaged cluster size bins.
+    fractions : np.ndarray
+        Fraction of particles residing in clusters of size s, averaged over neighboring bins.
+    """
+    if sizes is None or len(sizes) == 0:
+        return np.array([]), np.array([])
+
+    if total_particles is None:
+        total_particles = float(np.sum(sizes))
+
+    if bins is None:
+        min_s = max(1, np.min(sizes))
+        max_s = np.max(sizes)
+        bins = np.logspace(np.log10(min_s), np.log10(max_s * 1.05), n_bins + 1)
+
+    # Weight each cluster by its size s to obtain total particles in each bin
+    weights = sizes
+    counts, _ = np.histogram(sizes, bins=bins, weights=weights)
+    frac = counts / float(total_particles)
+    raw_centers = np.sqrt(bins[:-1] * bins[1:])
+
+    if n_avg <= 1:
+        return raw_centers, frac
+
+    # Average over n_avg neighboring bins
+    n_out = len(frac) // n_avg
+    avg_centers = []
+    avg_frac = []
+    for i in range(n_out):
+        sl = slice(i * n_avg, (i + 1) * n_avg)
+        avg_centers.append(np.exp(np.mean(np.log(raw_centers[sl]))))
+        avg_frac.append(np.mean(frac[sl]))
+
+    rem = len(frac) % n_avg
+    if rem > 0:
+        sl = slice(n_out * n_avg, len(frac))
+        avg_centers.append(np.exp(np.mean(np.log(raw_centers[sl]))))
+        avg_frac.append(np.mean(frac[sl]))
+
+    return np.array(avg_centers), np.array(avg_frac)
+
+def run_analysis(base_dir='.', n_bins=24, n_avg=3):
     dir_with = os.path.join(base_dir, 'run_with_avbmc')
     dir_without = os.path.join(base_dir, 'run_without_avbmc')
 
@@ -226,6 +290,34 @@ def run_analysis(base_dir='.'):
 
     print("=" * 80)
 
+    # Compute cluster particle fraction distributions (averaged over neighboring bins)
+    total_particles = 7695
+    if evol_with is not None and len(evol_with) > 0 and evol_with[-1][4] > 0:
+        try:
+            total_particles = int(round(evol_with[-1][3] / (evol_with[-1][4] / 100.0)))
+        except (ValueError, ZeroDivisionError):
+            pass
+
+    all_sizes = []
+    if sizes_with is not None and len(sizes_with) > 0:
+        all_sizes.extend(sizes_with)
+    if sizes_without is not None and len(sizes_without) > 0:
+        all_sizes.extend(sizes_without)
+
+    if all_sizes:
+        min_s = max(1, min(all_sizes))
+        max_s = max(all_sizes)
+        common_bins = np.logspace(np.log10(min_s), np.log10(max_s * 1.05), n_bins + 1)
+    else:
+        common_bins = None
+
+    c_with, f_with = compute_binned_particle_fraction(
+        sizes_with, total_particles=total_particles, bins=common_bins, n_bins=n_bins, n_avg=n_avg
+    )
+    c_without, f_without = compute_binned_particle_fraction(
+        sizes_without, total_particles=total_particles, bins=common_bins, n_bins=n_bins, n_avg=n_avg
+    )
+
     # ==============================================================================
     # 1. PRIMARY PUBLICATION FIGURE 4: Kinetics & Acceptance Rates (Stacked, Sharing X-axis)
     #    Eliminates old 4a (Cluster Abundance), stacks S_max (top) and Acceptance (bottom)
@@ -240,8 +332,9 @@ def run_analysis(base_dir='.'):
         ax_smax.plot(evol_without[:, 0], evol_without[:, 2], 's--', color='#d62728', lw=2.2, label='Without AVBMC (Canonical)')
     ax_smax.set_ylabel(r'Maximum Cluster Size $S_{\max}$', fontsize=12, fontweight='bold')
     ax_smax.set_title('(a) Maximum Cluster Growth Kinetics', fontsize=13, fontweight='bold')
+    ax_smax.set_ylim(750, 1480)
     ax_smax.grid(True, linestyle=':', alpha=0.6)
-    ax_smax.legend(fontsize=10.5, loc='center right')
+    ax_smax.legend(fontsize=10.5, loc='upper left', framealpha=0.92)
 
     # Panel B: Monte Carlo Acceptance Rates (formerly 4d)
     if log_with and len(log_with['p_av_in']) > 0:
@@ -251,8 +344,9 @@ def run_analysis(base_dir='.'):
     ax_acc.set_xlabel('Monte Carlo Steps', fontsize=12, fontweight='bold')
     ax_acc.set_ylabel('Acceptance Rate (%)', fontsize=12, fontweight='bold')
     ax_acc.set_title('(b) Monte Carlo Acceptance Rates', fontsize=13, fontweight='bold')
+    ax_acc.set_ylim(-3, 62)
     ax_acc.grid(True, linestyle=':', alpha=0.6)
-    ax_acc.legend(fontsize=10.5, loc='center right')
+    ax_acc.legend(fontsize=10.5, loc='center right', framealpha=0.92)
 
     fig_kin.tight_layout()
     plot_kin_png = os.path.join(base_dir, 'avbmc_benchmark_comparison.png')
@@ -267,21 +361,21 @@ def run_analysis(base_dir='.'):
     plt.close(fig_kin)
 
     # ==============================================================================
-    # 2. SEPARATED FIGURE: Final Cluster Size Distribution (CSD) (kept separated)
+    # 2. SEPARATED FIGURE: Final Cluster Size Distribution (CSD) (Particle Fraction)
     # ==============================================================================
     fig_csd, ax_csd = plt.subplots(1, 1, figsize=(6.2, 4.6))
-    if sizes_with is not None and len(sizes_with) > 0:
-        bins = np.logspace(np.log10(max(1, np.min(sizes_with))), np.log10(np.max(sizes_with) + 1), 25)
-        ax_csd.hist(sizes_with, bins=bins, color='#1f77b4', alpha=0.65, label='With AVBMC', edgecolor='black', density=True)
-    if sizes_without is not None and len(sizes_without) > 0:
-        bins = np.logspace(np.log10(max(1, np.min(sizes_without))), np.log10(np.max(sizes_without) + 1), 25)
-        ax_csd.hist(sizes_without, bins=bins, color='#d62728', alpha=0.5, label='Without AVBMC', edgecolor='black', density=True)
+    if len(c_with) > 0:
+        ax_csd.plot(c_with, f_with, 'o-', color='#1f77b4', lw=2.2, ms=6.5,
+                    label='With AVBMC', markeredgecolor='black', markeredgewidth=0.5)
+    if len(c_without) > 0:
+        ax_csd.plot(c_without, f_without, 's--', color='#d62728', lw=2.2, ms=6.5,
+                    label='Without AVBMC (Canonical)', markeredgecolor='black', markeredgewidth=0.5)
     ax_csd.set_xscale('log')
     ax_csd.set_yscale('log')
     ax_csd.set_xlabel(r'Cluster Size $s$ (particles)', fontsize=12, fontweight='bold')
-    ax_csd.set_ylabel(r'Probability Density $P(s)$', fontsize=12, fontweight='bold')
+    ax_csd.set_ylabel(r'Fraction of Particles $f(s)$', fontsize=12, fontweight='bold')
     ax_csd.set_title('Cluster Size Distribution (CSD)', fontsize=13, fontweight='bold')
-    ax_csd.grid(True, linestyle=':', alpha=0.6)
+    ax_csd.grid(True, which='both', linestyle=':', alpha=0.6)
     ax_csd.legend(fontsize=11)
 
     fig_csd.tight_layout()
@@ -310,8 +404,9 @@ def run_analysis(base_dir='.'):
         ax1_all.plot(evol_without[:, 0], evol_without[:, 2], 's--', color='#d62728', lw=2.2, label='Without AVBMC')
     ax1_all.set_ylabel(r'Max Cluster Size $S_{\max}$', fontsize=11, fontweight='bold')
     ax1_all.set_title('(a) Cluster Growth Kinetics', fontsize=12, fontweight='bold')
+    ax1_all.set_ylim(750, 1480)
     ax1_all.grid(True, linestyle=':', alpha=0.6)
-    ax1_all.legend(fontsize=9.5, loc='center right')
+    ax1_all.legend(fontsize=9.5, loc='upper left', framealpha=0.92)
     plt.setp(ax1_all.get_xticklabels(), visible=False)
 
     # Subplot B: Acceptance
@@ -322,23 +417,24 @@ def run_analysis(base_dir='.'):
     ax2_all.set_xlabel('Monte Carlo Steps', fontsize=11, fontweight='bold')
     ax2_all.set_ylabel('Acceptance (%)', fontsize=11, fontweight='bold')
     ax2_all.set_title('(b) Acceptance Rates', fontsize=12, fontweight='bold')
+    ax2_all.set_ylim(-3, 62)
     ax2_all.grid(True, linestyle=':', alpha=0.6)
-    ax2_all.legend(fontsize=9.5, loc='center right')
+    ax2_all.legend(fontsize=9.5, loc='center right', framealpha=0.92)
 
-    # Subplot C: CSD
-    if sizes_with is not None and len(sizes_with) > 0:
-        bins = np.logspace(np.log10(max(1, np.min(sizes_with))), np.log10(np.max(sizes_with) + 1), 25)
-        ax3_all.hist(sizes_with, bins=bins, color='#1f77b4', alpha=0.65, label='With AVBMC', edgecolor='black', density=True)
-    if sizes_without is not None and len(sizes_without) > 0:
-        bins = np.logspace(np.log10(max(1, np.min(sizes_without))), np.log10(np.max(sizes_without) + 1), 25)
-        ax3_all.hist(sizes_without, bins=bins, color='#d62728', alpha=0.5, label='Without AVBMC', edgecolor='black', density=True)
+    # Subplot C: CSD (Particle Fraction)
+    if len(c_with) > 0:
+        ax3_all.plot(c_with, f_with, 'o-', color='#1f77b4', lw=2.2, ms=6.5,
+                     label='With AVBMC', markeredgecolor='black', markeredgewidth=0.5)
+    if len(c_without) > 0:
+        ax3_all.plot(c_without, f_without, 's--', color='#d62728', lw=2.2, ms=6.5,
+                     label='Without AVBMC', markeredgecolor='black', markeredgewidth=0.5)
     ax3_all.set_xscale('log')
     ax3_all.set_yscale('log')
     ax3_all.set_xlabel(r'Cluster Size $s$ (particles)', fontsize=11, fontweight='bold')
-    ax3_all.set_ylabel(r'Probability Density $P(s)$', fontsize=11, fontweight='bold')
+    ax3_all.set_ylabel(r'Fraction of Particles $f(s)$', fontsize=11, fontweight='bold')
     ax3_all.set_title('(c) Cluster Size Distribution (CSD)', fontsize=12, fontweight='bold')
-    ax3_all.grid(True, linestyle=':', alpha=0.6)
-    ax3_all.legend(fontsize=10.5)
+    ax3_all.grid(True, which='both', linestyle=':', alpha=0.6)
+    ax3_all.legend(fontsize=10.5, loc='upper left')
 
     plot_all_png = os.path.join(base_dir, 'avbmc_benchmark_all.png')
     plot_all_pdf = os.path.join(base_dir, 'avbmc_benchmark_all.pdf')
