@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:1
-#SBATCH --time=00:30:00
+#SBATCH --time=01:00:00
 #SBATCH --output=slurm_hs_%j.out
 #SBATCH --error=slurm_hs_%j.err
 
@@ -17,6 +17,7 @@ BASE_DIR="/home/e.lomba/MC_Checkerboard/test_cases/npt_nvt_consistency/hs"
 
 echo "=== [1/3] Running Hard Spheres NpT Simulation on $(hostname) at $(date) ==="
 cd $BASE_DIR/npt
+cp data.restart data.atoms
 $BIN datos.nml 0 > output.out 2>&1
 
 echo "=== [2/3] Setting up NVT simulation from equilibrated NpT restart ==="

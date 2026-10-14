@@ -1196,8 +1196,9 @@ document all input variables, allowable values, and physical meanings.
 \textbf{Lennard-Jones} & Density $\langle \rho^* \rangle$ & $0.4723 \pm 0.0041$ & $0.4703$ & 0.43\% \\
 ($T^*=1.5, P^*=0.6$) & Energy $\langle U/N \rangle$ & $-2.640 \pm 0.023$ & $-2.631 \pm 0.011$ & \textbf{0.34\%} ($0.35\sigma$) \\
 \midrule
-\textbf{Hard Spheres} & Virial $P^*_{\text{NpT}}$ & $0.6767 \pm 0.0022$ & --- & \textbf{0.034\%} vs $P_{\text{CS}} = 0.67697$ \\
-($T^*=1.0$) & Virial $P^*_{\text{NVT}}$ & --- & $0.7228 \pm 0.0006$ & \textbf{0.038\%} vs $P_{\text{CS}} = 0.72311$ \\
+\textbf{Hard Spheres} & Density $\langle \rho^* \rangle$ & $0.3936 \pm 0.0010$ & $0.3952$ & 0.39\% \\
+($T^*=1.0, P^*=1.0$) & Virial $P^*_{\text{NpT}}$ & $0.9719 \pm 0.0010$ & --- & \textbf{0.36\%} vs $P_{\text{CS}} = 0.9754$ \\
+& Virial $P^*_{\text{NVT}}$ & --- & $0.9831 \pm 0.0010$ & \textbf{0.02\%} vs $P_{\text{CS}} = 0.9830$ \\
 \midrule
 \textbf{Site-Site Patchy} & Density $\langle \rho^* \rangle$ & $0.7158 \pm 0.0063$ & $0.7238$ & 1.11\% \\
 ($T^*=0.154, P^*=0.05$) & Energy $\langle U/N \rangle$ & $-1.873 \pm 0.010$ & $-1.885 \pm 0.003$ & \textbf{0.64\%} ($1.15\sigma$) \\
@@ -1262,11 +1263,11 @@ workflow as follows:
 As summarized in Table~\ref{tab:thermo_consistency} and
 Figure~\ref{fig:consistency_all}: 
 \begin{itemize}
-    \item For {\bf Hard Spheres}, the contact virial pressure reproduces the Carnahan-Starling equation of state \cite{carnahan1969equation}:
+    \item For {\bf Hard Spheres} ($T^*=1.0, P^*=1.0$), the contact virial pressure reproduces the Carnahan-Starling equation of state \cite{carnahan1969equation}:
     \begin{equation}
         P_{\text{CS}}(\eta) = \rho k_B T \frac{1 + \eta + \eta^2 - \eta^3}{(1 - \eta)^3}, \quad \eta = \frac{\pi}{6}\rho\sigma^3
     \end{equation}
-    within $\mathbf{0.034\%}$ in $NpT$ ($0.67674$ vs $0.67697$) and $\mathbf{0.038\%}$ in $NVT$ ($0.72284$ vs $0.72311$).
+    within $\mathbf{0.36\%}$ in $NpT$ ($0.9719$ vs $0.9754$) and $\mathbf{0.02\%}$ in $NVT$ ($0.9831$ vs $0.9830$), with an inter-ensemble virial discrepancy of only $1.16\%$.
     \item For {\bf Lennard-Jones}, internal energies match with a discrepancy of only $0.34\%$ ($Z$-score of $0.35\sigma$).
     \item For {\bf Site-Site Patchy colloids}, internal energies match
       within $0.64\%$ ($Z = 1.15\sigma$), with exact configuration

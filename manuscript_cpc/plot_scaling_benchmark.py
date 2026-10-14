@@ -97,8 +97,13 @@ ax2.annotate(r'$\mathbf{61.4\times}$ ($NVT$)',
              fontsize=10, fontweight='bold', color=colors['eff_nvt'])
 
 plt.tight_layout()
-out_png = '/home/e.lomba/MC_Checkerboard/manuscript_cpc/figures/scaling_benchmark.png'
-out_pdf = '/home/e.lomba/MC_Checkerboard/manuscript_cpc/figures/scaling_benchmark.pdf'
+import sys
+import os
+script_dir = os.path.dirname(os.path.abspath(__file__))
+out_dir = sys.argv[1] if len(sys.argv) > 1 else os.path.join(script_dir, 'figures')
+os.makedirs(out_dir, exist_ok=True)
+out_png = os.path.join(out_dir, 'scaling_benchmark.png')
+out_pdf = os.path.join(out_dir, 'scaling_benchmark.pdf')
 plt.savefig(out_png, dpi=300, bbox_inches='tight')
 plt.savefig(out_pdf, bbox_inches='tight')
 print(f"Figure saved successfully to {out_png} and {out_pdf}")

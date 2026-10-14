@@ -246,8 +246,13 @@ def generate_individual_figures(data, out_dir):
         print(f"Saved: {out_pdf} and {out_png}")
 
 if __name__ == '__main__':
-    base_dir = '/home/e.lomba/MC_Checkerboard/test_cases/npt_nvt_consistency'
-    out_dir = '/home/e.lomba/MC_Checkerboard/manuscript_cpc/figures'
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = os.path.abspath(os.path.join(script_dir, '..', 'test_cases', 'npt_nvt_consistency'))
+    out_dir = os.path.abspath(os.path.join(script_dir, 'figures'))
+    if len(sys.argv) > 1:
+        base_dir = sys.argv[1]
+    if len(sys.argv) > 2:
+        out_dir = sys.argv[2]
     data = load_data(base_dir)
     generate_grouped_figure(data, out_dir)
     generate_individual_figures(data, out_dir)

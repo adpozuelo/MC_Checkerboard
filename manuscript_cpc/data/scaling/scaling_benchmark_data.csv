@@ -1,0 +1,10 @@
+# gpMC (CPU) vs MCCB-gpu (GPU) Performance Benchmark Data
+# System: Binary Lennard-Jones Mixture (N1:N2 = 2:1, T* = 3.0, rc = 2.5 sigma)
+# Simulation: 100 Monte Carlo sweeps
+# CPU: Intel Xeon Gold 6548Y+ @ 2.20 GHz (single core)
+# GPU: NVIDIA RTX PRO 4500 (32 GB VRAM)
+N,mu_GPU,mu_CPU,t_cpu_nvt,t_cpu_npt,t_gpu_raw_nvt,t_gpu_raw_npt
+8000,3.375,1.0,9.95,15.16,4.97,6.26
+15625,1.728,1.0,23.59,35.95,8.73,11.88
+32768,1.953,1.0,38.63,59.23,8.05,9.94
+125000,2.744,1.0,175.91,254.09,7.86,10.14
