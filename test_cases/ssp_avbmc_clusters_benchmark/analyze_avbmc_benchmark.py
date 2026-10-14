@@ -373,7 +373,7 @@ def run_analysis(base_dir='.', n_bins=24, n_avg=3):
     ax_csd.set_xscale('log')
     ax_csd.set_yscale('log')
     ax_csd.set_xlabel(r'Cluster Size $s$ (particles)', fontsize=12, fontweight='bold')
-    ax_csd.set_ylabel(r'Fraction of Particles $f(s)$', fontsize=12, fontweight='bold')
+    ax_csd.set_ylabel(r'$s\cdot n(s)/N$', fontsize=12, fontweight='bold')
     ax_csd.set_title('Cluster Size Distribution (CSD)', fontsize=13, fontweight='bold')
     ax_csd.grid(True, which='both', linestyle=':', alpha=0.6)
     ax_csd.legend(fontsize=11)
