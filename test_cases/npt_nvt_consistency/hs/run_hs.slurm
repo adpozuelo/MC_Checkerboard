@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=consist_hs
 #SBATCH --partition=gpu_v4_short
-#SBATCH --nodelist=ladon28
+#SBATCH --nodelist=ladon29
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4

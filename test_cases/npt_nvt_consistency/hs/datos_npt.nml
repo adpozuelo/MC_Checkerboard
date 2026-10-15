@@ -1,9 +1,9 @@
 ! ==============================================================================
-! MONTE CARLO SIMULATION CONTROL PARAMETERS - HS NPT
+! MONTE CARLO SIMULATION CONTROL PARAMETERS - HS NPT (Equilibrated at P*=1.0)
 ! ==============================================================================
 &Control_Params
   istep_ini   = 0,          ! Initial step number (0 for new simulation, >0 for restart)
-  istep_fin   = 10000,      ! Total number of production MC sweeps (steps) to execute
+  istep_fin   = 8000,       ! Total number of production MC sweeps (steps) to execute
   Neq         = 2000,       ! Number of equilibration sweeps before accumulating averages
   Nmove       = 10,         ! Trial moves per particle attempted in each MC sweep
   Nsave       = 50,         ! Frequency (in sweeps) for writing progress stdout & block averages
@@ -21,7 +21,7 @@
 &MC_Params
   hmax         = 0.0125,          ! Maximum particle translation step size (in units of sigma)
   omax         = 0.5,             ! Maximum particle rotation step size (in radians, unused for HS)
-  vmax         = 0.05, 0.05, 0.05,! Maximum box edge length displacement (Lx, Ly, Lz) for NpT moves
+  vmax         = 0.0035, 0.0035, 0.0035, ! Box edge length displacement for NpT moves
   displ_update = .true.,          ! Enable automatic adjustment of hmax/omax/vmax (~40% acceptance)
   npt          = .true.,          ! Isobaric-isothermal ensemble (.true. for NpT, .false. for NVT)
   Nvolf        = 1,               ! Frequency (in sweeps) of NpT volume change attempts
