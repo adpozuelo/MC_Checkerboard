@@ -1113,6 +1113,342 @@ attributes(global) subroutine enerGPU(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, N
   end subroutine virialGPU_LJ
 
   ! ==============================================================================
+  ! KERNEL: virialGPU_angular (pot_int == 1, LJG angular patchy model)
+  ! DESCRIPTION: Computes pairwise virial sum for LJG patchy particles on GPU.
+  ! ==============================================================================
+  attributes(global) subroutine virialGPU_angular(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Npatches_max, Ntor_max, Ntypes, &
+                                        Npatches, Ntor_angle, tor_angle, patch, ref_tor, range, sigma_jon, sigma_tor, &
+                                        sigma_LJ, epsilon_LJ, VL0, XOP, Vpot_Matrix, h, Sphere_Cell, List_Cell, Map_Cell, Nl_Cell, &
+                                        Nat_Cell, DR_Cell, virial)
+    integer, intent(in), value :: bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Npatches_max, Ntor_max, Ntypes
+    real(wp), intent(in), value :: sigma_tor
+    integer, intent(in), device :: Npatches(0:Ntypes-1), Ntor_angle(0:Ntypes*Npatches_max-1)
+    real(wp), intent(in), device :: tor_angle(0:Ntypes*Npatches_max*Ntor_max-1), patch(0:Ntypes*Npatches_max*Ndim-1), ref_tor(0:Ntypes*Npatches_max*Ndim-1)
+    real(wp), intent(in), device :: range(0:Ntypes*Ntypes-1), sigma_jon(0:Ntypes*Npatches_max-1)
+    real(wp), intent(in), device :: sigma_LJ(0:Ntypes*Ntypes-1), epsilon_LJ(0:Ntypes*Ntypes-1)
+    real(wp), intent(in), device :: VL0(0:Ntypes*Ntypes-1), XOP(0:Ntypes*Ntypes-1)
+    real(wp), intent(in), device :: Vpot_Matrix(0:Ntypes*Npatches_max*Ntypes*Npatches_max-1), h(0:Ndim*Ndim-1)
+    real(wp), intent(in), device :: Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1)
+    integer, intent(in), device :: List_Cell(0:Ntot_Cell*Nat_Cell_Max*2-1), Map_Cell(0:Ntot_Cell*26-1)
+    integer, intent(in), device :: Nl_Cell(0:Ndim-1), Nat_Cell(0:Ntot_Cell-1)
+    real(wp), device, intent(in) :: DR_Cell(0:Ntot_Cell*26*3-1)
+    real(dkind), intent(out), device :: virial(0:Ntot_Cell-1)
+    
+    integer :: imol, jmol, l, m, Indx_Cell2, Indx_Cell3, Nat_Cell_ijk, Nat_Cell_neigh
+    integer :: Nl0, Nl1, Nl2, ICell, imol2, jmol2, itypei, itypej, Indx
+    integer :: indx_atm_aux, indx_atm_aux2, indx_neigh_aux2, indx_neigh_auxp, jcell_x, jcell_y, jcell_z, Indx_Cell
+    
+    real(wp) :: xi, yi, zi, w_cell, DX, DY, DZ, RSQ, dist, H11, H12, H13, H21, H22, H23, H31, H32, H33, DXP, DYP, DZP
+    real(wp) :: dx_neigh, dy_neigh, dz_neigh, w_pair, F_val, s_LJ_aux, eps_LJ_aux, range_aux, VL0_aux, XOP_aux
+    real(wp) :: Q0i, Q1i, Q2i, Q3i, Q0j, Q1j, Q2j, Q3j, R1(0:8), R2(0:8)
+    real(wp) :: Q102, Q112, Q122, Q132, Q10Q11, Q10Q12, Q10Q13, Q11Q12, Q11Q13, Q12Q13
+    real(wp) :: a, pi, dospi, Vangtor_max, Vrad, FX, FXI, dFX, th, w_lj
+
+    a = 1000.0_wp; pi = acos(-1.0_wp); dospi = 2.0_wp*pi
+
+    Indx_Cell = (threadIdx%x + (blockIdx%x-1)*blockDim%x) - 1
+    Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2)
+    jcell_z = Indx_Cell/(Nl0*Nl1)
+    jcell_y = (Indx_Cell - Nl0*Nl1*jcell_z)/Nl0
+    if (jcell_y == 0 .and. jcell_z == 0) then; jcell_x = Indx_Cell; else; jcell_x = mod(Indx_Cell, jcell_y*Nl0 + jcell_z*Nl0*Nl1); end if
+    
+    if (jcell_x < Nl0 .and. jcell_y < Nl1 .and. jcell_z < Nl2) then
+        Nat_Cell_ijk = Nat_Cell(Indx_Cell)
+        w_cell = 0.0_wp; virial(Indx_Cell) = 0.0_dkind
+        
+        if (Nat_Cell_ijk > 0) then
+          H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
+          indx_atm_aux  = Indx_Cell * Nat_Cell_Max * 7; indx_atm_aux2 = Indx_Cell * Nat_Cell_Max * 2
+          
+          do m = 0, Nat_Cell_ijk-1
+            imol = indx_atm_aux + m*7; imol2 = indx_atm_aux2 + m*2
+            xi = Sphere_Cell(imol); yi = Sphere_Cell(imol + 1); zi = Sphere_Cell(imol + 2)
+            Q0i = Sphere_Cell(imol + 3); Q1i = Sphere_Cell(imol + 4); Q2i = Sphere_Cell(imol + 5); Q3i = Sphere_Cell(imol + 6)
+            itypei = List_Cell(imol2 + 1)
+            
+            Q102=Q0i*Q0i; Q112=Q1i*Q1i; Q122=Q2i*Q2i; Q132=Q3i*Q3i
+            Q10Q11=Q0i*Q1i; Q10Q12=Q0i*Q2i; Q10Q13=Q0i*Q3i; Q11Q12=Q1i*Q2i; Q11Q13=Q1i*Q3i; Q12Q13=Q2i*Q3i
+            R1(0) = Q102+Q112-Q122-Q132; R1(1) = 2.0_wp*(Q11Q12-Q10Q13); R1(2) = 2.0_wp*(Q11Q13+Q10Q12)
+            R1(3) = 2.0_wp*(Q11Q12+Q10Q13); R1(4) = Q102-Q112+Q122-Q132; R1(5) = 2.0_wp*(Q12Q13-Q10Q11)
+            R1(6) = 2.0_wp*(Q11Q13-Q10Q12); R1(7) = 2.0_wp*(Q12Q13+Q10Q11); R1(8) = Q102-Q112-Q122+Q132
+            
+            do l = 0, Nat_Cell_ijk-1
+              if (l /= m) then
+                jmol = indx_atm_aux + l*7; jmol2 = indx_atm_aux2 + l*2
+                DX = Sphere_Cell(jmol) - xi; DY = Sphere_Cell(jmol + 1) - yi; DZ = Sphere_Cell(jmol + 2) - zi
+                itypej = List_Cell(jmol2 + 1); Indx = itypei*Ntypes + itypej
+                s_LJ_aux = sigma_LJ(Indx); eps_LJ_aux = epsilon_LJ(Indx); range_aux = range(Indx)
+                VL0_aux = VL0(Indx); XOP_aux = XOP(Indx)
+                
+                DXP = DX - anint(DX); DYP = DY - anint(DY); DZP = DZ - anint(DZ)
+                DX = H11*DXP + H12*DYP + H13*DZP; DY = H21*DXP + H22*DYP + H23*DZP; DZ = H31*DXP + H32*DYP + H33*DZP
+                RSQ = DX*DX + DY*DY + DZ*DZ
+                
+                if (RSQ < range_aux*range_aux) then
+                  dist = sqrt(RSQ)
+                  if (RSQ < 0.9604_wp * s_LJ_aux * s_LJ_aux .or. Npatches(itypei) <= 1 .or. Npatches(itypej) <= 1) then
+                    if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
+                      call eval_table_force_dev(dist, itypei, itypej, F_val)
+                      w_cell = w_cell + dist * F_val
+                    else
+                      call vlj_virial(RSQ, s_LJ_aux, eps_LJ_aux, w_pair)
+                      w_cell = w_cell + w_pair
+                    end if
+                  else
+                    Q0j = Sphere_Cell(jmol + 3); Q1j = Sphere_Cell(jmol + 4); Q2j = Sphere_Cell(jmol + 5); Q3j = Sphere_Cell(jmol + 6)
+                    R2(0) = Q0j*Q0j + Q1j*Q1j - Q2j*Q2j - Q3j*Q3j
+                    R2(1) = 2.0_wp*(Q1j*Q2j - Q0j*Q3j); R2(2) = 2.0_wp*(Q1j*Q3j + Q0j*Q2j)
+                    R2(3) = 2.0_wp*(Q1j*Q2j + Q0j*Q3j); R2(4) = Q0j*Q0j - Q1j*Q1j + Q2j*Q2j - Q3j*Q3j
+                    R2(5) = 2.0_wp*(Q2j*Q3j - Q0j*Q1j); R2(6) = 2.0_wp*(Q1j*Q3j - Q0j*Q2j)
+                    R2(7) = 2.0_wp*(Q2j*Q3j + Q0j*Q1j); R2(8) = Q0j*Q0j - Q1j*Q1j - Q2j*Q2j + Q3j*Q3j
+                    
+                    call vpatch_angular(DX, DY, DZ, dist, &
+                         R1, R2, bool_tor, Ntypes, Npatches_max, Ndim, Ntor_max, a, pi, dospi, sigma_tor, &
+                         Npatches, patch, sigma_jon, Vpot_Matrix, Ntor_angle, tor_angle, &
+                         itypei, itypej, Vangtor_max)
+                    
+                    if (Vangtor_max /= -1.0_wp) then
+                      th = tanh( a*(-XOP_aux + dist) )
+                      FX  = (1.0_wp + th)/2.0_wp; FXI = (1.0_wp - th)/2.0_wp
+                      dFX = (a / 2.0_wp) * (1.0_wp - th*th)
+                      if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
+                        call eval_table_pot_dev(dist, itypei, itypej, Vrad)
+                        call eval_table_force_dev(dist, itypei, itypej, F_val)
+                        w_lj = dist * F_val
+                      else
+                        call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
+                        call vlj_virial(RSQ, s_LJ_aux, eps_LJ_aux, w_lj)
+                      end if
+                      w_pair = w_lj * ( FXI + Vangtor_max * FX ) - dist * Vrad * (Vangtor_max - 1.0_wp) * dFX
+                      w_cell = w_cell + w_pair
+                    end if
+                  end if
+                end if
+              end if
+            end do
+            
+            do ICell = 0, 25
+              Indx_Cell2 = Indx_Cell*26 + ICell; Indx_Cell2 = Map_Cell(Indx_Cell2); Nat_Cell_neigh = Nat_Cell(Indx_Cell2)
+              Indx_Cell3 = Indx_Cell*26*3 + ICell*3
+              dx_neigh = DR_Cell(Indx_Cell3); dy_neigh = DR_Cell(Indx_Cell3+1); dz_neigh = DR_Cell(Indx_Cell3+2)
+              
+              if (Nat_Cell_neigh > 0) then
+                indx_neigh_aux2 = Indx_Cell2 * Nat_Cell_Max * 7; indx_neigh_auxp = Indx_Cell2 * Nat_Cell_Max * 2
+                do l = 0, Nat_Cell_neigh-1
+                  jmol = indx_neigh_aux2 + l*7; jmol2 = indx_neigh_auxp + l*2
+                  DX = Sphere_Cell(jmol) - xi + dx_neigh; DY = Sphere_Cell(jmol+1) - yi + dy_neigh; DZ = Sphere_Cell(jmol+2) - zi + dz_neigh
+                  itypej = List_Cell(jmol2 + 1); Indx = itypei*Ntypes + itypej
+                  s_LJ_aux = sigma_LJ(Indx); eps_LJ_aux = epsilon_LJ(Indx); range_aux = range(Indx)
+                  VL0_aux = VL0(Indx); XOP_aux = XOP(Indx)
+                  
+                  DXP = DX - anint(DX); DYP = DY - anint(DY); DZP = DZ - anint(DZ)
+                  DX = H11*DXP + H12*DYP + H13*DZP; DY = H21*DXP + H22*DYP + H23*DZP; DZ = H31*DXP + H32*DYP + H33*DZP
+                  RSQ = DX*DX + DY*DY + DZ*DZ
+                  
+                  if (RSQ < range_aux*range_aux) then
+                    dist = sqrt(RSQ)
+                    if (RSQ < 0.9604_wp * s_LJ_aux * s_LJ_aux .or. Npatches(itypei) <= 1 .or. Npatches(itypej) <= 1) then
+                      if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
+                        call eval_table_force_dev(dist, itypei, itypej, F_val)
+                        w_cell = w_cell + dist * F_val
+                      else
+                        call vlj_virial(RSQ, s_LJ_aux, eps_LJ_aux, w_pair)
+                        w_cell = w_cell + w_pair
+                      end if
+                    else
+                      Q0j = Sphere_Cell(jmol + 3); Q1j = Sphere_Cell(jmol + 4); Q2j = Sphere_Cell(jmol + 5); Q3j = Sphere_Cell(jmol + 6)
+                      R2(0) = Q0j*Q0j + Q1j*Q1j - Q2j*Q2j - Q3j*Q3j
+                      R2(1) = 2.0_wp*(Q1j*Q2j - Q0j*Q3j); R2(2) = 2.0_wp*(Q1j*Q3j + Q0j*Q2j)
+                      R2(3) = 2.0_wp*(Q1j*Q2j + Q0j*Q3j); R2(4) = Q0j*Q0j - Q1j*Q1j + Q2j*Q2j - Q3j*Q3j
+                      R2(5) = 2.0_wp*(Q2j*Q3j - Q0j*Q1j); R2(6) = 2.0_wp*(Q1j*Q3j - Q0j*Q2j)
+                      R2(7) = 2.0_wp*(Q2j*Q3j + Q0j*Q1j); R2(8) = Q0j*Q0j - Q1j*Q1j - Q2j*Q2j + Q3j*Q3j
+                      
+                      call vpatch_angular(DX, DY, DZ, dist, &
+                           R1, R2, bool_tor, Ntypes, Npatches_max, Ndim, Ntor_max, a, pi, dospi, sigma_tor, &
+                           Npatches, patch, sigma_jon, Vpot_Matrix, Ntor_angle, tor_angle, &
+                           itypei, itypej, Vangtor_max)
+                      
+                      if (Vangtor_max /= -1.0_wp) then
+                        th = tanh( a*(-XOP_aux + dist) )
+                        FX  = (1.0_wp + th)/2.0_wp; FXI = (1.0_wp - th)/2.0_wp
+                        dFX = (a / 2.0_wp) * (1.0_wp - th*th)
+                        if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
+                          call eval_table_pot_dev(dist, itypei, itypej, Vrad)
+                          call eval_table_force_dev(dist, itypei, itypej, F_val)
+                          w_lj = dist * F_val
+                        else
+                          call vlj(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Vrad)
+                          call vlj_virial(RSQ, s_LJ_aux, eps_LJ_aux, w_lj)
+                        end if
+                        w_pair = w_lj * ( FXI + Vangtor_max * FX ) - dist * Vrad * (Vangtor_max - 1.0_wp) * dFX
+                        w_cell = w_cell + w_pair
+                      end if
+                    end if
+                  end if
+                end do
+              end if
+            end do
+          end do
+        end if
+        virial(Indx_Cell) = w_cell
+    end if
+  end subroutine virialGPU_angular
+
+  ! ==============================================================================
+  ! KERNEL: virialGPU_sitesite (pot_int == 2 or 3, SSP / SB models)
+  ! DESCRIPTION: Computes pairwise virial sum for site-site patchy particles on GPU.
+  ! ==============================================================================
+  attributes(global) subroutine virialGPU_sitesite(Ndim, Nat_Cell_Max, Ntot_Cell, Npatches_max, Ntypes, &
+                                        sigp_factor, Rcp_factor, Rc_factor, &
+                                        Npatches, patch, range, sigma_LJ, epsilon_LJ, VL0, &
+                                        Vpot_Matrix, h, Sphere_Cell, List_Cell, &
+                                        Map_Cell, Nl_Cell, Nat_Cell, DR_Cell, virial)
+    integer, intent(in), value :: Ndim, Nat_Cell_Max, Ntot_Cell, Npatches_max, Ntypes
+    real(wp), intent(in), value :: sigp_factor, Rcp_factor, Rc_factor
+    integer, intent(in), device :: Npatches(0:Ntypes-1)
+    real(wp), intent(in), device :: patch(0:Ntypes*Npatches_max*Ndim-1)
+    real(wp), intent(in), device :: range(0:Ntypes*Ntypes-1)
+    real(wp), intent(in), device :: sigma_LJ(0:Ntypes*Ntypes-1), epsilon_LJ(0:Ntypes*Ntypes-1)
+    real(wp), intent(in), device :: VL0(0:Ntypes*Ntypes-1)
+    real(wp), intent(in), device :: Vpot_Matrix(0:Ntypes*Npatches_max*Ntypes*Npatches_max-1), h(0:Ndim*Ndim-1)
+    real(wp), intent(in), device :: Sphere_Cell(0:Ntot_Cell*Nat_Cell_Max*(Ndim+4)-1)
+    integer, intent(in), device :: List_Cell(0:Ntot_Cell*Nat_Cell_Max*2-1), Map_Cell(0:Ntot_Cell*26-1)
+    integer, intent(in), device :: Nl_Cell(0:Ndim-1), Nat_Cell(0:Ntot_Cell-1)
+    real(wp), device, intent(in) :: DR_Cell(0:Ntot_Cell*26*3-1)
+    real(dkind), intent(out), device :: virial(0:Ntot_Cell-1)
+    
+    integer :: imol, jmol, l, m, Indx_Cell2, Indx_Cell3, Nat_Cell_ijk, Nat_Cell_neigh
+    integer :: Nl0, Nl1, Nl2, ICell, imol2, jmol2, itypei, itypej, Indx
+    integer :: indx_atm_aux, indx_atm_aux2, indx_neigh_aux2, indx_neigh_auxp, jcell_x, jcell_y, jcell_z, Indx_Cell
+    
+    real(wp) :: xi, yi, zi, w_cell, DX, DY, DZ, RSQ, dist, H11, H12, H13, H21, H22, H23, H31, H32, H33, DXP, DYP, DZP
+    real(wp) :: dx_neigh, dy_neigh, dz_neigh, w_core, w_patches, F_val, s_LJ_aux, eps_LJ_aux, range_aux, VL0_aux
+    real(wp) :: Q0i, Q1i, Q2i, Q3i, Q0j, Q1j, Q2j, Q3j, R1(0:8), R2(0:8)
+    real(wp) :: Q102, Q112, Q122, Q132, Q10Q11, Q10Q12, Q10Q13, Q11Q12, Q11Q13, Q12Q13
+
+    Indx_Cell = (threadIdx%x + (blockIdx%x-1)*blockDim%x) - 1
+    Nl0 = Nl_Cell(0); Nl1 = Nl_Cell(1); Nl2 = Nl_Cell(2)
+    jcell_z = Indx_Cell/(Nl0*Nl1)
+    jcell_y = (Indx_Cell - Nl0*Nl1*jcell_z)/Nl0
+    if (jcell_y == 0 .and. jcell_z == 0) then; jcell_x = Indx_Cell; else; jcell_x = mod(Indx_Cell, jcell_y*Nl0 + jcell_z*Nl0*Nl1); end if
+    
+    if (jcell_x < Nl0 .and. jcell_y < Nl1 .and. jcell_z < Nl2) then
+        Nat_Cell_ijk = Nat_Cell(Indx_Cell)
+        w_cell = 0.0_wp; virial(Indx_Cell) = 0.0_dkind
+        
+        if (Nat_Cell_ijk > 0) then
+          H11=h(0); H12=h(1); H13=h(2); H21=h(3); H22=h(4); H23=h(5); H31=h(6); H32=h(7); H33=h(8)
+          indx_atm_aux  = Indx_Cell * Nat_Cell_Max * 7; indx_atm_aux2 = Indx_Cell * Nat_Cell_Max * 2
+          
+          do m = 0, Nat_Cell_ijk-1
+            imol = indx_atm_aux + m*7; imol2 = indx_atm_aux2 + m*2
+            xi = Sphere_Cell(imol); yi = Sphere_Cell(imol + 1); zi = Sphere_Cell(imol + 2)
+            Q0i = Sphere_Cell(imol + 3); Q1i = Sphere_Cell(imol + 4); Q2i = Sphere_Cell(imol + 5); Q3i = Sphere_Cell(imol + 6)
+            itypei = List_Cell(imol2 + 1)
+            
+            Q102=Q0i*Q0i; Q112=Q1i*Q1i; Q122=Q2i*Q2i; Q132=Q3i*Q3i
+            Q10Q11=Q0i*Q1i; Q10Q12=Q0i*Q2i; Q10Q13=Q0i*Q3i; Q11Q12=Q1i*Q2i; Q11Q13=Q1i*Q3i; Q12Q13=Q2i*Q3i
+            R1(0) = Q102+Q112-Q122-Q132; R1(1) = 2.0_wp*(Q11Q12-Q10Q13); R1(2) = 2.0_wp*(Q11Q13+Q10Q12)
+            R1(3) = 2.0_wp*(Q11Q12+Q10Q13); R1(4) = Q102-Q112+Q122-Q132; R1(5) = 2.0_wp*(Q12Q13-Q10Q11)
+            R1(6) = 2.0_wp*(Q11Q13-Q10Q12); R1(7) = 2.0_wp*(Q12Q13+Q10Q11); R1(8) = Q102-Q112-Q122+Q132
+            
+            do l = 0, Nat_Cell_ijk-1
+              if (l /= m) then
+                jmol = indx_atm_aux + l*7; jmol2 = indx_atm_aux2 + l*2
+                DX = Sphere_Cell(jmol) - xi; DY = Sphere_Cell(jmol + 1) - yi; DZ = Sphere_Cell(jmol + 2) - zi
+                itypej = List_Cell(jmol2 + 1); Indx = itypei*Ntypes + itypej
+                s_LJ_aux = sigma_LJ(Indx); eps_LJ_aux = epsilon_LJ(Indx); range_aux = range(Indx)
+                VL0_aux = VL0(Indx)
+                
+                DXP = DX - anint(DX); DYP = DY - anint(DY); DZP = DZ - anint(DZ)
+                DX = H11*DXP + H12*DYP + H13*DZP; DY = H21*DXP + H22*DYP + H23*DZP; DZ = H31*DXP + H32*DYP + H33*DZP
+                RSQ = DX*DX + DY*DY + DZ*DZ
+                
+                if (RSQ < range_aux*range_aux) then
+                  dist = sqrt(RSQ)
+                  if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
+                    call eval_table_force_dev(dist, itypei, itypej, F_val)
+                    w_cell = w_cell + dist * F_val
+                  else if (pot_int_dev == 3) then
+                    call vphs_virial(RSQ, s_LJ_aux, eps_R_dev, w_core)
+                    w_cell = w_cell + w_core
+                  else
+                    call vlj_palaia_virial(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Rc_factor, w_core)
+                    w_cell = w_cell + w_core
+                  end if
+                  
+                  if (Npatches(itypei) > 0 .and. Npatches(itypej) > 0) then
+                    Q0j = Sphere_Cell(jmol + 3); Q1j = Sphere_Cell(jmol + 4); Q2j = Sphere_Cell(jmol + 5); Q3j = Sphere_Cell(jmol + 6)
+                    R2(0) = Q0j*Q0j + Q1j*Q1j - Q2j*Q2j - Q3j*Q3j
+                    R2(1) = 2.0_wp*(Q1j*Q2j - Q0j*Q3j); R2(2) = 2.0_wp*(Q1j*Q3j + Q0j*Q2j)
+                    R2(3) = 2.0_wp*(Q1j*Q2j + Q0j*Q3j); R2(4) = Q0j*Q0j - Q1j*Q1j + Q2j*Q2j - Q3j*Q3j
+                    R2(5) = 2.0_wp*(Q2j*Q3j - Q0j*Q1j); R2(6) = 2.0_wp*(Q1j*Q3j - Q0j*Q2j)
+                    R2(7) = 2.0_wp*(Q2j*Q3j + Q0j*Q1j); R2(8) = Q0j*Q0j - Q1j*Q1j - Q2j*Q2j + Q3j*Q3j
+                    
+                    call vpatch_sitesite_virial_dev(DX, DY, DZ, R1, R2, sigp_factor, Rcp_factor, patch_radial_factor_dev, &
+                         itypei, itypej, Ntypes, Npatches_max, Ndim, &
+                         Npatches, patch, sigma_LJ, Vpot_Matrix, w_patches)
+                    w_cell = w_cell + w_patches
+                  end if
+                end if
+              end if
+            end do
+            
+            do ICell = 0, 25
+              Indx_Cell2 = Indx_Cell*26 + ICell; Indx_Cell2 = Map_Cell(Indx_Cell2); Nat_Cell_neigh = Nat_Cell(Indx_Cell2)
+              Indx_Cell3 = Indx_Cell*26*3 + ICell*3
+              dx_neigh = DR_Cell(Indx_Cell3); dy_neigh = DR_Cell(Indx_Cell3+1); dz_neigh = DR_Cell(Indx_Cell3+2)
+              
+              if (Nat_Cell_neigh > 0) then
+                indx_neigh_aux2 = Indx_Cell2 * Nat_Cell_Max * 7; indx_neigh_auxp = Indx_Cell2 * Nat_Cell_Max * 2
+                do l = 0, Nat_Cell_neigh-1
+                  jmol = indx_neigh_aux2 + l*7; jmol2 = indx_neigh_auxp + l*2
+                  DX = Sphere_Cell(jmol) - xi + dx_neigh; DY = Sphere_Cell(jmol+1) - yi + dy_neigh; DZ = Sphere_Cell(jmol+2) - zi + dz_neigh
+                  itypej = List_Cell(jmol2 + 1); Indx = itypei*Ntypes + itypej
+                  s_LJ_aux = sigma_LJ(Indx); eps_LJ_aux = epsilon_LJ(Indx); range_aux = range(Indx)
+                  VL0_aux = VL0(Indx)
+                  
+                  DXP = DX - anint(DX); DYP = DY - anint(DY); DZP = DZ - anint(DZ)
+                  DX = H11*DXP + H12*DYP + H13*DZP; DY = H21*DXP + H22*DYP + H23*DZP; DZ = H31*DXP + H32*DYP + H33*DZP
+                  RSQ = DX*DX + DY*DY + DZ*DZ
+                  
+                  if (RSQ < range_aux*range_aux) then
+                    dist = sqrt(RSQ)
+                    if (table_mc_dev .and. has_table_dev(itypei, itypej)) then
+                      call eval_table_force_dev(dist, itypei, itypej, F_val)
+                      w_cell = w_cell + dist * F_val
+                    else if (pot_int_dev == 3) then
+                      call vphs_virial(RSQ, s_LJ_aux, eps_R_dev, w_core)
+                      w_cell = w_cell + w_core
+                    else
+                      call vlj_palaia_virial(RSQ, s_LJ_aux, eps_LJ_aux, VL0_aux, Rc_factor, w_core)
+                      w_cell = w_cell + w_core
+                    end if
+                    
+                    if (Npatches(itypei) > 0 .and. Npatches(itypej) > 0) then
+                      Q0j = Sphere_Cell(jmol + 3); Q1j = Sphere_Cell(jmol + 4); Q2j = Sphere_Cell(jmol + 5); Q3j = Sphere_Cell(jmol + 6)
+                      R2(0) = Q0j*Q0j + Q1j*Q1j - Q2j*Q2j - Q3j*Q3j
+                      R2(1) = 2.0_wp*(Q1j*Q2j - Q0j*Q3j); R2(2) = 2.0_wp*(Q1j*Q3j + Q0j*Q2j)
+                      R2(3) = 2.0_wp*(Q1j*Q2j + Q0j*Q3j); R2(4) = Q0j*Q0j - Q1j*Q1j + Q2j*Q2j - Q3j*Q3j
+                      R2(5) = 2.0_wp*(Q2j*Q3j - Q0j*Q1j); R2(6) = 2.0_wp*(Q1j*Q3j - Q0j*Q2j)
+                      R2(7) = 2.0_wp*(Q2j*Q3j + Q0j*Q1j); R2(8) = Q0j*Q0j - Q1j*Q1j - Q2j*Q2j + Q3j*Q3j
+                      
+                      call vpatch_sitesite_virial_dev(DX, DY, DZ, R1, R2, sigp_factor, Rcp_factor, patch_radial_factor_dev, &
+                           itypei, itypej, Ntypes, Npatches_max, Ndim, &
+                           Npatches, patch, sigma_LJ, Vpot_Matrix, w_patches)
+                      w_cell = w_cell + w_patches
+                    end if
+                  end if
+                end do
+              end if
+            end do
+          end do
+        end if
+        virial(Indx_Cell) = w_cell
+    end if
+  end subroutine virialGPU_sitesite
+
+  ! ==============================================================================
   ! KERNEL: enerGPU_HS (Hard Sphere, possibly non-additive mixture)
   ! DESCRIPTION: Athermal analogue of enerGPU_LJ. The total energy of a valid
   ! hard-sphere configuration is identically zero; this kernel simply verifies
@@ -5322,8 +5658,11 @@ attributes(device) subroutine evaluate_cell_interactions( &
   ! DESCRIPTION: Evaluates total virial W = sum_{i<j} r_ij * F(r_ij) and virial
   ! pressure for isotropic models (pot_int < 1: LJ and Tabulated) on the GPU.
   ! ==============================================================================
-  subroutine computevirialgpu(Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, h, Natoms, Temp, W_tot, P_vir)
-    integer, intent(in) :: Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, Natoms
+  subroutine computevirialgpu(pot_int, bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, Npatches_max, Ntor_max, &
+                              sigp_factor, Rcp_factor, Rc_factor, sigma_tor_jon, &
+                              h, Natoms, Temp, W_tot, P_vir)
+    integer, intent(in) :: pot_int, bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, Npatches_max, Ntor_max, Natoms
+    real(wp), intent(in) :: sigp_factor, Rcp_factor, Rc_factor, sigma_tor_jon
     real(wp), intent(in) :: h(0:Ndim*Ndim-1), Temp
     real(wp), intent(out) :: W_tot, P_vir
     integer :: nblock, Ntot_jobs, ierror, i
@@ -5341,6 +5680,7 @@ attributes(device) subroutine evaluate_cell_interactions( &
     
     virialdev = 0.0_dkind
     hdev = h
+    pot_int_dev = pot_int
     
     nblock = Ntot_Cell/NTHREAD
     if (nblock == 0) nblock = 1
@@ -5349,9 +5689,23 @@ attributes(device) subroutine evaluate_cell_interactions( &
       nblock = nblock + 1
     end if
     
-    call virialGPU_LJ<<<nblock, NTHREAD>>>(Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, &
-                                          range_dev, sigma_LJ_dev, epsilon_LJ_dev, hdev, Sphere_Celldev, &
-                                          List_Cell_dev, Map_Cell_dev, Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, virialdev)
+    if (pot_int < 1) then
+      call virialGPU_LJ<<<nblock, NTHREAD>>>(Ndim, Nat_Cell_Max, Ntot_Cell, Ntypes, &
+                                            range_dev, sigma_LJ_dev, epsilon_LJ_dev, hdev, Sphere_Celldev, &
+                                            List_Cell_dev, Map_Cell_dev, Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, virialdev)
+    else if (pot_int == 1) then
+      call virialGPU_angular<<<nblock, NTHREAD>>>(bool_tor, Ndim, Nat_Cell_Max, Ntot_Cell, Npatches_max, Ntor_max, Ntypes, &
+                                            Npatches_dev, Ntor_angle_dev, tor_angle_dev, patchdev, ref_tor_dev, range_dev, &
+                                            sigma_jon_dev, sigma_tor_jon, sigma_LJ_dev, epsilon_LJ_dev, VL0_dev, XOP_dev, &
+                                            Vpot_Matrix_dev, hdev, Sphere_Celldev, List_Cell_dev, &
+                                            Map_Cell_dev, Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, virialdev)
+    else if (pot_int == 2 .or. pot_int == 3) then
+      call virialGPU_sitesite<<<nblock, NTHREAD>>>(Ndim, Nat_Cell_Max, Ntot_Cell, Npatches_max, Ntypes, &
+                                            sigp_factor, Rcp_factor, Rc_factor, &
+                                            Npatches_dev, patchdev, range_dev, sigma_LJ_dev, epsilon_LJ_dev, VL0_dev, &
+                                            Vpot_Matrix_dev, hdev, Sphere_Celldev, List_Cell_dev, &
+                                            Map_Cell_dev, Nl_Cell_dev, Nat_Cell_dev, DR_Cell_dev, virialdev)
+    end if
                                           
     ierror = cudaDeviceSynchronize()
     virial_host = virialdev

@@ -184,25 +184,32 @@ Subroutine ener(i1, i2, en, overlap)
                   ! Site-Site uses Palaia WCA + Cosine Tail. 
                   ! We pass vl0_aux as the 'epsp' patch depth parameter.
                   Call vlj_palaia(RSQ, sigma_LJ_aux, eps_LJ_aux, vl0_aux, Rc_factor, en)
+                  If (NRB_SITES(itypei) > 0 .and. NRB_SITES(itypej) > 0) then
+                      Call calculate_patchy_energy_sitesite(itypei, itypej, dxp, dyp, dzp, &
+                                                   Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
+                                                   sigma_LJ_aux, en_patches)
+                      en = en + en_patches
+                  End If
               Else if (pot_int == 1) then
-                  Call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, vl0_aux, en)
+                  If (RSQ < 0.9604_wp * sigma_LJ_aux * sigma_LJ_aux .or. &
+                      NRB_SITES(itypei) <= 1 .or. NRB_SITES(itypej) <= 1) then
+                      Call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, vl0_aux, en)
+                  Else
+                      Call calculate_patchy_energy_angular(itypei, itypej, r12, rsq, dxp, dyp, dzp, &
+                                                   Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
+                                                   sigma_LJ_aux, eps_LJ_aux, xop_aux, vl0_aux, en)
+                  End If
               Else if (pot_int == 3) then
                   Call vphs(RSQ, sigma_LJ_aux, eps_R, en)
+                  If (NRB_SITES(itypei) > 0 .and. NRB_SITES(itypej) > 0) then
+                      Call calculate_patchy_energy_sitesite(itypei, itypej, dxp, dyp, dzp, &
+                                                   Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
+                                                   sigma_LJ_aux, en_patches)
+                      en = en + en_patches
+                  End If
               endif
           END IF
-      END IF
-      If (NRB_SITES(itypei) > 0 .and. NRB_SITES(itypej) > 0) then
-          If (pot_int == 1) then
-              Call calculate_patchy_energy_angular(itypei, itypej, r12, rsq, dxp, dyp, dzp, &
-                                           Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
-                                           sigma_LJ_aux, eps_LJ_aux, xop_aux, vl0_aux, en)
-          Else if (pot_int == 2 .or. pot_int == 3) then
-              Call calculate_patchy_energy_sitesite(itypei, itypej, dxp, dyp, dzp, &
-                                           Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
-                                           sigma_LJ_aux, en_patches)
-              en = en + en_patches
-          End If
-      End If 
+      END IF 
 END Subroutine ener
 
 ! ==============================================================================
@@ -720,23 +727,31 @@ Subroutine calc_single_particle_energy(id_atom, r_pos, e_total, is_overlap)
 End Subroutine calc_single_particle_energy
 
 ! ==============================================================================
-! CPU ROUTINE: compute_virial_isotropic_cpu
+! CPU ROUTINE: compute_virial_cpu
 ! DESCRIPTION: Computes scalar virial W = sum_{i<j} r_ij * F(r_ij) and virial
-! pressure for isotropic models (LJ and Tabulated) on the CPU.
+! pressure for all models (isotropic LJ/table and anisotropic LJG/SSP/SB) on CPU.
 ! ==============================================================================
-Subroutine compute_virial_isotropic_cpu(W_tot, P_vir)
+Subroutine compute_virial_cpu(W_tot, P_vir)
    Use set_precision
    Use configuration
    Use potential
    Use rundata, Only: Temp, pot_int
-   Use potential_functions, only: vlj_virial, eval_table_force_host
+   Use potential_functions, only: vlj, vlj_virial, eval_table_pot_host, eval_table_force_host, &
+                                  vlj_palaia_virial, vphs_virial, vpatch_angular, &
+                                  vpatch_sitesite_virial_host
    Implicit None
    Real(wp), Intent(Out) :: W_tot, P_vir
 
    Integer :: i, j, ti, tj, Indx
    Real(wp) :: DX, DY, DZ, DXP, DYP, DZP, RSQ, R12, Vol, w_pair, F_val
-   Real(wp) :: sigma_ab, eps_ab, rcut
+   Real(wp) :: sigma_ab, eps_ab, rcut, vl0_aux, xop_aux
+   Real(wp) :: Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23
+   Real(wp) :: Q102, Q112, Q122, Q132, Q10Q11, Q10Q12, Q10Q13, Q11Q12, Q11Q13, Q12Q13
+   Real(wp) :: Q202, Q212, Q222, Q232, Q20Q21, Q20Q22, Q20Q23, Q21Q22, Q21Q23, Q22Q23
+   Real(wp) :: R1(0:8), R2(0:8)
+   Real(wp) :: a, pi, dospi, Vangtor_max, Vrad, FX, FXI, dFX, th, w_lj, w_core, w_patches
 
+   a = 1000.0_wp; pi = acos(-1.0_wp); dospi = 2.0_wp*pi
    W_tot = 0.0_wp
 
    If (Ndim == 2) Then
@@ -747,12 +762,21 @@ Subroutine compute_virial_isotropic_cpu(W_tot, P_vir)
 
    Do i = 0, Natoms - 2
       ti = itype(i)
+      Q10 = q(i*4); Q11 = q(i*4+1); Q12 = q(i*4+2); Q13 = q(i*4+3)
+      Q102=Q10*Q10; Q112=Q11*Q11; Q122=Q12*Q12; Q132=Q13*Q13
+      Q10Q11=Q10*Q11; Q10Q12=Q10*Q12; Q10Q13=Q10*Q13; Q11Q12=Q11*Q12; Q11Q13=Q11*Q13; Q12Q13=Q12*Q13
+      R1(0) = Q102+Q112-Q122-Q132; R1(1) = 2.0_wp*(Q11Q12-Q10Q13); R1(2) = 2.0_wp*(Q11Q13+Q10Q12)
+      R1(3) = 2.0_wp*(Q11Q12+Q10Q13); R1(4) = Q102-Q112+Q122-Q132; R1(5) = 2.0_wp*(Q12Q13-Q10Q11)
+      R1(6) = 2.0_wp*(Q11Q13-Q10Q12); R1(7) = 2.0_wp*(Q12Q13+Q10Q11); R1(8) = Q102-Q112-Q122+Q132
+
       Do j = i + 1, Natoms - 1
          tj = itype(j)
          Indx = ti * Npart_types + tj
          sigma_ab = sigma_LJ(Indx)
          eps_ab   = epsilon_LJ(Indx)
          rcut     = rangep(Indx)
+         vl0_aux  = vl0(Indx)
+         xop_aux  = xop(Indx)
 
          DX = r(j*Ndim)   - r(i*Ndim)
          DY = r(j*Ndim+1) - r(i*Ndim+1)
@@ -765,12 +789,78 @@ Subroutine compute_virial_isotropic_cpu(W_tot, P_vir)
 
          If (RSQ < rcut*rcut) Then
             R12 = sqrt(RSQ)
-            If (table_mc .and. has_table(ti, tj)) Then
-               Call eval_table_force_host(R12, ti, tj, F_val)
-               w_pair = R12 * F_val
-            Else
-               Call vlj_virial(RSQ, sigma_ab, eps_ab, w_pair)
+            w_pair = 0.0_wp
+
+            If (pot_int < 1) Then
+               If (table_mc .and. has_table(ti, tj)) Then
+                  Call eval_table_force_host(R12, ti, tj, F_val)
+                  w_pair = R12 * F_val
+               Else
+                  Call vlj_virial(RSQ, sigma_ab, eps_ab, w_pair)
+               End If
+            Else If (pot_int == 1) Then
+               If (RSQ < 0.9604_wp * sigma_ab * sigma_ab .or. Nrb_sites(ti) <= 1 .or. Nrb_sites(tj) <= 1) Then
+                  If (table_mc .and. has_table(ti, tj)) Then
+                     Call eval_table_force_host(R12, ti, tj, F_val)
+                     w_pair = R12 * F_val
+                  Else
+                     Call vlj_virial(RSQ, sigma_ab, eps_ab, w_pair)
+                  End If
+               Else
+                  Q20 = q(j*4); Q21 = q(j*4+1); Q22 = q(j*4+2); Q23 = q(j*4+3)
+                  Q202=Q20*Q20; Q212=Q21*Q21; Q222=Q22*Q22; Q232=Q23*Q23
+                  Q20Q21=Q20*Q21; Q20Q22=Q20*Q22; Q20Q23=Q20*Q23; Q21Q22=Q21*Q22; Q21Q23=Q21*Q23; Q22Q23=Q22*Q23
+                  R2(0) = Q202+Q212-Q222-Q232; R2(1) = 2.0_wp*(Q21Q22-Q20Q23); R2(2) = 2.0_wp*(Q21Q23+Q20Q22)
+                  R2(3) = 2.0_wp*(Q21Q22+Q20Q23); R2(4) = Q202-Q212+Q222-Q232; R2(5) = 2.0_wp*(Q22Q23-Q20Q21)
+                  R2(6) = 2.0_wp*(Q21Q23-Q20Q22); R2(7) = 2.0_wp*(Q22Q23+Q20Q21); R2(8) = Q202-Q212-Q222+Q232
+
+                  Call vpatch_angular(DXP, DYP, DZP, R12, &
+                       R1, R2, bool_tor, Npart_types, Nrb_sites_max, Ndim, Ntor_max, a, pi, dospi, sigma_tor_jon, &
+                       Nrb_sites, PATCH, sigma_jon, Vpot_matrix, Ntor_angle, tor_angle, &
+                       ti, tj, Vangtor_max)
+
+                  If (Vangtor_max /= -1.0_wp) Then
+                     th = tanh( a*(-xop_aux + R12) )
+                     FX  = (1.0_wp + th)/2.0_wp
+                     FXI = (1.0_wp - th)/2.0_wp
+                     dFX = (a / 2.0_wp) * (1.0_wp - th*th)
+                     If (table_mc .and. has_table(ti, tj)) Then
+                        Call eval_table_pot_host(R12, ti, tj, Vrad)
+                        Call eval_table_force_host(R12, ti, tj, F_val)
+                        w_lj = R12 * F_val
+                     Else
+                        Call vlj(RSQ, sigma_ab, eps_ab, vl0_aux, Vrad)
+                        Call vlj_virial(RSQ, sigma_ab, eps_ab, w_lj)
+                     End If
+                     w_pair = w_lj * ( FXI + Vangtor_max * FX ) - R12 * Vrad * (Vangtor_max - 1.0_wp) * dFX
+                  End If
+               End If
+            Else If (pot_int == 2 .or. pot_int == 3) Then
+               If (table_mc .and. has_table(ti, tj)) Then
+                  Call eval_table_force_host(R12, ti, tj, F_val)
+                  w_core = R12 * F_val
+               Else If (pot_int == 3) Then
+                  Call vphs_virial(RSQ, sigma_ab, eps_R, w_core)
+               Else
+                  Call vlj_palaia_virial(RSQ, sigma_ab, eps_ab, vl0_aux, Rc_factor, w_core)
+               End If
+               w_pair = w_core
+
+               If (Nrb_sites(ti) > 0 .and. Nrb_sites(tj) > 0) Then
+                  Q20 = q(j*4); Q21 = q(j*4+1); Q22 = q(j*4+2); Q23 = q(j*4+3)
+                  Q202=Q20*Q20; Q212=Q21*Q21; Q222=Q22*Q22; Q232=Q23*Q23
+                  Q20Q21=Q20*Q21; Q20Q22=Q20*Q22; Q20Q23=Q20*Q23; Q21Q22=Q21*Q22; Q21Q23=Q21*Q23; Q22Q23=Q22*Q23
+                  R2(0) = Q202+Q212-Q222-Q232; R2(1) = 2.0_wp*(Q21Q22-Q20Q23); R2(2) = 2.0_wp*(Q21Q23+Q20Q22)
+                  R2(3) = 2.0_wp*(Q21Q22+Q20Q23); R2(4) = Q202-Q212+Q222-Q232; R2(5) = 2.0_wp*(Q22Q23-Q20Q21)
+                  R2(6) = 2.0_wp*(Q21Q23-Q20Q22); R2(7) = 2.0_wp*(Q22Q23+Q20Q21); R2(8) = Q202-Q212-Q222+Q232
+
+                  Call vpatch_sitesite_virial_host(DXP, DYP, DZP, R1, R2, sigp_factor, Rcp_factor, patch_radial_factor, &
+                       ti, tj, Npart_types, Nrb_sites_max, Ndim, &
+                       Nrb_sites, PATCH, sigma_LJ, Vpot_matrix, w_patches)
+                  w_pair = w_pair + w_patches
+               End If
             End If
+
             W_tot = W_tot + w_pair
          End If
       End Do
@@ -781,6 +871,13 @@ Subroutine compute_virial_isotropic_cpu(W_tot, P_vir)
    Else
       P_vir = (real(Natoms, wp)*Temp + W_tot / 3.0_wp) / Vol
    End If
+End Subroutine compute_virial_cpu
+
+Subroutine compute_virial_isotropic_cpu(W_tot, P_vir)
+   Use set_precision
+   Implicit None
+   Real(wp), Intent(Out) :: W_tot, P_vir
+   Call compute_virial_cpu(W_tot, P_vir)
 End Subroutine compute_virial_isotropic_cpu
 
 ! ==============================================================================

@@ -208,7 +208,7 @@ The namelist filename passed as the first command-line argument to `MCCB-gpu` is
 - `mclast_clconf.lammpstrj` - Final cluster configuration output formatted in LAMMPS trajectory format for VMD visualization.
 - `mclast_brdconf.lammpstrj` - Final cluster border configuration based on geometric asymmetry criterion formatted in LAMMPS trajectory format.
 
-**Standard Output**: Clean single-line progress table containing step index, total and per-site potential energies, translation/rotation acceptance ratios, moves per particle, cell grid size, CPU/GPU timing, and conditionally integrated cluster metrics (`N_Clust`, `Max_Cl`, `%Clust`) and AVBMC acceptance ratios (`P_AV_in`, `P_AV_out`). For all **isotropic systems** without orientational degrees of freedom (`pot_int < 1`: Hard Spheres `HS`, Lennard-Jones `LJ`, and Tabulated potentials `TABLE`), the instantaneous virial pressure `P σ³/kT` is calculated on GPU and reported at every `Nsave` steps, accumulated into thermodynamic averages, and embedded in the NetCDF trajectory stress tensor (see [Virial Pressure Calculation](#virial-pressure-calculation-isotropic-systems-hs-lj-table) below).
+**Standard Output**: Clean single-line progress table containing step index, total energy, instantaneous virial pressure `P σ³/kT`, density, translation/rotation acceptance ratios, moves per particle, cell grid size, CPU/GPU timing, and conditionally integrated cluster metrics (`N_Clust`, `Max_Cl`, `%Clust`) and AVBMC acceptance ratios (`P_AV_in`, `P_AV_out`). For all systems (both isotropic `pot_int < 1` and anisotropic `pot_int >= 1`), the instantaneous virial pressure `P σ³/kT` is calculated on GPU and reported at every `Nsave` steps, accumulated into thermodynamic averages, and embedded in the NetCDF trajectory stress tensor (see [Virial Pressure Calculation](#virial-pressure-calculation-all-interaction-potentials) below).
 
 ---
 
@@ -309,9 +309,9 @@ The potential is athermal, so the temperature never enters the Metropolis accept
 
 > **NpT note:** In the NpT ensemble the acceptance rule is $\exp[-\beta P\,\Delta V + N\ln(V'/V)]$. Since HS is athermal the code fixes $\beta = 1$, so the input `pres` is interpreted as the **reduced pressure** $P^* = P/k_BT$ (equivalently $\beta P$).
 
-#### Virial Pressure Calculation (Isotropic Systems: HS, LJ, TABLE)
+#### Virial Pressure Calculation (All Interaction Potentials)
 
-For all systems without orientational degrees of freedom (`pot_int < 1`), the thermodynamic virial pressure is computed and monitored:
+For all simulated systems (both isotropic simple fluids and anisotropic patchy particles), the exact thermodynamic virial pressure conjugate to volume in Monte Carlo NpT simulations ($P = -\partial F/\partial V = (Nk_BT + \frac{1}{3}W)/V$) is computed and monitored:
 
 1. **Lennard-Jones (`model = 'LJ'`, `pot_int = 0`)**:
    Smooth continuous pairwise forces are calculated analytically:
@@ -329,6 +329,16 @@ For all systems without orientational degrees of freedom (`pot_int < 1`), the th
    To achieve maximum precision even at high packing densities near the equation of state divergence, the Virial calculation combines two advanced schemes:
    - **Fine Shell Resolution & Log-Linear Contact Fit**: Pair separations are histogrammed into 10 fine shells of width $\delta_{ab} = 0.0025\,\sigma_{ab}$ right at contact ($r \in [\sigma_{ab},\, 1.025\,\sigma_{ab})$). The contact value $g_{ab}(\sigma_{ab}^+)$ is obtained via a Log-Linear least-squares fit ($\ln g(r) = a + b(r - \sigma_{ab})$), matching the physical exponential decay of pair correlations near contact.
    - **Block Time-Accumulation (NpT / NVT Compatible)**: Pair distance counts and box volume are accumulated periodically across all MC cycles within each `Nsave` window (`Accumulate_HS_Virial_Histogram`). The reported $P_{\text{virial}}$ is computed from the window-averaged contact distribution $\langle g_{ab}(\sigma_{ab}^+) \rangle$ and average volume $\langle V \rangle$, reducing statistical counting noise by $\sim 3.16\times$.
+
+4. **Angular Patchy Interactions (`model = 'LJG'`, `pot_int = 1`)**:
+   Under virtual center-of-mass scaling $\mathbf{R}_{ij} \to \lambda \mathbf{R}_{ij}$ with fixed molecular orientations (rigid bodies), the center-of-mass direction $\hat{\mathbf{R}}_{ij} = \mathbf{R}_{ij}/r_{ij}$ and inter-patch directional/torsional angles $\Omega_1, \Omega_2, \theta_{\text{tor}}$ are scale-invariant ($\partial \Phi / \partial \lambda = 0$). The molecular virial is derived analytically:
+   $$w_{\text{LJG}}(r) = -\left.\frac{dU_{ij}}{d\lambda}\right|_{\lambda=1} = w_{\text{LJ}}(r)\left[ F_{XI}(r) + \Phi F_X(r) \right] - r V_{\text{rad}}(r) (\Phi - 1) \frac{a}{2\cosh^2(a(r - x_{\text{op}}))}$$
+   where $\Phi = Vangtor\_max$ is the maximum patch-patch angular factor, $F_X(r) = \frac{1}{2}[1 + \tanh(a(r - x_{\text{op}}))]$, and $w_{\text{LJ}}(r) = -r dV_{\text{rad}}/dr$. Evaluated on GPU via `virialGPU_angular`.
+
+5. **Site-Site Continuous Patchy Interactions (`model = 'SSP'`, `pot_int = 2`; `model = 'SB'`, `pot_int = 3`)**:
+   For rigid patchy particles with off-center attractive interaction sites, the molecular virial conjugate to volume scaling is:
+   $$W = \sum_{i < j} \mathbf{R}_{ij} \cdot \mathbf{f}_{ij}^{\text{CM}} = \sum_{i < j} \left( w_{\text{core}}(r_{ij}) + \sum_{\alpha \in i} \sum_{\beta \in j} F_{\text{patch}}(d_{\alpha\beta}) \frac{\mathbf{R}_{ij} \cdot \mathbf{d}_{\alpha\beta}}{d_{\alpha\beta}} \right)$$
+   where $\mathbf{d}_{\alpha\beta} = \mathbf{R}_{ij} + \mathbf{p}_{j,\beta} - \mathbf{p}_{i,\alpha}$, $F_{\text{patch}}(d) = -dV_{\text{patch}}/dd$, and $w_{\text{core}}(r) = -r dV_{\text{core}}/dr$ (WCA + tail for SSP, PHS for SB). Evaluated on GPU via `virialGPU_sitesite`.
 
 #### GPU Checkerboard Identity Swaps (Multicomponent Mixtures, All Potentials)
 

@@ -715,6 +715,8 @@ Subroutine Read_Input_Data
             write(*, '(/A,"*** Fatal error: vpot matrix section not found in ", A, "***",A)') c_red, trim(input_filename), c_reset
             stop 1
          End If
+         line = adjustl(line)
+         if (line(1:1) == '!' .or. line(1:1) == '#') cycle
          uline = line
          call uppercase(uline)
          If (index(uline, 'VPOT') > 0) Exit
@@ -743,7 +745,7 @@ Subroutine Read_Input_Data
          Do I=0,Npart_types-1
               Indx = I*Npart_types
               Do J = 0, Npart_types-1
-                 sigma_LJ(indx+j) = 1.0_wp 
+                 sigma_LJ(indx+j) = 1.0_wp
                  rangep(indx+j) = rangepp * sigma_LJ(indx+j)
                  VL0(indx+j)=(sigma_LJ(indx+j)/rangep(indx+j))**12.d0-(sigma_LJ(indx+j)/rangep(indx+j))**6.0
                  xopp = (1.d0+sqrt(1.d0+4.d00*VL0(indx+j)))/2.d0
@@ -757,6 +759,8 @@ Subroutine Read_Input_Data
                write(*, '(/A,"*** Fatal error: sigmas_ang section not found in ", A, "***",A)') c_red, trim(input_filename), c_reset
                stop 1
             End If
+            line = adjustl(line)
+            if (line(1:1) == '!' .or. line(1:1) == '#') cycle
             uline = line
             call uppercase(uline)
             If (index(uline, 'SIGMA_ANG') > 0 .or. index(uline, 'SIGMAS_ANG') > 0) Exit
@@ -774,6 +778,8 @@ Subroutine Read_Input_Data
                write(*, '(/A,"*** Fatal error: sigma_LJ section not found in ", A, "***",A)') c_red, trim(input_filename), c_reset
                stop 1
             End If
+            line = adjustl(line)
+            if (line(1:1) == '!' .or. line(1:1) == '#') cycle
             uline = line
             call uppercase(uline)
             If (index(uline, 'SIGMA_LJ') > 0) Exit

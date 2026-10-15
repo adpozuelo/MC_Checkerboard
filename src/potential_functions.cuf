@@ -126,6 +126,93 @@ module potential_functions
    end subroutine vcsw
 
    ! ==============================================================================
+   ! ROUTINE: vlj_palaia_virial (Pair virial w = -r * dV/dr for Palaia core)
+   ! ==============================================================================
+   attributes(device, host) subroutine vlj_palaia_virial(rsq, sigma, eps, epsp, Rc_factor, w_pair)
+      real(wp), intent(in)  :: rsq, sigma, eps, epsp, Rc_factor
+      real(wp), intent(out) :: w_pair
+      real(wp) :: r, r2inv, r6inv, Rc, pi, theta, dtheta_dr
+      real(wp) :: abs_epsp
+      pi = acos(-1.0_wp)
+      Rc = sigma * 1.122462048309373_wp  ! 2^(1/6)
+      r = sqrt(rsq)
+      abs_epsp = abs(epsp)
+      if (r <= Rc) then
+         r2inv = 1.0_wp / rsq
+         r6inv = (Rc * Rc * r2inv)**3
+         w_pair = 12.0_wp * eps * (r6inv * r6inv - r6inv)
+      else if (r <= Rc_factor * Rc) then
+         theta = pi * (r - Rc) / (2.0_wp * (Rc_factor - 1.0_wp) * Rc)
+         dtheta_dr = pi / (2.0_wp * (Rc_factor - 1.0_wp) * Rc)
+         w_pair = - r * abs_epsp * sin(2.0_wp * theta) * dtheta_dr
+      else
+         w_pair = 0.0_wp
+      end if
+   end subroutine vlj_palaia_virial
+
+   ! ==============================================================================
+   ! ROUTINE: vphs_virial (Pair virial w = -r * dV/dr for Pseudo-Hard Sphere core)
+   ! ==============================================================================
+   attributes(device, host) subroutine vphs_virial(rsq, sigma, eps_R_in, w_pair)
+      real(wp), intent(in)  :: rsq, sigma, eps_R_in
+      real(wp), intent(out) :: w_pair
+      real(wp) :: rc, r, x, u, u2, u4, u8, u16, u32, u48, u49, u50, C
+      rc = (50.0_wp / 49.0_wp) * sigma
+      if (rsq >= rc * rc) then
+         w_pair = 0.0_wp
+         return
+      end if
+      r = sqrt(rsq)
+      x = r / sigma
+      u = 1.0_wp / x
+      C = 50.0_wp * ((50.0_wp / 49.0_wp)**49) * eps_R_in
+      u2 = u * u
+      u4 = u2 * u2
+      u8 = u4 * u4
+      u16 = u8 * u8
+      u32 = u16 * u16
+      u48 = u32 * u16
+      u49 = u48 * u
+      u50 = u49 * u
+      w_pair = C * (50.0_wp * u50 - 49.0_wp * u49)
+   end subroutine vphs_virial
+
+   ! ==============================================================================
+   ! ROUTINE: vcsw_force (Radial force F = -dV/dd for Continuous Square Well patch)
+   ! ==============================================================================
+   attributes(device, host) subroutine vcsw_force(dist, eps_CSW_in, rw_in, alpha_in, rc_in, F_val)
+      real(wp), intent(in)  :: dist, eps_CSW_in, rw_in, alpha_in, rc_in
+      real(wp), intent(out) :: F_val
+      real(wp) :: th, sech2
+      if (dist >= rc_in) then
+         F_val = 0.0_wp
+         return
+      end if
+      th = tanh((dist - rw_in) / alpha_in)
+      sech2 = 1.0_wp - th * th
+      F_val = - (0.5_wp * eps_CSW_in / alpha_in) * sech2
+   end subroutine vcsw_force
+
+   ! ==============================================================================
+   ! ROUTINE: vpatch_palaia_force (Radial force F = -dV/dd for Palaia patch)
+   ! ==============================================================================
+   attributes(device, host) subroutine vpatch_palaia_force(dist, sigp, Rcp, V0, F_val)
+      real(wp), intent(in)  :: dist, sigp, Rcp, V0
+      real(wp), intent(out) :: F_val
+      real(wp) :: pi, theta, dtheta_dd
+      pi = acos(-1.0_wp)
+      if (dist <= sigp) then
+         F_val = 0.0_wp
+      else if (dist < Rcp) then
+         theta = pi * (dist - sigp) / (2.0_wp * (Rcp - sigp))
+         dtheta_dd = pi / (2.0_wp * (Rcp - sigp))
+         F_val = - V0 * sin(2.0_wp * theta) * dtheta_dd
+      else
+         F_val = 0.0_wp
+      end if
+   end subroutine vpatch_palaia_force
+
+   ! ==============================================================================
    ! ROUTINE: vpatch_sitesite_host (Site-site patchy interaction - CPU version)
    ! ==============================================================================
    attributes(host) subroutine vpatch_sitesite_host(dx, dy, dz, &
@@ -217,6 +304,95 @@ module potential_functions
    end subroutine vpatch_sitesite_host
 
    ! ==============================================================================
+   ! ROUTINE: vpatch_sitesite_virial_host (Site-site patchy virial - CPU version)
+   ! ==============================================================================
+   attributes(host) subroutine vpatch_sitesite_virial_host(dx, dy, dz, &
+         R1, R2, sigp_factor, Rcp_factor, patch_radial_factor, &
+         itypei, itypej, Ntypes, Npatches_max, Ndim, &
+         Npatches, patch, sigma_LJ, Vpot_Matrix, w_patches)
+      real(wp), intent(in) :: dx, dy, dz
+      real(wp), intent(in) :: R1(0:8), R2(0:8)
+      real(wp), intent(in) :: sigp_factor, Rcp_factor, patch_radial_factor
+      integer, intent(in)  :: itypei, itypej, Ntypes, Npatches_max, Ndim
+      
+      integer, intent(in)  :: Npatches(0:*)
+      real(wp), intent(in) :: patch(0:*), sigma_LJ(0:*), Vpot_Matrix(0:*)
+      real(wp), intent(out) :: w_patches
+
+      real(wp) :: sigma_LJ_aux, sigma_i, sigma_j, Rmin_ij, sigp, Rcp
+      real(wp) :: PX, PY, PZ, PX2, PY2, PZ2
+      real(wp) :: px_i, py_i, pz_i, px_j, py_j, pz_j
+      real(wp) :: dx_patch, dy_patch, dz_patch, dist_patch, rd_dot, factor_energy, F_val
+      integer  :: Npatchesi, Npatchesj, j3, j4, Indx, Indx2, Indx3, Indx4, kpatch, kpatch2, t_mc1, t_mc2
+
+      w_patches = 0.0_wp
+
+      Npatchesi = Npatches(itypei)
+      Npatchesj = Npatches(itypej)
+
+      if (Npatchesi > 0 .and. Npatchesj > 0) then
+         Indx = Ntypes * itypei + itypej
+         sigma_LJ_aux = sigma_LJ(Indx)
+         sigma_i = sigma_LJ(itypei * Ntypes + itypei)
+         sigma_j = sigma_LJ(itypej * Ntypes + itypej)
+
+         Rmin_ij = sigma_LJ_aux * 1.122462048309373_wp
+         sigp = sigp_factor * Rmin_ij
+         Rcp  = Rcp_factor * Rmin_ij
+
+         do j3 = 0, Npatchesi - 1
+            kpatch = Npatches_max*Ndim*itypei + j3*Ndim
+            PX = patch(kpatch); PY = patch(kpatch+1); PZ = patch(kpatch+2)
+            px_i = patch_radial_factor * sigma_i * (R1(0)*PX + R1(1)*PY + R1(2)*PZ)
+            py_i = patch_radial_factor * sigma_i * (R1(3)*PX + R1(4)*PY + R1(5)*PZ)
+            pz_i = patch_radial_factor * sigma_i * (R1(6)*PX + R1(7)*PY + R1(8)*PZ)
+
+            do j4 = 0, Npatchesj - 1
+               Indx2 = itypei * Npatches_max + j3
+               Indx3 = Indx2 * Npatches_max * Ntypes
+               Indx4 = Indx3 + itypej * Npatches_max
+               factor_energy = Vpot_Matrix(Indx4 + j4)
+
+               if (factor_energy > 1.0e-7_wp) then
+                  kpatch2 = Npatches_max*Ndim*itypej + j4*Ndim
+                  PX2 = patch(kpatch2); PY2 = patch(kpatch2+1); PZ2 = patch(kpatch2+2)
+                  px_j = patch_radial_factor * sigma_j * (R2(0)*PX2 + R2(1)*PY2 + R2(2)*PZ2)
+                  py_j = patch_radial_factor * sigma_j * (R2(3)*PX2 + R2(4)*PY2 + R2(5)*PZ2)
+                  pz_j = patch_radial_factor * sigma_j * (R2(6)*PX2 + R2(7)*PY2 + R2(8)*PZ2)
+
+                  dx_patch = dx + px_j - px_i
+                  dy_patch = dy + py_j - py_i
+                  dz_patch = dz + pz_j - pz_i
+                  dist_patch = sqrt(dx_patch**2 + dy_patch**2 + dz_patch**2)
+                  rd_dot = dx * dx_patch + dy * dy_patch + dz * dz_patch
+
+                  if (dist_patch > 1.0e-12_wp) then
+                     if (table_mc) then
+                        t_mc1 = Npart_types + itypei
+                        t_mc2 = Npart_types + itypej
+                        if (has_table(t_mc1, t_mc2)) then
+                           call eval_table_force_host(dist_patch, t_mc1, t_mc2, F_val)
+                           w_patches = w_patches + F_val * rd_dot / dist_patch
+                        end if
+                     else if (pot_int == 3) then
+                        if (dist_patch < rc_CSW) then
+                           call vcsw_force(dist_patch, eps_CSW, rw_CSW, alpha_CSW, rc_CSW, F_val)
+                           w_patches = w_patches + factor_energy * F_val * rd_dot / dist_patch
+                        end if
+                     else
+                        if (dist_patch < Rcp .and. dist_patch > sigp) then
+                           call vpatch_palaia_force(dist_patch, sigp, Rcp, factor_energy, F_val)
+                           w_patches = w_patches + F_val * rd_dot / dist_patch
+                        end if
+                     end if
+                  end if
+               end if
+            end do
+         end do
+      end if
+   end subroutine vpatch_sitesite_virial_host
+
+   ! ==============================================================================
    ! ROUTINE: vpatch_sitesite_dev (Palaia site-site patchy interaction - GPU version)
    ! ==============================================================================
    attributes(device) subroutine vpatch_sitesite_dev(dx, dy, dz, &
@@ -306,6 +482,95 @@ module potential_functions
          end do
       end if
    end subroutine vpatch_sitesite_dev
+
+   ! ==============================================================================
+   ! ROUTINE: vpatch_sitesite_virial_dev (Site-site patchy virial - GPU version)
+   ! ==============================================================================
+   attributes(device) subroutine vpatch_sitesite_virial_dev(dx, dy, dz, &
+         R1, R2, sigp_factor, Rcp_factor, patch_radial_factor, &
+         itypei, itypej, Ntypes, Npatches_max, Ndim, &
+         Npatches, patch, sigma_LJ, Vpot_Matrix, w_patches)
+      real(wp), intent(in) :: dx, dy, dz
+      real(wp), intent(in) :: R1(0:8), R2(0:8)
+      real(wp), intent(in) :: sigp_factor, Rcp_factor, patch_radial_factor
+      integer, intent(in)  :: itypei, itypej, Ntypes, Npatches_max, Ndim
+      
+      integer, intent(in)  :: Npatches(0:*)
+      real(wp), intent(in) :: patch(0:*), sigma_LJ(0:*), Vpot_Matrix(0:*)
+      real(wp), intent(out) :: w_patches
+
+      real(wp) :: sigma_LJ_aux, sigma_i, sigma_j, Rmin_ij, sigp, Rcp
+      real(wp) :: PX, PY, PZ, PX2, PY2, PZ2
+      real(wp) :: px_i, py_i, pz_i, px_j, py_j, pz_j
+      real(wp) :: dx_patch, dy_patch, dz_patch, dist_patch, rd_dot, factor_energy, F_val
+      integer  :: Npatchesi, Npatchesj, j3, j4, Indx, Indx2, Indx3, Indx4, kpatch, kpatch2, t_mc1, t_mc2
+
+      w_patches = 0.0_wp
+
+      Npatchesi = Npatches(itypei)
+      Npatchesj = Npatches(itypej)
+
+      if (Npatchesi > 0 .and. Npatchesj > 0) then
+         Indx = Ntypes * itypei + itypej
+         sigma_LJ_aux = sigma_LJ(Indx)
+         sigma_i = sigma_LJ(itypei * Ntypes + itypei)
+         sigma_j = sigma_LJ(itypej * Ntypes + itypej)
+
+         Rmin_ij = sigma_LJ_aux * 1.122462048309373_wp
+         sigp = sigp_factor * Rmin_ij
+         Rcp  = Rcp_factor * Rmin_ij
+
+         do j3 = 0, Npatchesi - 1
+            kpatch = Npatches_max*Ndim*itypei + j3*Ndim
+            PX = patch(kpatch); PY = patch(kpatch+1); PZ = patch(kpatch+2)
+            px_i = patch_radial_factor * sigma_i * (R1(0)*PX + R1(1)*PY + R1(2)*PZ)
+            py_i = patch_radial_factor * sigma_i * (R1(3)*PX + R1(4)*PY + R1(5)*PZ)
+            pz_i = patch_radial_factor * sigma_i * (R1(6)*PX + R1(7)*PY + R1(8)*PZ)
+
+            do j4 = 0, Npatchesj - 1
+               Indx2 = itypei * Npatches_max + j3
+               Indx3 = Indx2 * Npatches_max * Ntypes
+               Indx4 = Indx3 + itypej * Npatches_max
+               factor_energy = Vpot_Matrix(Indx4 + j4)
+
+               if (factor_energy > 1.0e-7_wp) then
+                  kpatch2 = Npatches_max*Ndim*itypej + j4*Ndim
+                  PX2 = patch(kpatch2); PY2 = patch(kpatch2+1); PZ2 = patch(kpatch2+2)
+                  px_j = patch_radial_factor * sigma_j * (R2(0)*PX2 + R2(1)*PY2 + R2(2)*PZ2)
+                  py_j = patch_radial_factor * sigma_j * (R2(3)*PX2 + R2(4)*PY2 + R2(5)*PZ2)
+                  pz_j = patch_radial_factor * sigma_j * (R2(6)*PX2 + R2(7)*PY2 + R2(8)*PZ2)
+
+                  dx_patch = dx + px_j - px_i
+                  dy_patch = dy + py_j - py_i
+                  dz_patch = dz + pz_j - pz_i
+                  dist_patch = sqrt(dx_patch**2 + dy_patch**2 + dz_patch**2)
+                  rd_dot = dx * dx_patch + dy * dy_patch + dz * dz_patch
+
+                  if (dist_patch > 1.0e-12_wp) then
+                     if (table_mc_dev) then
+                        t_mc1 = Ntypes + itypei
+                        t_mc2 = Ntypes + itypej
+                        if (has_table_dev(t_mc1, t_mc2)) then
+                           call eval_table_force_dev(dist_patch, t_mc1, t_mc2, F_val)
+                           w_patches = w_patches + F_val * rd_dot / dist_patch
+                        end if
+                     else if (pot_int_dev == 3) then
+                        if (dist_patch < rc_CSW_dev) then
+                           call vcsw_force(dist_patch, eps_CSW_dev, rw_CSW_dev, alpha_CSW_dev, rc_CSW_dev, F_val)
+                           w_patches = w_patches + factor_energy * F_val * rd_dot / dist_patch
+                        end if
+                     else
+                        if (dist_patch < Rcp .and. dist_patch > sigp) then
+                           call vpatch_palaia_force(dist_patch, sigp, Rcp, factor_energy, F_val)
+                           w_patches = w_patches + F_val * rd_dot / dist_patch
+                        end if
+                     end if
+                  end if
+               end if
+            end do
+         end do
+      end if
+   end subroutine vpatch_sitesite_virial_dev
 
    ! ==============================================================================
    ! ROUTINE: vpatch_angular (LJG angular/torsional patch-patch modulation)

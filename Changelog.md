@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.8.11] - 2026-10-15
+
+### Added & Optimized
+- **Virial Pressure and Virial Force Calculation for All Anisotropic Potentials (`pot_int >= 1`)**:
+  - Implemented exact molecular center-of-mass virial calculation ($W = -\sum_{i < j} \left.\frac{dU_{ij}}{d\lambda}\right|_{\lambda=1} = \sum_{i < j} \mathbf{R}_{ij} \cdot \mathbf{f}_{ij}^{\text{CM}}$) conjugate to volume dilation in Monte Carlo NpT simulations ($P_{\text{virial}} = \frac{N k_B T + W/3}{V}$):
+    1. **Angular Patchy Models (`LJG`, `pot_int = 1`)**:
+       - Exploited the scale-invariance of directional unit vectors $\hat{\mathbf{R}}_{ij}$ and angles $\Omega_1, \Omega_2, \theta_{\text{tor}}$ ($\partial \Phi / \partial \lambda = 0$) to establish the analytical molecular virial:
+         $$w_{\text{LJG}}(r) = w_{\text{LJ}}(r)\left[ F_{XI}(r) + \Phi F_X(r) \right] - r V_{\text{rad}}(r) (\Phi - 1) \frac{a}{2\cosh^2(a(r - x_{\text{op}}))}$$
+       - Implemented GPU kernel `virialGPU_angular` in `src/Subsweep_Energy_CUDA.cuf` and CPU reference routine in `src/energy.cuf`.
+    2. **Site-Site Continuous Patchy Models (`SSP`, `pot_int = 2`; `SB`, `pot_int = 3`)**:
+       - Implemented exact center-of-mass virial projection for off-center patch interaction sites:
+         $$w_{\text{patch}} = \mathbf{R}_{ij} \cdot \mathbf{f}_{\text{patch}} = F_{\text{patch}}(d_{\text{patch}}) \frac{\mathbf{R}_{ij} \cdot \mathbf{d}_{\text{patch}}}{d_{\text{patch}}}$$
+         where $\mathbf{d}_{\text{patch}} = \mathbf{R}_{ij} + \mathbf{p}_j - \mathbf{p}_i$ and $F_{\text{patch}} = -dV/dd$.
+       - Added force evaluation functions `vpatch_palaia_force`, `vcsw_force`, `vphs_virial`, and `vlj_palaia_virial` in `src/potential_functions.cuf`.
+       - Implemented GPU device subroutine `vpatch_sitesite_virial_dev` and CUDA kernel `virialGPU_sitesite` in `src/Subsweep_Energy_CUDA.cuf`.
+       - Implemented CPU host subroutine `vpatch_sitesite_virial_host` and unified `compute_virial_cpu` in `src/energy.cuf`.
+  - **Universal Virial Monitoring & Averaging**:
+    - Removed `pot_int < 1` guards across `src/CB_system_energy_gpu.cuf`, `src/Tools.cuf`, and `src/Main.cuf`.
+    - Instantaneous virial pressure `P σ³/kT` is now computed on GPU and displayed at every `Nsave` interval for all interaction potentials.
+    - Accumulated thermodynamic average `Average Pσ³/kT = <P> ± <err>` is reported for all systems upon completion.
+    - NetCDF trajectory output records the virial stress tensor for all interaction models.
+  - **Parsing & CPU Reference Fixes**:
+    - Updated `src/Read_input_data_nml.cuf` section searches (`vpot matrix`, `sigmas_ang`, `sigma_LJ`) to skip comment lines (`!` or `#`), preventing false header matches.
+    - Fixed pre-existing CPU energy evaluation in `ener` (`src/energy.cuf`) for LJG: properly nested patchy angular interaction within `R12 < rangep_aux` and enforced core LJ cutoff, ensuring exact GPU vs CPU energy agreement ($|\Delta E| < 10^{-2}$ on 7695 particles).
+- **Validation**:
+  - Successfully validated NpT simulations on GPU against CPU reference routines (`Ecpu_check = .true.`):
+    - Isotropic tabulated potential mixture (`model = 'TABLE'`).
+    - Site-Site patchy Palaia mixture (`model = 'SSP'`, `pot_int = 2`).
+    - Continuous square-well Sanchez-Burgos mixture (`model = 'SB'`, `pot_int = 3`).
+    - Angular patchy Lennard-Jones-Gauss system (`model = 'LJG'`, `pot_int = 1`).
+  - All tests completed with zero virial check discrepancies ($|P_{\text{GPU}} - P_{\text{CPU}}| < 10^{-3}$).
+
+---
+
 ## [2.8.10] - 2026-10-15
 
 ### Added & Optimized
