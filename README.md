@@ -208,7 +208,7 @@ The namelist filename passed as the first command-line argument to `MCCB-gpu` is
 - `mclast_clconf.lammpstrj` - Final cluster configuration output formatted in LAMMPS trajectory format for VMD visualization.
 - `mclast_brdconf.lammpstrj` - Final cluster border configuration based on geometric asymmetry criterion formatted in LAMMPS trajectory format.
 
-**Standard Output**: Clean single-line progress table containing step index, total and per-site potential energies, translation/rotation acceptance ratios, moves per particle, cell grid size, CPU/GPU timing, and conditionally integrated cluster metrics (`N_Clust`, `Max_Cl`, `%Clust`) and AVBMC acceptance ratios (`P_AV_in`, `P_AV_out`). For **Hard-Sphere (HS)** runs only, an additional `[P_HS]` line reporting the instantaneous virial pressure is printed at the same cadence, once the equilibration phase (`Neq` steps) has finished (see [HS Virial Pressure](#virial-pressure-hs-only) below).
+**Standard Output**: Clean single-line progress table containing step index, total and per-site potential energies, translation/rotation acceptance ratios, moves per particle, cell grid size, CPU/GPU timing, and conditionally integrated cluster metrics (`N_Clust`, `Max_Cl`, `%Clust`) and AVBMC acceptance ratios (`P_AV_in`, `P_AV_out`). For all **isotropic systems** without orientational degrees of freedom (`pot_int < 1`: Hard Spheres `HS`, Lennard-Jones `LJ`, and Tabulated potentials `TABLE`), the instantaneous virial pressure `P σ³/kT` is calculated on GPU and reported at every `Nsave` steps, accumulated into thermodynamic averages, and embedded in the NetCDF trajectory stress tensor (see [Virial Pressure Calculation](#virial-pressure-calculation-isotropic-systems-hs-lj-table) below).
 
 ---
 
@@ -309,15 +309,26 @@ The potential is athermal, so the temperature never enters the Metropolis accept
 
 > **NpT note:** In the NpT ensemble the acceptance rule is $\exp[-\beta P\,\Delta V + N\ln(V'/V)]$. Since HS is athermal the code fixes $\beta = 1$, so the input `pres` is interpreted as the **reduced pressure** $P^* = P/k_BT$ (equivalently $\beta P$).
 
-#### Virial Pressure & Time-Accumulated Contact Extrapolation (HS only)
+#### Virial Pressure Calculation (Isotropic Systems: HS, LJ, TABLE)
 
-Because hard-sphere forces are impulsive, there is no smooth pairwise virial to sum as for LJ. Instead the code uses the exact Lebowitz-Percus contact theorem for a multicomponent hard-sphere mixture:
-$$P = \rho T + \frac{2\pi}{3} T \sum_{a,b} \rho_a \rho_b\, \sigma_{ab}^3\, g_{ab}(\sigma_{ab}^+)$$
-where $\rho_a = N_a/V$ is the partial number density of species $a$ and $g_{ab}(\sigma_{ab}^+)$ is the contact value of the pair correlation function for species pair $(a,b)$.
+For all systems without orientational degrees of freedom (`pot_int < 1`), the thermodynamic virial pressure is computed and monitored:
 
-To achieve maximum precision even at high packing densities near the equation of state divergence, the Virial calculation combines two advanced schemes:
-1. **Fine Shell Resolution & Log-Linear Contact Fit**: Pair separations are histogrammed into 10 fine shells of width $\delta_{ab} = 0.0025\,\sigma_{ab}$ right at contact ($r \in [\sigma_{ab},\, 1.025\,\sigma_{ab})$). The contact value $g_{ab}(\sigma_{ab}^+)$ is obtained via a Log-Linear least-squares fit ($\ln g(r) = a + b(r - \sigma_{ab})$), matching the physical exponential decay of pair correlations near contact.
-2. **Block Time-Accumulation (NpT / NVT Compatible)**: Pair distance counts and box volume are accumulated periodically across all MC cycles within each `Nsave` window (`Accumulate_HS_Virial_Histogram`). The reported $P_{\text{virial}}$ is computed from the window-averaged contact distribution $\langle g_{ab}(\sigma_{ab}^+) \rangle$ and average volume $\langle V \rangle$, reducing statistical counting noise by $\sim 3.16\times$.
+1. **Lennard-Jones (`model = 'LJ'`, `pot_int = 0`)**:
+   Smooth continuous pairwise forces are calculated analytically:
+   $$w(r) = -r \frac{dV}{dr} = 24\epsilon \left[ 2\left(\frac{\sigma}{r}\right)^{12} - \left(\frac{\sigma}{r}\right)^6 \right], \quad F(r) = \frac{w(r)}{r}$$
+   The total scalar virial $W = \sum_{i < j} r_{ij} F(r_{ij})$ is evaluated across all checkerboard cell sets using the dedicated GPU kernel `virialGPU_LJ`. The thermodynamic virial pressure is then given by:
+   $$P_{\text{virial}} = \frac{N k_B T + \frac{1}{3} W}{V}$$
+
+2. **Tabulated Potentials (`model = 'TABLE'`, `pot_int < 0`)**:
+   Pairwise forces $F(r) = -dV/dr$ are parsed from column 4 of LAMMPS table files (`table_F`) and evaluated via Catmull-Rom cubic spline interpolation. The pairwise virial is $w(r) = r \cdot F(r)$, and the total virial is accumulated with GPU acceleration via `virialGPU_LJ`.
+
+3. **Hard Spheres (`model = 'HS'`, `pot_int = -1`)**:
+   Because hard-sphere forces are impulsive, there is no smooth pairwise virial to sum. Instead the code uses the exact Lebowitz-Percus contact theorem for a multicomponent hard-sphere mixture:
+   $$P = \rho T + \frac{2\pi}{3} T \sum_{a,b} \rho_a \rho_b\, \sigma_{ab}^3\, g_{ab}(\sigma_{ab}^+)$$
+   where $\rho_a = N_a/V$ is the partial number density of species $a$ and $g_{ab}(\sigma_{ab}^+)$ is the contact value of the pair correlation function for species pair $(a,b)$.
+   To achieve maximum precision even at high packing densities near the equation of state divergence, the Virial calculation combines two advanced schemes:
+   - **Fine Shell Resolution & Log-Linear Contact Fit**: Pair separations are histogrammed into 10 fine shells of width $\delta_{ab} = 0.0025\,\sigma_{ab}$ right at contact ($r \in [\sigma_{ab},\, 1.025\,\sigma_{ab})$). The contact value $g_{ab}(\sigma_{ab}^+)$ is obtained via a Log-Linear least-squares fit ($\ln g(r) = a + b(r - \sigma_{ab})$), matching the physical exponential decay of pair correlations near contact.
+   - **Block Time-Accumulation (NpT / NVT Compatible)**: Pair distance counts and box volume are accumulated periodically across all MC cycles within each `Nsave` window (`Accumulate_HS_Virial_Histogram`). The reported $P_{\text{virial}}$ is computed from the window-averaged contact distribution $\langle g_{ab}(\sigma_{ab}^+) \rangle$ and average volume $\langle V \rangle$, reducing statistical counting noise by $\sim 3.16\times$.
 
 #### GPU Checkerboard Identity Swaps (Multicomponent Mixtures, All Potentials)
 
@@ -594,6 +605,12 @@ Computing resources provided by CSIC.
 ## Version History
 
 For a complete record of all versions and features, see [Changelog.md](Changelog.md).
+
+- **V2.8.10** (October 2026) Virial Force & Virial Pressure for All Isotropic Potentials (`HS`, `LJ`, `TABLE`)
+  - **Analytical LJ Virial & Table Force Extraction**: Implemented analytical pairwise virial derivation for Lennard-Jones fluids ($w(r) = -r dV/dr = 24\epsilon[2(\sigma/r)^{12} - (\sigma/r)^6]$) and Catmull-Rom cubic spline force interpolation from column 4 of LAMMPS table files.
+  - **GPU Accelerated Virial Accumulation**: Added CUDA device kernel `virialGPU_LJ` computing total scalar virial $W = \sum_{i<j} r_{ij} F(r_{ij})$ across checkerboard cells in $\sim 0.3\,\text{ms}$.
+  - **Cross-Checked CPU Verification**: Added exact CPU reference routines in `src/energy.cuf` cross-verified against GPU calculations with $|P_{\text{GPU}} - P_{\text{CPU}}| < 10^{-5}$ under `Ecpu_check`.
+  - **Integrated Reporting**: Instantaneous virial pressure is reported in the runtime table, accumulated into thermodynamic averages (`Average Pσ³/kT`), and recorded in NetCDF trajectory stress tensors.
 
 - **V2.8.9** (October 2026) Two-Tier Dynamic AVBMC Scheduling & Small-Cluster Nucleation Regime
   - **Two-Tier Dynamic Scheduling**: Introduced automatic switching between Tier 1 (pre-nucleation / small clusters $\le 5$ particles) and Tier 2 (post-nucleation / large condensed clusters).

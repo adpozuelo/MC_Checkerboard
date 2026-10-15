@@ -275,12 +275,12 @@ Subroutine Calculate_averages
       lx_av = lx_av / n_samples
       ly_av = ly_av / n_samples
       lz_av = lz_av / n_samples
-      If (pot_int == -1) P_mean = P_virial_av / n_samples
+      If (pot_int < 1) P_mean = P_virial_av / n_samples
 
       If (nav_count > 1) Then
          rho_err = sqrt(max(0.0_wp, (rho_sq_av - rho_mean**2 * n_samples) / (n_samples * (n_samples - 1.0_wp))))
          en_err = sqrt(max(0.0_dkind, (en_sq_av - en_mean**2 * real(nav_count, dkind)) / (real(nav_count, dkind) * real(nav_count - 1, dkind))))
-         If (pot_int == -1) Then
+         If (pot_int < 1) Then
             P_err = sqrt(max(0.0_wp, (P_virial_sq_av - P_mean**2 * n_samples) / (n_samples * (n_samples - 1.0_wp))))
          EndIf
       EndIf
@@ -288,14 +288,14 @@ Subroutine Calculate_averages
 
    rho_av = rho_mean
    en_av = en_mean
-   If (pot_int == -1) P_virial_av = P_mean
+   If (pot_int < 1) P_virial_av = P_mean
 
    print*, c_cyan // ' --- THERMODYNAMIC AVERAGES ---' // c_reset
    write(*,'(A,F14.6,A,F12.6)') '  Average density      = ', rho_av, ' ± ', rho_err
    If (pot_int /= -1) Then
       write(*,'(A,F14.6,A,F12.6,F16.6)') '  Average energy       = ', en_av/natoms, ' ± ', en_err/natoms, en_av
    EndIf
-   If (pot_int == -1) Then
+   If (pot_int < 1) Then
       write(*,'(A,F14.6,A,F12.6)') '  Average Pσ³/kT = ', P_virial_av, ' ± ', P_err
    EndIf
    print*, '  Average edge lx      = ',lx_av

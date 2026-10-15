@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.8.10] - 2026-10-15
+
+### Added & Optimized
+- **Virial Force and Virial Pressure Calculation for All Isotropic Potentials (`pot_int < 1`)**:
+  - Implemented exact pairwise virial force and thermodynamic pressure calculation for all systems without orientational degrees of freedom:
+    1. **Lennard-Jones (`pot_int = 0`)**:
+       - Implemented analytical pair virial $w(r) = -r \frac{dV}{dr} = 24\epsilon \left[ 2\left(\frac{\sigma}{r}\right)^{12} - \left(\frac{\sigma}{r}\right)^6 \right]$ and radial force $F(r) = w(r)/r$ (`vlj_virial` and `vlj_force` in `src/potential_functions.cuf`), evaluated directly from $r^2$ without square roots on GPU.
+    2. **Tabulated Potentials (`pot_int < 0`, `table_mc = .true.`)**:
+       - Extracted pairwise force $F(r) = -dV/dr$ from column 4 of LAMMPS table files in `src/Read_input_data_nml.cuf` into `table_F` (host) and `table_F_dev` (device).
+       - Implemented Catmull-Rom cubic spline force interpolation (`eval_table_force_dev` and `eval_table_force_host` in `src/potential_functions.cuf`) with pair virial $w(r) = r \cdot F(r)$.
+    3. **Hard Spheres (`pot_int = -1`)**:
+       - Preserved exact contact extrapolation $g(\sigma^+)$ via `HS_Virial_Pressure`.
+  - **GPU Accelerated Virial Accumulation Kernel**:
+    - Implemented CUDA device kernel `virialGPU_LJ` in `src/Subsweep_Energy_CUDA.cuf` and host interface `CB_system_virial_GPU` in `src/CB_system_energy_gpu.cuf`.
+    - Evaluates total scalar virial $W = \sum_{i < j} r_{ij} F(r_{ij})$ across all checkerboard cell sets and 26 neighbor cells in $\sim 0.3\,\text{ms}$ on GPU.
+    - Thermodynamic virial pressure: $P_{\text{virial}} = \frac{N k_B T + W / 3}{V}$.
+  - **CPU Verification & Diagnostics**:
+    - Added CPU reference routines `compute_virial_isotropic_cpu` and `compute_per_atom_forces_cpu` in `src/energy.cuf`.
+    - Integrated automatic cross-verification under `Ecpu_check = .true.`, with coordinate synchronization (`Convert_CB_RU`) ensuring exact GPU vs CPU agreement ($|P_{\text{GPU}} - P_{\text{CPU}}| < 10^{-5}$).
+  - **Output & Trajectory Integration**:
+    - Updated progress table in `src/Main.cuf` to display instantaneous virial pressure `P σ³/kT` for all `pot_int < 1`.
+    - Updated `src/Tools.cuf` (`Calculate_averages`) to accumulate and print `Average Pσ³/kT = <P> ± <err>` in the final thermodynamic averages summary.
+    - Updated NetCDF trajectory frames (`netcdf_write_frame`) in `src/Main.cuf` to embed the virial stress tensor for all isotropic potentials.
+
+---
+
 ## [2.8.9] - 2026-10-14
 
 ### Added & Optimized

@@ -46,3 +46,33 @@ Subroutine CB_system_energy_GPU(state)
    En_tot = Ener_tot
 
 End Subroutine CB_system_energy_GPU
+
+! ==============================================================================
+! SUBROUTINE: CB_system_virial_GPU
+! ==============================================================================
+! DESCRIPTION:
+!   Calculates the total virial sum W = sum_{i<j} r_ij * F(r_ij) and virial
+!   pressure using GPU acceleration for isotropic systems (pot_int < 1: LJ and Table).
+! ==============================================================================
+Subroutine CB_system_virial_GPU(W_tot, P_vir)
+   Use set_precision
+   Use Cell, only: Nat_cell_max, Ntot_Cell
+   Use configuration, only: Ndim, Natoms, h
+   Use potential, only: Npart_types
+   Use rundata, only: Temp, Ecpu_check
+   Use cuda_fortran, only: computevirialgpu
+   Implicit None
+   Real(wp), Intent(Out) :: W_tot, P_vir
+   Real(wp) :: W_cpu, P_cpu
+
+   Call computevirialgpu(Ndim, Nat_cell_max, Ntot_Cell, Npart_types, h, Natoms, Temp, W_tot, P_vir)
+
+   If (Ecpu_check) Then
+      Call Convert_CB_RU
+      Call compute_virial_isotropic_cpu(W_cpu, P_cpu)
+      If (abs(P_vir - P_cpu) > 1.0e-3_wp) Then
+         write(*,'(A,F14.6,A,F14.6,A,ES11.4)') &
+            ' [VIRIAL CHECK WARNING] GPU P = ', P_vir, ' | CPU P = ', P_cpu, ' | Diff = ', abs(P_vir - P_cpu)
+      End If
+   End If
+End Subroutine CB_system_virial_GPU

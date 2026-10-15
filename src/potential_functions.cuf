@@ -2,9 +2,9 @@ module potential_functions
    use set_precision
    use rundata, only : pot_int
    use potential, only : table_mc, table_mc_dev, Npart_types, &
-                         has_table_dev, table_rmin_dev, table_rmax_dev, table_N_dev, table_dr_inv_dev, table_V_dev, &
+                         has_table_dev, table_rmin_dev, table_rmax_dev, table_N_dev, table_dr_inv_dev, table_V_dev, table_F_dev, &
                          table_is_rsq_dev, &
-                         has_table, table_rmin, table_rmax, table_N, table_dr_inv, table_V, &
+                         has_table, table_rmin, table_rmax, table_N, table_dr_inv, table_V, table_F, &
                          table_is_rsq, &
                          eps_R, eps_CSW, rw_CSW, alpha_CSW, rc_CSW, &
                          eps_R_dev, eps_CSW_dev, rw_CSW_dev, alpha_CSW_dev, rc_CSW_dev, &
@@ -25,6 +25,35 @@ module potential_functions
       ! Standard 12-6 LJ form shifted by vl0
       Vrad = -4.0_wp * eps * ( (r1212 - r126)/(r1212 * r126) + vl0 )
    end subroutine vlj
+
+   ! ==============================================================================
+   ! ROUTINE: vlj_virial (Lennard-Jones pairwise virial w = r * F = -r * dV/dr)
+   ! w(r) = 24 * eps * [ 2*(sigma/r)^12 - (sigma/r)^6 ] = 48*eps*(sigma/r)^12 - 24*eps*(sigma/r)^6
+   ! ==============================================================================
+   attributes(device, host) subroutine vlj_virial(rsq, sigma, eps, w_pair)
+      real(wp), intent(in)  :: rsq, sigma, eps
+      real(wp), intent(out) :: w_pair
+      real(wp) :: s2, s6, s12
+      s2 = (sigma * sigma) / rsq
+      s6 = s2 * s2 * s2
+      s12 = s6 * s6
+      w_pair = 24.0_wp * eps * (2.0_wp * s12 - s6)
+   end subroutine vlj_virial
+
+   ! ==============================================================================
+   ! ROUTINE: vlj_force (Lennard-Jones pairwise force F = -dV/dr and virial w = r*F)
+   ! ==============================================================================
+   attributes(device, host) subroutine vlj_force(rsq, sigma, eps, F_pair, w_pair)
+      real(wp), intent(in)  :: rsq, sigma, eps
+      real(wp), intent(out) :: F_pair, w_pair
+      real(wp) :: s2, s6, s12, r
+      s2 = (sigma * sigma) / rsq
+      s6 = s2 * s2 * s2
+      s12 = s6 * s6
+      w_pair = 24.0_wp * eps * (2.0_wp * s12 - s6)
+      r = sqrt(rsq)
+      F_pair = w_pair / r
+   end subroutine vlj_force
 
    ! ==============================================================================
    ! ROUTINE: vlj_palaia (Weeks-Chandler-Andersen core + attractive cosine tail)
@@ -474,5 +503,93 @@ module potential_functions
                     y1
         end if
     end subroutine eval_table_pot_host
+
+    ! ==============================================================================
+    ! ROUTINES: eval_table_force (Host & Device implementations)
+    ! DESCRIPTION: Evaluates tabulated force -dV/dr from table_F using cubic spline
+    ! ==============================================================================
+    attributes(device) subroutine eval_table_force_dev(r, t1, t2, F_val)
+        use potential, only : table_rmin_dev, table_rmax_dev, table_N_dev, table_dr_inv_dev, table_F_dev, table_is_rsq_dev
+        implicit none
+        real(wp), intent(in) :: r
+        integer, intent(in) :: t1, t2
+        real(wp), intent(out) :: F_val
+        integer :: idx, N
+        real(wp) :: idx_real, frac, rmin, rmax, dr_inv
+        real(wp) :: y0, y1, y2, y3
+        
+        rmin = table_rmin_dev(t1, t2)
+        rmax = table_rmax_dev(t1, t2)
+        N = table_N_dev(t1, t2)
+        dr_inv = table_dr_inv_dev(t1, t2)
+        
+        if (r < rmin) then
+            F_val = table_F_dev(0, t1, t2)
+        else if (r >= rmax) then
+            F_val = 0.0_wp
+        else
+            if (table_is_rsq_dev(t1, t2)) then
+                idx_real = (r*r - rmin*rmin) * dr_inv
+            else
+                idx_real = (r - rmin) * dr_inv
+            end if
+            idx = int(idx_real)
+            if (idx < 0) idx = 0
+            if (idx > N - 2) idx = N - 2
+            frac = idx_real - real(idx, wp)
+            
+            y0 = table_F_dev(max(idx - 1, 0), t1, t2)
+            y1 = table_F_dev(idx, t1, t2)
+            y2 = table_F_dev(min(idx + 1, N - 1), t1, t2)
+            y3 = table_F_dev(min(idx + 2, N - 1), t1, t2)
+            
+            F_val = (-0.5_wp*y0 + 1.5_wp*y1 - 1.5_wp*y2 + 0.5_wp*y3) * (frac*frac*frac) + &
+                    (y0 - 2.5_wp*y1 + 2.0_wp*y2 - 0.5_wp*y3) * (frac*frac) + &
+                    (-0.5_wp*y0 + 0.5_wp*y2) * frac + &
+                    y1
+        end if
+    end subroutine eval_table_force_dev
+
+    attributes(host) subroutine eval_table_force_host(r, t1, t2, F_val)
+        use potential, only : table_rmin, table_rmax, table_N, table_dr_inv, table_F, table_is_rsq
+        implicit none
+        real(wp), intent(in) :: r
+        integer, intent(in) :: t1, t2
+        real(wp), intent(out) :: F_val
+        integer :: idx, N
+        real(wp) :: idx_real, frac, rmin, rmax, dr_inv
+        real(wp) :: y0, y1, y2, y3
+        
+        rmin = table_rmin(t1, t2)
+        rmax = table_rmax(t1, t2)
+        N = table_N(t1, t2)
+        dr_inv = table_dr_inv(t1, t2)
+        
+        if (r < rmin) then
+            F_val = table_F(0, t1, t2)
+        else if (r >= rmax) then
+            F_val = 0.0_wp
+        else
+            if (table_is_rsq(t1, t2)) then
+                idx_real = (r*r - rmin*rmin) * dr_inv
+            else
+                idx_real = (r - rmin) * dr_inv
+            end if
+            idx = int(idx_real)
+            if (idx < 0) idx = 0
+            if (idx > N - 2) idx = N - 2
+            frac = idx_real - real(idx, wp)
+            
+            y0 = table_F(max(idx - 1, 0), t1, t2)
+            y1 = table_F(idx, t1, t2)
+            y2 = table_F(min(idx + 1, N - 1), t1, t2)
+            y3 = table_F(min(idx + 2, N - 1), t1, t2)
+            
+            F_val = (-0.5_wp*y0 + 1.5_wp*y1 - 1.5_wp*y2 + 0.5_wp*y3) * (frac*frac*frac) + &
+                    (y0 - 2.5_wp*y1 + 2.0_wp*y2 - 0.5_wp*y3) * (frac*frac) + &
+                    (-0.5_wp*y0 + 0.5_wp*y2) * frac + &
+                    y1
+        end if
+    end subroutine eval_table_force_host
 
 end module potential_functions

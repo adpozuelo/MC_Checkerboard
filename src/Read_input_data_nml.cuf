@@ -1164,6 +1164,7 @@ Subroutine load_table_potentials()
     table_rmax(:, :) = 0.0_wp
     table_dr_inv(:, :) = 0.0_wp
     table_V = 0.0_wp
+    table_F = 0.0_wp
 
     unit_id = 98
 
@@ -1343,6 +1344,8 @@ Subroutine load_table_potentials()
                     end if
                     table_V(i, t_mc1, t_mc2) = V
                     table_V(i, t_mc2, t_mc1) = V
+                    table_F(i, t_mc1, t_mc2) = F
+                    table_F(i, t_mc2, t_mc1) = F
                 end do
 
                 ! Update interaction range for this pair
@@ -1371,7 +1374,7 @@ Subroutine load_table_potentials()
     block
         use potential, only : has_table_dev, table_is_rsq_dev, table_N_dev, &
                               table_rmin_dev, table_rmax_dev, table_dr_inv_dev, &
-                              table_V_dev, table_mc_dev
+                              table_V_dev, table_F_dev, table_mc_dev
         has_table_dev = has_table
         table_is_rsq_dev = table_is_rsq
         table_N_dev = table_N
@@ -1379,6 +1382,7 @@ Subroutine load_table_potentials()
         table_rmax_dev = table_rmax
         table_dr_inv_dev = table_dr_inv
         table_V_dev = table_V
+        table_F_dev = table_F
         table_mc_dev = table_mc
     end block
     print *, " >>> Host and Device table potentials successfully loaded."

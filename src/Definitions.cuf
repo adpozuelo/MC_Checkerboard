@@ -184,6 +184,7 @@ MODULE potential
     real(wp) :: table_dr_inv(0:15, 0:15) = 0.0_wp
     integer, parameter :: table_N_max = 100005
     real(wp), target :: table_V(0:table_N_max, 0:15, 0:15) = 0.0_wp
+    real(wp), target :: table_F(0:table_N_max, 0:15, 0:15) = 0.0_wp
     
     ! Device table potential variables
     logical, constant :: has_table_dev(0:15, 0:15)
@@ -193,6 +194,7 @@ MODULE potential
     real(wp), constant :: table_rmax_dev(0:15, 0:15)
     real(wp), constant :: table_dr_inv_dev(0:15, 0:15)
     real(wp), device, save :: table_V_dev(0:table_N_max, 0:15, 0:15)
+    real(wp), device, save :: table_F_dev(0:table_N_max, 0:15, 0:15)
     logical, constant :: table_mc_dev
 
     ! Sanchez-Burgos 2021 potential parameters (pot_int == 3)
@@ -235,6 +237,8 @@ MODULE properties
    Real (wp) :: rho, vol                       ! Total energy, density, and volume
    Real (wp) :: rho_av, rho_sq_av              ! Averaged energy and density, and squared sums
    Real (wp) :: lx_av, ly_av, lz_av            ! Averaged box dimensions
+   Real (wp) :: P_virial = 0.0_wp              ! Instantaneous virial pressure
+   Real (wp) :: W_virial = 0.0_wp              ! Instantaneous virial sum
    Real (wp) :: P_virial_av = 0.0_wp           ! Averaged virial pressure
    Real (wp) :: P_virial_sq_av = 0.0_wp        ! Squared sum of virial pressure
    Integer   :: nav_count = 0                  ! Count of accumulated samples

@@ -719,3 +719,137 @@ Subroutine calc_single_particle_energy(id_atom, r_pos, e_total, is_overlap)
    r(i_atom * ndim : i_atom * ndim + 2) = r_saved(1:3)
 End Subroutine calc_single_particle_energy
 
+! ==============================================================================
+! CPU ROUTINE: compute_virial_isotropic_cpu
+! DESCRIPTION: Computes scalar virial W = sum_{i<j} r_ij * F(r_ij) and virial
+! pressure for isotropic models (LJ and Tabulated) on the CPU.
+! ==============================================================================
+Subroutine compute_virial_isotropic_cpu(W_tot, P_vir)
+   Use set_precision
+   Use configuration
+   Use potential
+   Use rundata, Only: Temp, pot_int
+   Use potential_functions, only: vlj_virial, eval_table_force_host
+   Implicit None
+   Real(wp), Intent(Out) :: W_tot, P_vir
+
+   Integer :: i, j, ti, tj, Indx
+   Real(wp) :: DX, DY, DZ, DXP, DYP, DZP, RSQ, R12, Vol, w_pair, F_val
+   Real(wp) :: sigma_ab, eps_ab, rcut
+
+   W_tot = 0.0_wp
+
+   If (Ndim == 2) Then
+      Vol = h(0)*h(3) - h(1)*h(2)
+   Else
+      Vol = h(0)*(h(4)*h(8)-h(5)*h(7)) - h(3)*(h(1)*h(8)-h(2)*h(7)) + h(6)*(h(1)*h(5)-h(2)*h(4))
+   End If
+
+   Do i = 0, Natoms - 2
+      ti = itype(i)
+      Do j = i + 1, Natoms - 1
+         tj = itype(j)
+         Indx = ti * Npart_types + tj
+         sigma_ab = sigma_LJ(Indx)
+         eps_ab   = epsilon_LJ(Indx)
+         rcut     = rangep(Indx)
+
+         DX = r(j*Ndim)   - r(i*Ndim)
+         DY = r(j*Ndim+1) - r(i*Ndim+1)
+         DZ = r(j*Ndim+2) - r(i*Ndim+2)
+         DX = DX - anint(DX); DY = DY - anint(DY); DZ = DZ - anint(DZ)
+         DXP = h(0)*DX + h(1)*DY + h(2)*DZ
+         DYP = h(3)*DX + h(4)*DY + h(5)*DZ
+         DZP = h(6)*DX + h(7)*DY + h(8)*DZ
+         RSQ = DXP*DXP + DYP*DYP + DZP*DZP
+
+         If (RSQ < rcut*rcut) Then
+            R12 = sqrt(RSQ)
+            If (table_mc .and. has_table(ti, tj)) Then
+               Call eval_table_force_host(R12, ti, tj, F_val)
+               w_pair = R12 * F_val
+            Else
+               Call vlj_virial(RSQ, sigma_ab, eps_ab, w_pair)
+            End If
+            W_tot = W_tot + w_pair
+         End If
+      End Do
+   End Do
+
+   If (Ndim == 2) Then
+      P_vir = (real(Natoms, wp)*Temp + W_tot / 2.0_wp) / Vol
+   Else
+      P_vir = (real(Natoms, wp)*Temp + W_tot / 3.0_wp) / Vol
+   End If
+End Subroutine compute_virial_isotropic_cpu
+
+! ==============================================================================
+! CPU ROUTINE: compute_per_atom_forces_cpu
+! DESCRIPTION: Computes 3D pairwise force vectors and per-atom scalar virials
+! for all particles in isotropic systems (LJ and Tabulated).
+! ==============================================================================
+Subroutine compute_per_atom_forces_cpu(fx, fy, fz, w_atom)
+   Use set_precision
+   Use configuration
+   Use potential
+   Use potential_functions, only: vlj_force, eval_table_force_host
+   Implicit None
+   Real(wp), Intent(Out) :: fx(0:Natoms-1), fy(0:Natoms-1), fz(0:Natoms-1), w_atom(0:Natoms-1)
+
+   Integer :: i, j, ti, tj, Indx
+   Real(wp) :: DX, DY, DZ, DXP, DYP, DZP, RSQ, R12, w_pair, F_val
+   Real(wp) :: fx_ij, fy_ij, fz_ij, rinv
+   Real(wp) :: sigma_ab, eps_ab, rcut
+
+   fx = 0.0_wp; fy = 0.0_wp; fz = 0.0_wp
+   w_atom = 0.0_wp
+
+   Do i = 0, Natoms - 2
+      ti = itype(i)
+      Do j = i + 1, Natoms - 1
+         tj = itype(j)
+         Indx = ti * Npart_types + tj
+         sigma_ab = sigma_LJ(Indx)
+         eps_ab   = epsilon_LJ(Indx)
+         rcut     = rangep(Indx)
+
+         DX = r(j*Ndim)   - r(i*Ndim)
+         DY = r(j*Ndim+1) - r(i*Ndim+1)
+         DZ = r(j*Ndim+2) - r(i*Ndim+2)
+         DX = DX - anint(DX); DY = DY - anint(DY); DZ = DZ - anint(DZ)
+         DXP = h(0)*DX + h(1)*DY + h(2)*DZ
+         DYP = h(3)*DX + h(4)*DY + h(5)*DZ
+         DZP = h(6)*DX + h(7)*DY + h(8)*DZ
+         RSQ = DXP*DXP + DYP*DYP + DZP*DZP
+
+         If (RSQ < rcut*rcut) Then
+            R12 = sqrt(RSQ)
+            rinv = 1.0_wp / R12
+            If (table_mc .and. has_table(ti, tj)) Then
+               Call eval_table_force_host(R12, ti, tj, F_val)
+               w_pair = R12 * F_val
+            Else
+               Call vlj_force(RSQ, sigma_ab, eps_ab, F_val, w_pair)
+            End If
+
+            ! Force on i from j: f_ij = -F_val * (r_ij / r_12)
+            ! Force on j from i: f_ji = -f_ij
+            fx_ij = -F_val * DXP * rinv
+            fy_ij = -F_val * DYP * rinv
+            fz_ij = -F_val * DZP * rinv
+
+            fx(i) = fx(i) + fx_ij
+            fy(i) = fy(i) + fy_ij
+            fz(i) = fz(i) + fz_ij
+
+            fx(j) = fx(j) - fx_ij
+            fy(j) = fy(j) - fy_ij
+            fz(j) = fz(j) - fz_ij
+
+            w_atom(i) = w_atom(i) + 0.5_wp * w_pair
+            w_atom(j) = w_atom(j) + 0.5_wp * w_pair
+         End If
+      End Do
+   End Do
+End Subroutine compute_per_atom_forces_cpu
+
