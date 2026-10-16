@@ -3,12 +3,12 @@
 ! ==============================================================================
 &Control_Params
   istep_ini   = 0,          ! Initial step number (0 for new simulation, >0 for restart)
-  istep_fin   = 5000,       ! Total number of production MC sweeps (steps) to execute
-  Neq         = 1000,       ! Number of equilibration sweeps before accumulating averages
+  istep_fin   = 20000,      ! Total number of production MC sweeps (steps) to execute
+  Neq         = 5000,       ! Number of equilibration sweeps before accumulating averages
   Nmove       = 20,         ! Trial moves per particle attempted in each MC sweep (10 trans + 10 rot)
   Nsave       = 50,         ! Frequency (in sweeps) for writing progress stdout & block averages
-  Ndump       = 500,        ! Frequency (in sweeps) for writing trajectory frames
-  Nrestart    = 1000,       ! Frequency (in sweeps) for saving restart checkpoints
+  Ndump       = 5000,       ! Frequency (in sweeps) for writing trajectory frames
+  Nrestart    = 2000,       ! Frequency (in sweeps) for saving restart checkpoints
   imovie      = .false.,    ! Enable trajectory output (.true. / .false.)
   traj_format = 'netcdf',   ! Trajectory output format: 'plain' (text), 'netcdf' (binary), or 'both'
   Npart_types = 2,          ! Number of particle species in system (2 for binary mixture)

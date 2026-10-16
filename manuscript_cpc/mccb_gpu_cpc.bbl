@@ -5,20 +5,6 @@
 \expandafter\ifx\csname href\endcsname\relax
   \def\href#1#2{#2} \def\path#1{#1}\fi
 
-\bibitem{palaia2022patchy}
-I.~Palaia, A.~{\v{S}}ari{\'{c}}, Controlling cluster size in {2D}
-  phase-separating binary mixtures with specific interactions, J. Chem. Phys.
-  156~(19) (2022) 194902.
-\newblock \href {https://doi.org/10.1063/5.0087769}
-  {\path{doi:10.1063/5.0087769}}.
-
-\bibitem{sanchezburgos2021size}
-I.~Sanchez-Burgos, J.~A. Joseph, R.~Collepardo-Guevara, J.~R. Espinosa, Size
-  conservation emerges spontaneously in biomolecular condensates formed by
-  scaffolds and surfactant clients, Sci. Rep. 11~(1) (2021) 15241.
-\newblock \href {https://doi.org/10.1038/s41598-021-94309-y}
-  {\path{doi:10.1038/s41598-021-94309-y}}.
-
 \bibitem{thompson2022lammps}
 A.~P. Thompson, H.~M. Aktulga, R.~Berger, D.~S. Bolintineanu, W.~M. Brown,
   P.~S. Crozier, P.~J. in~'t Veld, A.~Kohlmeyer, S.~G. Moore, T.~D. Nguyen,
@@ -62,12 +48,19 @@ F.~Sciortino, E.~Bianchi, J.~F. Douglas, P.~Tartaglia, Self-assembly of patchy
 \newblock \href {https://doi.org/10.1063/1.2730797}
   {\path{doi:10.1063/1.2730797}}.
 
-\bibitem{noya2014phase}
-E.~G. Noya, I.~Kolovos, G.~Doppelbauer, G.~Kahl, E.~Bianchi, Phase diagram of
-  inverse patchy colloids assembling into an equilibrium laminar phase, Soft
-  Matter 10~(42) (2014) 8464--8474.
-\newblock \href {https://doi.org/10.1039/c4sm01559b}
-  {\path{doi:10.1039/c4sm01559b}}.
+\bibitem{Noya21}
+E.~G. Noya, C.~K. Wong, P.~Llombart, J.~P.~K. Doye, How to design an
+  icosahedral quasicrystal through directional bonding, Nature 596 (2021)
+  367--371.
+\newblock \href {https://doi.org/10.1038/s41586-021-03700-2}
+  {\path{doi:10.1038/s41586-021-03700-2}}.
+
+\bibitem{palaia2022patchy}
+I.~Palaia, A.~{\v{S}}ari{\'{c}}, Controlling cluster size in {2D}
+  phase-separating binary mixtures with specific interactions, J. Chem. Phys.
+  156~(19) (2022) 194902.
+\newblock \href {https://doi.org/10.1063/5.0087769}
+  {\path{doi:10.1063/5.0087769}}.
 
 \bibitem{ninarello2017models}
 A.~Ninarello, L.~Berthier, D.~Coslovich, Models and algorithms for the next
@@ -90,6 +83,31 @@ J.~A. Anderson, C.~D. Lorenz, A.~Travesset, General purpose molecular dynamics
 \newblock \href {https://doi.org/10.1016/j.jcp.2008.01.047}
   {\path{doi:10.1016/j.jcp.2008.01.047}}.
 
+\bibitem{anderson2013checkerboard}
+J.~A. Anderson, E.~Jankowski, T.~L. Grubb, M.~Engel, S.~C. Glotzer, Massively
+  parallel {Monte Carlo} for many-particle simulations on {GPUs}, J. Comput.
+  Phys. 254 (2013) 27--38.
+\newblock \href {https://doi.org/10.1016/j.jcp.2013.07.023}
+  {\path{doi:10.1016/j.jcp.2013.07.023}}.
+
+\bibitem{Engel2013HardDisk}
+M.~Engel, J.~A. Anderson, S.~C. Glotzer, M.~Isobe, E.~P. Bernard, W.~Krauth,
+  Hard-disk equation of state: First-order liquid-hexatic transition in two
+  dimensions with three simulation methods, Phys. Rev. E 87 (2013) 042134.
+\newblock \href {https://doi.org/10.1103/PhysRevE.87.042134}
+  {\path{doi:10.1103/PhysRevE.87.042134}}.
+
+\bibitem{Anderson2020HOOMD}
+J.~A. Anderson, J.~Glaser, S.~C. Glotzer, {HOOMD-blue}: A python package for
+  high-performance molecular dynamics and hard particle monte carlo
+  simulations, Computational Materials Science 173 (2020) 109363.
+\newblock \href {https://doi.org/10.1016/j.commatsci.2019.109363}
+  {\path{doi:10.1016/j.commatsci.2019.109363}}.
+
+\bibitem{MC-GPU}
+E.~G. Noya, {\texttt{MC\_GPU}: GPU Parallel Monte Carlo Code for Patchy
+  Particles}, Available at: \url{https://github.com/evanoya/MC_GPU} (2021).
+
 \bibitem{whitelam2007avoiding}
 S.~Whitelam, P.~L. Geissler, Avoiding unphysical kinetic traps in {Monte Carlo}
   simulations of strongly attractive particles, J. Chem. Phys. 127~(15) (2007)
@@ -110,12 +128,19 @@ T.~Preis, P.~Virnau, W.~Paul, J.~J. Schneider, {GPU} accelerated {Monte Carlo}
 \newblock \href {https://doi.org/10.1016/j.jcp.2009.03.018}
   {\path{doi:10.1016/j.jcp.2009.03.018}}.
 
-\bibitem{anderson2013checkerboard}
-J.~A. Anderson, E.~Jankowski, T.~L. Grubb, M.~Engel, S.~C. Glotzer, Massively
-  parallel {Monte Carlo} for many-particle simulations on {GPUs}, J. Comput.
-  Phys. 254 (2013) 27--38.
-\newblock \href {https://doi.org/10.1016/j.jcp.2013.07.023}
-  {\path{doi:10.1016/j.jcp.2013.07.023}}.
+\bibitem{Doye07}
+J.~P.~K. Doye, A.~A. Louis, I.-C. Lin, R.~G. Allen, E.~G. Noya, A.~W. Wilber,
+  H.~C. Kok, R.~Lyus, Controlling crystallization and its absence: Proteins,
+  colloids and patchy models, Phys. Chem. Chem. Phys. 9 (2007) 2197--2205.
+\newblock \href {https://doi.org/10.1039/B614955C}
+  {\path{doi:10.1039/B614955C}}.
+
+\bibitem{sanchezburgos2021size}
+I.~Sanchez-Burgos, J.~A. Joseph, R.~Collepardo-Guevara, J.~R. Espinosa, Size
+  conservation emerges spontaneously in biomolecular condensates formed by
+  scaffolds and surfactant clients, Sci. Rep. 11~(1) (2021) 15241.
+\newblock \href {https://doi.org/10.1038/s41598-021-94309-y}
+  {\path{doi:10.1038/s41598-021-94309-y}}.
 
 \bibitem{chen2000avbmc}
 B.~Chen, J.~I. Siepmann, A novel {Monte Carlo} algorithm for simulating
@@ -161,35 +186,30 @@ J.~A. Anderson, M.~E. Irrgang, S.~C. Glotzer, Scalable metropolis monte carlo
 \newblock \href {https://doi.org/10.1016/j.cpc.2016.02.024}
   {\path{doi:10.1016/j.cpc.2016.02.024}}.
 
-\bibitem{noya_mcgpu_repo}
-E.~G. Noya, {\texttt{MC\_GPU}: GPU-Accelerated Monte Carlo for Patchy
-  Particles}, Available at: \url{https://github.com/evanoya/MC_GPU} (2021).
-
-\bibitem{noya2021nature}
-E.~G. Noya, C.~K. Wong, P.~Llombart, J.~P.~K. Doye, How to design an
-  icosahedral quasicrystal through directional bonding, Nature 596~(7872)
-  (2021) 367--371.
-\newblock \href {https://doi.org/10.1038/s41586-021-03700-2}
-  {\path{doi:10.1038/s41586-021-03700-2}}.
-
-\bibitem{noya2025acsnano}
+\bibitem{Noya25}
 E.~G. Noya, J.~P.~K. Doye, A one-component patchy-particle icosahedral
-  quasicrystal, ACS Nano 19~(14) (2025) 13714--13722.
+  quasicrystal, ACS Nano 19 (2025) 13714--13722.
 \newblock \href {https://doi.org/10.1021/acsnano.4c14885}
   {\path{doi:10.1021/acsnano.4c14885}}.
 
-\bibitem{kowaguchi2025jcp}
+\bibitem{Kowaguchi25}
 A.~Kowaguchi, S.~Mehta, J.~P.~K. Doye, E.~G. Noya, A patchy-particle
-  three-dimensional octagonal quasicrystal, The Journal of Chemical Physics
-  163~(24) (2025) 244904.
+  three-dimensional octagonal quasicrystal, The Journal of Chemical Physics 163
+  (2025) 244904.
 \newblock \href {https://doi.org/10.1063/5.0292922}
   {\path{doi:10.1063/5.0292922}}.
 
-\bibitem{Vrabecz2006}
-A.~Vrabecz, G.~T{\'o}th, Simulation of binary hard-sphere systems with 1:5 and
-  1:10 size ratios, Mol. Phys. 104~(12) (2006) 1843--1853.
-\newblock \href {https://doi.org/10.1080/00268970600602313}
-  {\path{doi:10.1080/00268970600602313}}.
+\bibitem{MacDowell26}
+L.~G. MacDowell, E.~G. Noya, Sedimentation equilibrium and gravity dependent
+  stiffness coefficients of colloidal hard-spheres, Soft Matter (submitted,
+  arXiv:2607.06510) (2026).
+
+\bibitem{Thol2014}
+M.~Thol, G.~Rutkai, R.~Span, J.~Vrabec, R.~Lustig, Equation of state for the
+  truncated and shifted lennard-jones model fluid, International Journal of
+  Thermophysics 36 (2015) 25--43.
+\newblock \href {https://doi.org/10.1007/s10765-014-1764-4}
+  {\path{doi:10.1007/s10765-014-1764-4}}.
 
 \bibitem{duane1987hybrid}
 S.~Duane, A.~D. Kennedy, B.~J. Pendleton, D.~Roweth, Hybrid {Monte Carlo},
@@ -202,6 +222,12 @@ B.~Mehlig, D.~W. Heermann, B.~M. Forrest, Hybrid {Monte Carlo} method for
   condensed-matter systems, Phys. Rev. B 45~(1) (1992) 679--685.
 \newblock \href {https://doi.org/10.1103/PhysRevB.45.679}
   {\path{doi:10.1103/PhysRevB.45.679}}.
+
+\bibitem{Vrabecz2006}
+A.~Vrabecz, G.~T{\'o}th, Simulation of binary hard-sphere systems with 1:5 and
+  1:10 size ratios, Mol. Phys. 104~(12) (2006) 1843--1853.
+\newblock \href {https://doi.org/10.1080/00268970600602313}
+  {\path{doi:10.1080/00268970600602313}}.
 
 \bibitem{gpmc2026}
 E.~Lomba, E.~G. Noya, {\texttt{gpMC}: A General Purpose Monte Carlo Program},

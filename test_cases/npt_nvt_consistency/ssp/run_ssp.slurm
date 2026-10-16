@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:1
-#SBATCH --time=00:30:00
+#SBATCH --time=02:30:00
 #SBATCH --output=slurm_ssp_%j.out
 #SBATCH --error=slurm_ssp_%j.err
 
@@ -15,8 +15,10 @@ export OMP_NUM_THREADS=4
 BIN="/home/e.lomba/MC_Checkerboard/bin/MCCB-gpu"
 BASE_DIR="/home/e.lomba/MC_Checkerboard/test_cases/npt_nvt_consistency/ssp"
 
-echo "=== [1/3] Running Site-Site Patchy NpT Simulation on $(hostname) at $(date) ==="
+echo "=== [1/3] Running Extended Site-Site Patchy NpT Simulation on $(hostname) at $(date) ==="
 cd $BASE_DIR/npt
+cp $BASE_DIR/data.atoms.compressed data.atoms
+cp $BASE_DIR/datos_npt.nml datos.nml
 $BIN datos.nml 0 > output.out 2>&1
 
 echo "=== [2/3] Setting up NVT simulation from equilibrated NpT restart ==="

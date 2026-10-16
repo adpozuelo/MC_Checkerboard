@@ -17,6 +17,8 @@ BASE_DIR="/home/e.lomba/MC_Checkerboard/test_cases/npt_nvt_consistency/lj"
 
 echo "=== [1/3] Running Lennard-Jones NpT Simulation on $(hostname) at $(date) ==="
 cd $BASE_DIR/npt
+cp $BASE_DIR/data.atoms data.atoms
+cp $BASE_DIR/datos_npt.nml datos.nml
 $BIN datos.nml 0 > output.out 2>&1
 
 echo "=== [2/3] Setting up NVT simulation from equilibrated NpT restart ==="

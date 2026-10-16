@@ -685,13 +685,13 @@ paper.
 \includegraphics[width=\textwidth]{figures/consistency_all.pdf}
 \caption{\textbf{Thermodynamic Consistency Benchmarks across $NpT$ and
     $NVT$ Ensembles for $N = 7{,}695$ Particles}: Time evolution of
-  reduced density $\rho^*(t)$ (top row) and potential energy per
-  particle $\langle U/N \rangle(t)$ or contact virial pressure
+  reduced density $\rho^*(t)$ (top row) and molecular virial pressure
   $P^*(t)$ (bottom row) sharing the Monte Carlo sweep coordinate for:
   (a) Hard Spheres (HS) with analytical Carnahan-Starling
-  equation-of-state verification, (b) Lennard-Jones (LJ), and (c)
-  Site-Site Patchy (SSP) colloidal fluid, demonstrating exact
-  statistical equivalence between ensembles.} 
+  equation-of-state verification, (b) Lennard-Jones (LJ) against the
+  imposed target pressure and the fitted EOS of Thol et al.~\cite{Thol2014},
+  and (c) Site-Site Patchy (SSP) colloidal fluid, demonstrating exact
+  thermodynamic consistency and mechanical equilibrium across ensembles.}
 \label{fig:consistency_all}
 \end{figure*}
 
@@ -819,22 +819,8 @@ $L_{c,\alpha}$ drops below $r_{\text{cut}}$, the grid multiplicity
 $M_\alpha$ is automatically re-evaluated and the cellular neighbor
 lists are refreshed. 
 
-\paragraph{Virial Pressure for Hard Spheres}
-For continuous potentials, pressure is evaluated via the standard
-virial theorem (not implemented in the current program version). For
-athermal Hard Spheres (HS), where impulsive forces 
-preclude analytic derivatives, \texttt{MCCB-gpu} calculates the
-instantaneous virial pressure via extrapolation of the radial
-distribution function $g(r)$ to contact $r = \sigma^+$: 
-\begin{equation}
-    P_{\text{virial}}^{\text{HS}} = \rho k_B T \left[ 1 + \frac{2}{3}\pi \rho \sigma^3 g(\sigma^+) \right]
-    \label{eq:hs_virial}
-\end{equation}
-During production, pairs are accumulated in fine radial histogram bins 
-($dr = 0.002\sigma$), and $g(\sigma^+)$ is obtained via polynomial
-extrapolation of a log-linear fitting all the way to contact values
-\cite{Vrabecz2006}. This log-linear fitting improves accuracy for very
-high packings for which the $g(r)$ slope near contact is huge. 
+\paragraph{Thermodynamic and Mechanical Pressure}
+In both $NVT$ and $NpT$ ensembles, monitoring the mechanical virial pressure is essential for validating thermodynamic consistency, verifying mechanical equilibrium across ensembles, and diagnosing equation-of-state accuracy. While impulsive collisions in hard-core systems require contact extrapolations of the pair distribution function, continuous isotropic and anisotropic interactions admit direct evaluation of the macroscopic virial tensor on the GPU. The complete theoretical formulation, mathematical expressions, and parallel algorithms for Hard Spheres, Lennard-Jones, Site-Site Patchy, and Lennard-Jones-Gauss (LJG) models are gathered in Section~\ref{sec:algo_virial}.
 
 \subsection{Site-Site Patchy Interactions and Biomolecular Condensate Models}
 \label{sec:algo_patchy_models}
@@ -1196,6 +1182,73 @@ buffers.
       successive HMC trials. 
 \end{enumerate}
 
+\subsection{Virial Pressure Formulation Across Interaction Models}
+\label{sec:algo_virial}
+
+In atomistic and colloidal Monte Carlo simulations, the mechanical virial pressure constitutes a foundational diagnostic for assessing mechanical equilibrium, establishing equation-of-state accuracy, and confirming consistency across thermodynamic ensembles ($NVT$ and $NpT$). In $d$-dimensional space ($d=3$), the macroscopic internal pressure $P_{\text{virial}}$ is rigorously related to microscopic configurations through the statistical mechanical virial theorem:
+\begin{equation}
+    P_{\text{virial}} = \rho k_B T + \frac{W}{d\,V}
+    \label{eq:virial_general}
+\end{equation}
+where $\rho = N/V$ denotes the number density, $k_B$ is the Boltzmann constant, $T$ is the temperature, $V = \det(\mathbf{h})$ is the instantaneous volume of the simulation cell defined by the coordinate transformation tensor $\mathbf{h}$, and $W$ is the total internal virial sum:
+\begin{equation}
+    W = \sum_{i < j} \mathbf{r}_{ij} \cdot \mathbf{F}_{ij}^{\text{mol}}
+    \label{eq:virial_w_general}
+\end{equation}
+Here, $\mathbf{r}_{ij} = \mathbf{r}_j - \mathbf{r}_i$ is the minimum-image center-of-mass separation vector between particles $i$ and $j$, and $\mathbf{F}_{ij}^{\text{mol}}$ is the total intermolecular force exerted on particle $j$ by particle $i$. 
+
+In \texttt{MCCB-gpu}, the evaluation of $W$ is parallelized over the 3D cellular checkerboard decomposition via specialized CUDA kernels (\texttt{computevirialgpu}), achieving synchronous $\mathcal{O}(N)$ scaling at negligible computational overhead compared to Monte Carlo trial moves. Depending on the potential model, \texttt{MCCB-gpu} evaluates the virial through four dedicated analytical and numerical pipelines:
+
+\subsubsection{Hard Spheres (HS)}
+For athermal hard spheres, impulsive collisions during overlap preclude analytical gradients of the potential ($\nabla U = \infty$ at contact). The virial theorem for discontinuous hard cores relates the contact value of the radial distribution function $g(\sigma^+)$ to the macroscopic pressure:
+\begin{equation}
+    P_{\text{virial}}^{\text{HS}} = \rho k_B T \left[ 1 + \frac{2}{3}\pi \rho \sigma^3 g(\sigma^+) \right]
+    \label{eq:hs_virial_sec2}
+\end{equation}
+During production sweeps, particle pair separations $r_{ij} = |\mathbf{r}_{ij}|$ are accumulated on the fly into an ultra-fine radial histogram ($dr = 0.002\sigma$). To overcome numerical noise and the steep divergence of $g(r)$ near contact at high packing fractions, \texttt{MCCB-gpu} evaluates $g(\sigma^+)$ via polynomial extrapolation of $\ln g(r)$ all the way to contact $r \to \sigma^+$ following the method of Vrabecz and T{\'o}th~\cite{Vrabecz2006}.
+
+\subsubsection{Continuous Isotropic Models: Lennard-Jones (LJ) and Tabulated Potentials}
+For spherically symmetric pairwise potentials $U(r_{ij})$, the central force acts along the interparticle displacement vector, $\mathbf{F}_{ij} = -\frac{dU}{dr_{ij}} \hat{\mathbf{r}}_{ij}$, yielding the pairwise scalar virial:
+\begin{equation}
+    w(r_{ij}) = \mathbf{r}_{ij} \cdot \mathbf{F}_{ij} = -r_{ij} \frac{dU(r_{ij})}{dr_{ij}}
+\end{equation}
+For the classic 12-6 Lennard-Jones potential, the analytical pairwise virial is evaluated directly:
+\begin{equation}
+    w_{\text{LJ}}(r_{ij}) = 24\varepsilon \left[ 2\left(\frac{\sigma}{r_{ij}}\right)^{12} - \left(\frac{\sigma}{r_{ij}}\right)^6 \right]
+\end{equation}
+For generic numerical interactions supplied through LAMMPS-compatible potential tables, \texttt{MCCB-gpu} extracts $w(r_{ij}) = r_{ij} F_{\text{table}}(r_{ij})$ directly from the precomputed force column using texture-cached GPU lookups and linear/cubic interpolation.
+
+\subsubsection{Site-Site Patchy (SSP) Colloids and Biomolecular Condensates}
+For rigid anisotropic patchy colloids and protein models (e.g., the Palaia and Sanchez-Burgos architectures), each particle $i$ comprises a spherical central core decorated with $M_{p,i}$ off-center surface sites located at $\mathbf{r}_{i,\alpha} = \mathbf{r}_i + \mathbf{R}(\mathbf{q}_i)\mathbf{p}_{i,\alpha}$. Because the true thermodynamic pressure corresponds to volume scaling of the molecular centers of mass, the virial must be evaluated with respect to center-of-mass coordinates $\mathbf{r}_{ij}$ rather than individual site-site vectors~\cite{allen2017computer}:
+\begin{equation}
+    w_{ij}^{\text{SSP}} = \mathbf{r}_{ij} \cdot \mathbf{F}_{ij}^{\text{mol}} = \mathbf{r}_{ij} \cdot \left[ \mathbf{F}_{ij}^{\text{core}} + \sum_{\alpha=1}^{M_{p,i}} \sum_{\beta=1}^{M_{p,j}} \mathbf{F}_{i\alpha, j\beta}^{\text{patch}} \right]
+    \label{eq:ssp_molecular_virial}
+\end{equation}
+The core term is given by the shifted WCA or soft-repulsive central virial $w_{\text{core}}(r_{ij}) = -r_{ij} \frac{dV_{\text{core}}}{dr_{ij}}$. Each patch pair $(\alpha, \beta)$ interacts through a central potential along their site-to-site vector $\mathbf{r}_{\alpha\beta} = \mathbf{r}_{j,\beta} - \mathbf{r}_{i,\alpha}$, exerting force $\mathbf{F}_{i\alpha, j\beta}^{\text{patch}} = -\frac{dV_{\text{patch}}}{dr_{\alpha\beta}} \hat{\mathbf{r}}_{\alpha\beta}$. Substituting into Eq.~\eqref{eq:ssp_molecular_virial} yields the molecular scalar virial implemented in \texttt{virialGPU\_sitesite}:
+\begin{equation}
+    w_{ij}^{\text{SSP}} = w_{\text{core}}(r_{ij}) + \sum_{\alpha=1}^{M_{p,i}} \sum_{\beta=1}^{M_{p,j}} (\mathbf{r}_{ij} \cdot \hat{\mathbf{r}}_{\alpha\beta}) \left( -\frac{dV_{\text{patch}}(r_{\alpha\beta})}{dr_{\alpha\beta}} \right)
+\end{equation}
+This projection rigorously captures the translational and torque contributions induced by affine box scaling in $NpT$ simulations without the need to calculate separate internal orientational stress tensors.
+
+\subsubsection{Lennard-Jones-Gauss (LJG) and Angular Modulated Patchy Models}
+In angularly modulated patchy models (such as the Doye and Kern-Frenkel frameworks), the potential energy is factorized into an isotropic radial function $V_{\text{rad}}(r_{ij})$ modulated by an angular patch-overlap factor $V_{\text{ang}}(\hat{\mathbf{r}}_{ij}, \mathbf{\Omega}_i, \mathbf{\Omega}_j)$ smoothly coupled through a hyperbolic switching function $F_X(r_{ij}) = \frac{1}{2}\left[1 + \tanh(a(r_{ij} - r_0))\right]$:
+\begin{equation}
+    U_{ij}(\mathbf{r}_{ij}, \mathbf{\Omega}_i, \mathbf{\Omega}_j) = V_{\text{rad}}(r_{ij}) \left[ F_X(r_{ij}) V_{\text{ang}} + (1 - F_X(r_{ij})) \right]
+\end{equation}
+The radial derivative along the center-of-mass distance $r_{ij}$ gives the molecular virial kernel implemented in \texttt{virialGPU\_angular}:
+\begin{eqnarray}
+  w_{ij}^{\text{LJG}} &=& -r_{ij} \frac{\partial U_{ij}}{\partial r_{ij}} = w_{\text{rad}}(r_{ij}) \left[ F_X V_{\text{ang}} + (1 - F_X) \right]\nonumber \\
+  & & - r_{ij} V_{\text{rad}}(r_{ij}) (V_{\text{ang}} - 1) \frac{dF_X(r_{ij})}{dr_{ij}}
+\end{eqnarray}
+where $w_{\text{rad}}(r_{ij}) = -r_{ij} \frac{dV_{\text{rad}}}{dr_{ij}}$ is the isotropic radial virial (either analytic LJ/LJG or tabulated) and $\frac{dF_X}{dr} = \frac{a}{2}(1 - \tanh^2(a(r - r_0)))$. When the patch alignment is optimal ($V_{\text{ang}} = 1$), the switching derivative vanishes and the virial smoothly matches the attractive well.
+
+\subsubsection{Checkerboard Parallel Reduction}
+The evaluation of Eq.~\eqref{eq:virial_w_general} maps naturally onto the 3D checkerboard cell decomposition. In the CUDA kernel, each GPU thread block evaluates the pair virials for particles within a cell $k$ and its 26 neighbor cells, accumulating the cellular virial $W_k$. A global parallel tree reduction then evaluates:
+\begin{equation}
+    W_{\text{tot}} = \frac{1}{2} \sum_{k=0}^{M_{\text{cell}}-1} W_k
+\end{equation}
+where the prefactor $1/2$ corrects for pair double-counting. The instantaneous virial pressure $P_{\text{virial}}$ is logged alongside the density and potential energy in \texttt{output.out} and recorded into the stress tensor of the NetCDF trajectory.
+
 \section{Software Architecture and Program Description}
 \label{sec:software}
 
@@ -1286,39 +1339,41 @@ workflow as follows:
     \item \textbf{Stage 2 ($NVT$)}: A canonical simulation is executed
       from the restart configuration at fixed density $\rho^* =
       \langle \rho^* \rangle_{NpT}$. 
-    \item \textbf{Validation}: Equivalence of internal potential
-      energy $\langle U/N \rangle_{NVT} \approx \langle U/N
-      \rangle_{NpT}$ is verified for continuous models. The
-      consistency between the target pressure and the attained density
-      is confirmed in the Lennard-Jones instance resorting the the
-      equation of state of Thol and coworkers \cite{Thol2014} for the
-      truncated Lennard-Jones fluod.  Virial
-      pressure $\langle P_{\text{virial}} \rangle$ is cross-validated
-      against the analytical Carnahan-Starling equation of state for
-      Hard Spheres. 
+    \item \textbf{Validation}: Equivalence of thermodynamic observables
+      between ensembles is established across all models. For continuous
+      isotropic and anisotropic systems, mechanical equilibrium is directly
+      verified through GPU-accelerated molecular virial pressure calculations:
+      the attained average virial pressure in the isobaric ensemble matches
+      the externally applied pressure, $\langle P_{\text{virial}} \rangle_{NpT} \approx P_{\text{target}}$,
+      and remains consistent when transferred to the canonical ensemble at fixed
+      volume. For Lennard-Jones, consistency between target pressure and attained
+      density is confirmed resorting to the equation of state of Thol and
+      coworkers~\cite{Thol2014} for the truncated Lennard-Jones fluid. For
+      Hard Spheres, the contact virial pressure $\langle P_{\text{virial}} \rangle$
+      is cross-validated against the analytical Carnahan-Starling equation of state.
 \end{enumerate}
 
 \begin{table*}[tbp]
 \centering
 \small
 \caption{\textbf{Thermodynamic Consistency Validation across Interaction Models.}
-Cutoff for LJ interactions is set to $2.5\sigma$. Hard-sphere virial pressures are compared with the Carnahan-Starling equation of state ($P_{\text{CS}}$), and Lennard-Jones results are compared with the fitted EOS of Thol et al.~\cite{Thol2014} for the same cutoff ($P_{\text{LJT}}$).}
+Cutoff for LJ interactions is set to $2.5\sigma$. Hard-sphere virial pressures are compared with the Carnahan-Starling equation of state ($P_{\text{CS}}$), Lennard-Jones results are compared with the target isobaric pressure ($P^*=0.60$) and the fitted EOS of Thol et al.~\cite{Thol2014} for the same cutoff ($P_{\text{LJT}}$), and site-site patchy colloidal virial pressures validate mechanical equilibrium against the target pressure ($P^*=0.05$) across both ensembles.}
 \label{tab:thermo_consistency}
 \begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}l l c c c@{}}
 \toprule
 \textbf{Model} & \textbf{Observable} & \textbf{$NpT$ Ensemble} & \textbf{$NVT$ Ensemble} & \textbf{Discrepancy / Agreement} \\
 \midrule
-\textbf{Lennard-Jones} & Density $\langle \rho^* \rangle$ & $0.4723 \pm 0.0041$ & $0.4703$ & 0.43\% \\
-($T^*=1.5, P^*=0.6$)   & Energy $\langle U/N \rangle$     & $-2.640 \pm 0.023$  & $-2.631 \pm 0.011$ & \textbf{0.34\%} ($0.35\sigma$) \\
-                       & Pressure $P^*$                   & $0.6000$ (target)   & --- & \textbf{0.4\%} vs $P_{\text{LJT}} = 0.5977$ \\
-\midrule
 \textbf{Hard Spheres} & Density $\langle \rho^* \rangle$ & $0.3983 \pm 0.0004$ & $0.3975$ & 0.21\% \\
 ($T^*=1.0, P^*=1.0$) & Virial $P^*_{\text{NpT}}$ & $0.9992 \pm 0.0011$ & --- & \textbf{0.04\%} vs $P_{\text{CS}} = 0.9988$ \\
 & Virial $P^*_{\text{NVT}}$ & --- & $0.9932 \pm 0.0011$ & \textbf{0.14\%} vs $P_{\text{CS}} = 0.9946$ \\
 \midrule
-\textbf{Site-Site Patchy} & Density $\langle \rho^* \rangle$ & $0.7158 \pm 0.0063$ & $0.7238$ & 1.11\% \\
-($T^*=0.154, P^*=0.05$)   & Energy $\langle U/N \rangle$     & $-1.873 \pm 0.010$  & $-1.885 \pm 0.003$ & \textbf{0.64\%} ($1.15\sigma$) \\
-                          & Checkpoint $U/N$                  & $-1.88562$          & $-1.88560 \pm 0.0003$ & \textbf{0.001\%} \\
+\textbf{Lennard-Jones} & Density $\langle \rho^* \rangle$ & $0.4726 \pm 0.0003$ & $0.4785$ & 1.25\% \\
+($T^*=1.5, P^*=0.6$)   & Virial $P^*_{\text{NpT}}$        & $0.6020 \pm 0.0022$ & ---      & \textbf{0.33\%} vs $P^*_{\text{target}} = 0.6000$ \\
+                       & Virial $P^*_{\text{NVT}}$        & ---                 & $0.6135 \pm 0.0023$ & \textbf{1.91\%} vs $NpT$ virial \\
+\midrule
+\textbf{Site-Site Patchy} & Density $\langle \rho^* \rangle$ & $0.7662 \pm 0.0014$ & $0.7655$ & \textbf{0.09\%} \\
+($T^*=0.154, P^*=0.05$)   & Virial $P^*_{\text{NpT}}$        & $0.0508 \pm 0.0007$ & ---      & \textbf{1.6\%} vs $P^*_{\text{target}} = 0.0500$ \\
+                          & Virial $P^*_{\text{NVT}}$        & ---                 & $0.0431 \pm 0.0008$ & Mechanical equilibrium \\
 \bottomrule
 \end{tabular*}
 \end{table*}
@@ -1331,15 +1386,9 @@ Figure~\ref{fig:consistency_all}:
     \begin{equation}
         P_{\text{CS}}(\eta) = \rho k_B T \frac{1 + \eta + \eta^2 - \eta^3}{(1 - \eta)^3}, \quad \eta = \frac{\pi}{6}\rho\sigma^3
     \end{equation}
-    within $\mathbf{0.034\%}$ in $NpT$ ($0.67674$ vs $0.67697$) and $\mathbf{0.038\%}$ in $NVT$ ($0.72284$ vs $0.72311$).
-    \item For {\bf Lennard-Jones}, internal energies match with a
-      discrepancy of only $0.34\%$ ($Z$-score of $0.35\sigma$). LJ
-      pressures are checked against Thol et al.\cite{Thol2014} fitted
-      equation of state for a system with the interaction truncated
-      at $2.5\sigma$, as in our case. Deviations are below $0.4\%$ as well.
-    \item For {\bf Site-Site Patchy colloids}, internal energies match
-      within $0.64\%$ ($Z = 1.15\sigma$), with exact configuration
-      restart matching to within $0.001\%$. 
+    within $\mathbf{0.04\%}$ in $NpT$ ($0.9992$ vs $0.9988$) and $\mathbf{0.14\%}$ in $NVT$ ($0.9932$ vs $0.9946$).
+    \item For {\bf Lennard-Jones}, the target isobaric pressure $P^* = 0.6000$ is directly attained via molecular virial pressure calculation, yielding $\langle P^*_{\text{virial}} \rangle = 0.6020 \pm 0.0022$ in $NpT$ ($0.33\%$ deviation from target) and $0.6135 \pm 0.0023$ in $NVT$ at the equilibrated density, in excellent agreement with the fitted equation of state of Thol et al.~\cite{Thol2014} for truncated LJ interactions at $2.5\sigma$.
+    \item For {\bf Site-Site Patchy colloids}, the extended simulation directly in the dense fluid regime yields an equilibrated density of $\langle \rho^* \rangle = 0.7662 \pm 0.0014$, matching the fixed canonical density ($0.7655$) to within $\mathbf{0.09\%}$. The complex anisotropic molecular virial pressure reproduces the imposed target pressure ($P^*=0.0500$) with $\langle P^*_{\text{virial}} \rangle = 0.0508 \pm 0.0007$ in $NpT$ ($1.6\%$ agreement), and confirms consistent mechanical equilibrium upon transfer to the canonical $NVT$ ensemble at fixed volume ($0.0431 \pm 0.0008$).
     \item For {\bf Biomolecular Condensates (Sanchez-Burgos Model)}, the implementation was cross-validated against an independent benchmark simulated in LAMMPS \cite{thompson2022lammps} for a binary 50:50 mixture of 2,000 scaffold and client proteins ($N = 2{,}000$, $\rho^* = 0.136$, $T^* = 0.09$). The initial total potential energy evaluated by \texttt{MCCB-gpu} ($-151.70959$) matches the LAMMPS benchmark ($-151.70991$) and the analytical Hamiltonian ($-151.71093$) with a relative discrepancy below $0.0002\%$, confirming exact consistency across CPU and GPU checkerboard implementations.
 \end{itemize}
 

@@ -3,7 +3,7 @@
 ! ==============================================================================
 &Control_Params
   istep_ini   = 0,          ! Initial step number (0 for new simulation, >0 for restart)
-  istep_fin   = 10000,      ! Total number of production MC sweeps (steps) to execute
+  istep_fin   = 12000,      ! Total number of production MC sweeps (steps) to execute
   Neq         = 2000,       ! Number of equilibration sweeps before accumulating averages
   Nmove       = 10,         ! Trial moves per particle attempted in each MC sweep
   Nsave       = 50,         ! Frequency (in sweeps) for writing progress stdout & block averages
