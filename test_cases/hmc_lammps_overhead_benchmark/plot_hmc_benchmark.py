@@ -91,7 +91,7 @@ ax.set_xlim(0, max(times) * 1.25)
 ax.set_xlabel('Time per HMC Trial (ms)')
 ax.set_title('(a) Data Transfer & Conversion Layer Breakdown', pad=10)
 ax.grid(True, linestyle='--', alpha=0.4, axis='x')
-ax.annotate('287x Speedup\n(RAM vs Disk)', xy=(times[3], 3), xytext=(25, 2.7),
+ax.annotate('287x Speedup\n(RAM vs Disk)', xy=(times[3], 3), xytext=(15, 2.4),
             arrowprops=dict(facecolor='black', shrink=0.08, width=1, headwidth=6),
             fontsize=10, fontweight='bold', color='#2e7d32')
 
