@@ -1,0 +1,337 @@
+! ==============================================================================
+! MODULE: set_precision
+! ==============================================================================
+! DESCRIPTION:
+!   Defines precision parameters for floating-point arithmetic throughout
+!   the program. Sets working precision (wp) to single precision by default.
+!
+! AUTHORS:
+!   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
+!   Enrique Lomba          - enrique.lomba@csic.es
+!   Eva González Noya      - eva.noya@iqf.csic.es
+!
+! DATE:
+!   February 2026
+! ==============================================================================
+MODULE set_precision
+      INTRINSIC KIND
+      INTEGER, PARAMETER :: skind = KIND(0.0E0)  ! Single precision kind
+      INTEGER, PARAMETER :: dkind = KIND(0.0D0)  ! Double precision kind
+      INTEGER, PARAMETER :: wp = skind           ! Working precision (single)
+END MODULE  set_precision
+
+
+! ==============================================================================
+! MODULE: configuration
+! ==============================================================================
+! DESCRIPTION:
+!   Stores the configuration of the molecular system including particle
+!   positions, orientations (quaternions), simulation box dimensions, and
+!   particle type information.
+!
+! AUTHORS:
+!   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
+!   Enrique Lomba          - enrique.lomba@csic.es
+!   Eva González Noya      - eva.noya@iqf.csic.es
+!
+! DATE:
+!   February 2026
+! ==============================================================================
+MODULE  configuration
+
+   use set_precision
+   implicit none
+
+   Integer, Parameter :: ndim=3                ! Number of spatial dimensions (3D)
+   Integer            :: ntypes, natoms        ! Number of particle types and total particles
+
+   Integer, Allocatable                :: itype(:)  ! Particle type for each atom
+   Real(wp), Allocatable               :: r(:)      ! Particle positions (scaled coordinates)
+   Real(wp), Allocatable               :: q(:)      ! Particle orientations (quaternions)
+   Real(wp), Allocatable               :: enp_atom(:)
+   Real (wp), Dimension(0:ndim*ndim-1) :: h, hinv   ! Simulation box matrix and its inverse
+   Real(wp), Dimension(0:ndim-1)       :: Box, Bangles ! Box dimensions and angles
+
+END MODULE configuration
+
+
+! ==============================================================================
+! MODULE: rundata
+! ==============================================================================
+! DESCRIPTION:
+!   Contains runtime parameters for the Monte Carlo simulation including
+!   step counters, acceptance statistics, temperature control, maximum
+!   displacement parameters, and simulation flags.
+!
+! AUTHORS:
+!   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
+!   Enrique Lomba          - enrique.lomba@csic.es
+!   Eva González Noya      - eva.noya@iqf.csic.es
+!
+! DATE:
+!   February 2026
+! ==============================================================================
+MODULE rundata
+   use set_precision
+   implicit none
+    Integer :: istep_ini,istep_fin                      ! Initial and final MC step numbers
+    Logical :: lammps = .false.                         ! Master flag for hybrid LAMMPS moves (.false. by default)
+    Integer :: Nmc_hmc = 0, Nmd_hmc = 50                ! HMC steps parameters (frequency and MD steps)
+    Real(wp) :: tstep_hmc = 0.0025_wp                   ! HMC timestep parameter
+    Real(wp) :: lammps_skin = 0.3_wp                    ! LAMMPS neighbor skin distance
+    Integer :: lammps_thermo = 0                        ! LAMMPS thermo output reporting cadence (0 = disabled)
+    Logical :: lammps_gpu = .true.                      ! LAMMPS GPU acceleration package flag
+    Integer :: lammps_gpuid = -1                        ! LAMMPS GPU device ID (-1 = auto/same as devNum)
+    Integer :: ntrans, ntrans_ac, nrot, nrot_ac         ! Translation and rotation move counters
+   Integer :: no_mc_real                               ! Number of non-empty cells
+   Integer :: nvol_accept, iscale, nvol, Nvolf = 1     ! Volume move acceptance, scaling mode, and volume move frequency (Nvolf)
+   Integer :: length, Nmove, Neq, Nsave, Ndump        ! MC cycle parameters
+   Integer :: Nrestart                                 ! Restart file frequency
+   Integer(kind=8) :: seed                             ! Random number generator seed
+   Integer :: init=0                                   ! Initialization flag
+   Real(wp) :: temp, temp0, temp1, rate, beta          ! Temperature parameters and inverse temperature
+   Real(wp) :: DeltaT                                  ! Temperature increment for annealing
+   Real(wp) :: omax, hmax                              ! Max rotation angle and translation distance
+   Real(wp) :: vmax(0:2), pres                         ! Max volume change and pressure (NpT)
+   Logical  :: imovie, displ_update, npt               ! Movie output, adaptive displacement, NpT flag
+   Character*10 :: traj_format                         ! Trajectory format: 'plain', 'netcdf', or 'both'
+   Character*32 :: model                               ! Model name: HS, LJ, LJG, SSP
+   Character*64 :: input_filename                      ! Input file name
+   integer :: pot_int                                  ! Flag for
+   ! interaction potential: hard spheres if -1, isotropic Lennard-Jones if 0,
+   ! angular patches if 1, site-site patches (Palaia) if 2, Sanchez-Burgos patchy if 3 (values <=0 are radial/isotropic)
+   Logical :: Ecpu_check=.false.                       ! If .true. Energies a twice computed in the CPU for checking
+   Character(len=256) :: data_file = 'data.atoms'      ! Configuration file name
+   Real(wp) :: rcl = 1.8_wp                            ! Cutoff distance for clustering
+   Integer :: minPts = 3                               ! Min points for core nodes in DBSCAN
+   Real(wp) :: asym_threshold = 0.5_wp                 ! Geometric asymmetry threshold for border points
+   Integer :: ncluster = 0                             ! Cluster analysis periodicity (0 = disabled)
+   Integer :: cluster_types(10) = -1                   ! Site types to include in cluster search
+   Logical :: avbmc = .false.                          ! Flag for enabling Aggregation Volume Bias Monte Carlo (AVBMC) moves
+   Character(len=32) :: border_criterion = 'asymmetry' ! Border point criterion: 'asymmetry' or 'energy'
+   Real(wp) :: energy_threshold = -2.0_wp              ! Energy cutoff for surface/border atoms
+   Real(wp) :: energy_border_ratio = 0.5_wp            ! Energy ratio relative to bulk/inner cluster atoms for border detection
+   Logical  :: use_energy_ratio = .false.              ! Use relative energy ratio instead of absolute threshold
+   Integer  :: avbmc_k_trials = 10                     ! Number of CBMC Rosenbluth trial positions (K) in bulk for AVBMC moves
+   Integer  :: avbmc_max_trials = 50                   ! Maximum AVBMC pair trials per step to cap execution time
+   Integer  :: n_avbmc = 10                             ! Frequency (in MC sweeps) of AVBMC exchange moves in small-cluster regime
+   Integer  :: ncluster_init = 500                      ! Periodic cluster check frequency in small-cluster regime (default 500)
+   Integer  :: cluster_threshold = 5                    ! Cluster size threshold to switch to full DBSCAN & surface detection
+   Integer  :: bound_min_neighbors = 1                  ! Minimum neighbors to classify as bound particle in small regime (default 1)
+   Logical  :: cluster_regime_large = .false.           ! True when cluster size > cluster_threshold
+   ! Identity Swap Moves for Binary Mixtures (A <-> B)
+   Logical  :: swap_moves = .false.                    ! Flag for enabling GPU checkerboard identity swap moves (binary mixtures, all potentials)
+   Integer  :: Nswap = 1                               ! Number of swap sub-passes per MC cycle (each sub-pass: 8 intra + 4 cross sets)
+   Integer  :: Nswapf = 1                              ! Frequency (in MC sweeps) of identity swap moves
+   Integer  :: nswap_att = 0, nswap_acc = 0            ! Identity swap window counters (reset every Nsave steps)
+   Integer(kind=8) :: nswap_att_tot = 0, nswap_acc_tot = 0 ! Total cumulative production identity swap counters
+
+END MODULE rundata
+
+
+! ==============================================================================
+! MODULE: potential
+! ==============================================================================
+! DESCRIPTION:
+!   Defines parameters for the interaction potential between patchy particles.
+!   Includes patch geometry (directions and reference vectors), interaction
+!   ranges, Lennard-Jones and angular potential parameters, and torsional
+!   angle specifications.
+!
+! AUTHORS:
+!   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
+!   Enrique Lomba          - enrique.lomba@csic.es
+!   Eva González Noya      - eva.noya@iqf.csic.es
+!
+! DATE:
+!   February 2026
+! ==============================================================================
+MODULE potential
+   Use set_precision
+   Implicit None
+
+   Integer :: Npart_types                              ! Number of different particle types
+   Integer :: Nrb_sites_max = 7, Ntor_max = 6          ! Max patches per particle and torsional angles
+   Integer, Allocatable :: Nrb_sites(:)                ! Number of patches for each particle type
+   Integer, Allocatable :: Ntor_angle(:)               ! Number of torsional angles per patch
+   Integer    ::   Bool_tor                            ! Flag for including torsional potential
+
+   Real(wp) :: cosmax_KF, delta_KF, ctor_max_KF        ! Kern-Frenkel model parameters
+   Real(wp) :: sigp_factor, Rcp_factor, Rc_factor      ! Palaia patchy potential scaling factors (configured in namelist /Potential_Params/)
+   Real(wp) :: patch_radial_factor = 0.5_wp            ! Radial distance of patches from colloid center (0.5_wp by default)
+   Real(wp) :: epsp_factor                             ! Palaia colloid-colloid attractive tail depth factor (configured in namelist)
+   Real(wp) :: rangepp                                 ! Interaction range parameter
+   Real(wp) :: sigma_jon_aux,sigma_tor_jon, rcut_jon   ! Angular and torsional interaction widths
+   real(wp), Allocatable :: patch(:)                   ! Patch direction vectors (unit vectors)
+   real(wp), Allocatable :: ref_tor_vec(:)             ! Reference vectors for torsional angles
+   real(wp), Allocatable :: Vpot_Matrix(:)             ! Potential energy matrix (patch-patch interactions)
+   real(wp), Allocatable :: tor_angle(:)               ! Preferred torsional angles
+   real(wp), Allocatable :: sigma_jon(:)               ! Angular interaction width per patch
+   real(wp), Allocatable :: sigma_LJ(:), epsilon_LJ(:) ! Lennard-Jones sigma, and epsilon  parameters
+   real(wp), Allocatable :: xop(:), VL0(:), rangeP(:)  ! LJ potential parameters
+
+    ! Host table potential variables
+    logical :: table_mc = .false.
+    logical :: table_lammps = .false.
+    character(len=256) :: table_file_mc = ""
+    character(len=256) :: table_file_lammps = ""
+    
+    logical :: has_table(0:15, 0:15) = .false.
+    logical :: table_is_rsq(0:15, 0:15) = .false.
+    integer :: table_N(0:15, 0:15) = 0
+    real(wp) :: table_rmin(0:15, 0:15) = 0.0_wp
+    real(wp) :: table_rmax(0:15, 0:15) = 0.0_wp
+    real(wp) :: table_dr_inv(0:15, 0:15) = 0.0_wp
+    integer, parameter :: table_N_max = 100005
+    real(wp), target :: table_V(0:table_N_max, 0:15, 0:15) = 0.0_wp
+    real(wp), target :: table_F(0:table_N_max, 0:15, 0:15) = 0.0_wp
+    
+    ! Device table potential variables
+    logical, constant :: has_table_dev(0:15, 0:15)
+    logical, constant :: table_is_rsq_dev(0:15, 0:15)
+    integer, constant :: table_N_dev(0:15, 0:15)
+    real(wp), constant :: table_rmin_dev(0:15, 0:15)
+    real(wp), constant :: table_rmax_dev(0:15, 0:15)
+    real(wp), constant :: table_dr_inv_dev(0:15, 0:15)
+    real(wp), device, save :: table_V_dev(0:table_N_max, 0:15, 0:15)
+    real(wp), device, save :: table_F_dev(0:table_N_max, 0:15, 0:15)
+    logical, constant :: table_mc_dev
+
+    ! Sanchez-Burgos 2021 potential parameters (pot_int == 3)
+    Real(wp) :: eps_R = 2.0_wp / 3.0_wp                 ! PHS repulsive energy scale (default 2/3)
+    Real(wp) :: eps_CSW = 1.0_wp / 0.09_wp              ! CSW well depth (default 1/T* = 1/0.09)
+    Real(wp) :: rw_CSW = 0.12_wp                        ! CSW well width
+    Real(wp) :: alpha_CSW = 0.005_wp                    ! CSW smoothing width
+    Real(wp) :: rc_CSW = 0.20_wp                        ! CSW patch interaction cutoff
+
+    ! Device copies
+    Real(wp), device, save :: eps_R_dev = 2.0_wp / 3.0_wp
+    Real(wp), device, save :: eps_CSW_dev = 1.0_wp / 0.09_wp
+    Real(wp), device, save :: rw_CSW_dev = 0.12_wp
+    Real(wp), device, save :: alpha_CSW_dev = 0.005_wp
+    Real(wp), device, save :: rc_CSW_dev = 0.20_wp
+    Integer, device, save  :: pot_int_dev = 0
+
+END MODULE potential
+
+
+! ==============================================================================
+! MODULE: properties
+! ==============================================================================
+! DESCRIPTION:
+!   Stores thermodynamic properties including instantaneous and averaged
+!   values of energy, density, volume, and box dimensions.
+!
+! AUTHORS:
+!   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
+!   Enrique Lomba          - enrique.lomba@csic.es
+!   Eva González Noya      - eva.noya@iqf.csic.es
+!
+! DATE:
+!   February 2026
+! ==============================================================================
+MODULE properties
+   use set_precision
+   Implicit None
+   Real (dkind) :: en_tot, en_av, en_sq_av
+   Real (wp) :: rho, vol                       ! Total energy, density, and volume
+   Real (wp) :: rho_av, rho_sq_av              ! Averaged energy and density, and squared sums
+   Real (wp) :: lx_av, ly_av, lz_av            ! Averaged box dimensions
+   Real (wp) :: P_virial = 0.0_wp              ! Instantaneous virial pressure
+   Real (wp) :: W_virial = 0.0_wp              ! Instantaneous virial sum
+   Real (wp) :: P_virial_av = 0.0_wp           ! Averaged virial pressure
+   Real (wp) :: P_virial_sq_av = 0.0_wp        ! Squared sum of virial pressure
+   Integer   :: nav_count = 0                  ! Count of accumulated samples
+END MODULE properties
+
+
+! ==============================================================================
+! MODULE: utils
+! ==============================================================================
+! DESCRIPTION:
+!   Utility constants and parameters used throughout the program.
+!
+! AUTHORS:
+!   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
+!   Enrique Lomba          - enrique.lomba@csic.es
+!   Eva González Noya      - eva.noya@iqf.csic.es
+!
+! DATE:
+!   February 2026
+! ==============================================================================
+MODULE utils
+   use set_precision
+   Implicit None
+   real(wp), parameter :: dospi=2.d0*acos(-1.d0)       ! 2*pi constant
+   Character(len=8), Parameter :: c_blue   = char(27)//'[1;34m'
+   Character(len=8), Parameter :: c_cyan   = char(27)//'[1;36m'
+   Character(len=8), Parameter :: c_green  = char(27)//'[1;32m'
+   Character(len=8), Parameter :: c_yellow = char(27)//'[1;33m'
+   Character(len=8), Parameter :: c_red    = char(27)//'[1;31m'
+   Character(len=8), Parameter :: c_reset  = char(27)//'[0m'
+CONTAINS
+   subroutine uppercase(str)
+      character(len=*), intent(inout) :: str
+      integer :: k, char_code
+      do k = 1, len_trim(str)
+          char_code = ichar(str(k:k))
+          if (char_code >= 97 .and. char_code <= 122) then
+              str(k:k) = char(char_code - 32)
+          end if
+      end do
+   end subroutine uppercase
+END MODULE utils 
+
+
+! ==============================================================================
+! MODULE: Cell
+! ==============================================================================
+! DESCRIPTION:
+!   Implements the checkerboard cell decomposition scheme for parallel
+!   Monte Carlo simulations on GPU. The simulation box is divided into cells,
+!   which are grouped into checkerboard sets to enable simultaneous updates
+!   without conflicts. This module stores cell dimensions, particle assignments,
+!   neighbor lists, and checkerboard set information.
+!
+! AUTHORS:
+!   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
+!   Enrique Lomba          - enrique.lomba@csic.es
+!   Eva González Noya      - eva.noya@iqf.csic.es
+!
+! DATE:
+!   February 2026
+! ==============================================================================
+MODULE Cell 
+
+   use set_precision
+   use configuration , only :  ndim
+   Implicit None
+   Integer                               :: Ntot_Cell, Nat_Cell_Max, NCell_max  ! Total cells, max atoms/cell, max cells allowed
+   Integer, Dimension(0:ndim-1)          :: Nl_Cell                             ! Number of cells along x,y,z directions
+   Integer                               :: Nset_Cell, Nsubset_Cell             ! Checkerboard sets and cells per set
+   Integer, Allocatable, Dimension(:)        :: Nat_Cell                        ! Number of atoms in each cell
+   Integer, Allocatable, Dimension(:)        :: List_Cell                       ! Atom indices and types in each cell
+   Integer, Allocatable, Dimension(:)        :: List_CB                         ! Cell indices in each checkerboard set
+   Integer, Allocatable, Dimension(:)        :: Map_Cell                        ! Neighboring cell indices (26 neighbors)
+   Integer, Allocatable, Dimension(:,:)      :: Indx_Set                        ! Offset indices for checkerboard sets
+   real(wp),Allocatable, Dimension(:)        :: CB_Set                          ! Checkerboard set identifiers
+   real(wp),Allocatable, Dimension(:)        :: Offset_CB                       ! Cell origin offsets
+   real(wp),Allocatable, Dimension(:)        :: Sphere_Cell                     ! Particle data: positions and quaternions
+   real(wp),Allocatable, Dimension(:)        :: DR_Cell                         ! Displacement vectors to neighbor cells
+   real(wp)                                  :: W(0:ndim-1)                     ! Cell widths in real units
+   real(dkind)                               :: W_RU(0:ndim-1)                  ! Cell widths in reduced units
+   real(wp)                                  :: disp_max(0:ndim-1)              ! Maximum displacement per direction
+
+END MODULE Cell 
+
+! ==============================================================================
+! MODULE: mod_hs_virial_accum
+! DESCRIPTION: Accumulates pair distance histograms and volume over time steps.
+! ==============================================================================
+MODULE mod_hs_virial_accum
+   use set_precision
+   implicit none
+   Integer  :: nsamples_virial = 0
+   Real(wp) :: Vol_accum = 0.0_wp
+   Real(wp), Allocatable :: counts_accum(:,:)
+END MODULE mod_hs_virial_accum

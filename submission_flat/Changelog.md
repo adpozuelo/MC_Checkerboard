@@ -1,0 +1,531 @@
+# Changelog
+
+All notable changes to the **MC_Checkerboard** simulation code will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+---
+
+## [2.8.11] - 2026-10-15
+
+### Added & Optimized
+- **Virial Pressure and Virial Force Calculation for All Anisotropic Potentials (`pot_int >= 1`)**:
+  - Implemented exact molecular center-of-mass virial calculation ($W = -\sum_{i < j} \left.\frac{dU_{ij}}{d\lambda}\right|_{\lambda=1} = \sum_{i < j} \mathbf{R}_{ij} \cdot \mathbf{f}_{ij}^{\text{CM}}$) conjugate to volume dilation in Monte Carlo NpT simulations ($P_{\text{virial}} = \frac{N k_B T + W/3}{V}$):
+    1. **Angular Patchy Models (`LJG`, `pot_int = 1`)**:
+       - Exploited the scale-invariance of directional unit vectors $\hat{\mathbf{R}}_{ij}$ and angles $\Omega_1, \Omega_2, \theta_{\text{tor}}$ ($\partial \Phi / \partial \lambda = 0$) to establish the analytical molecular virial:
+         $$w_{\text{LJG}}(r) = w_{\text{LJ}}(r)\left[ F_{XI}(r) + \Phi F_X(r) \right] - r V_{\text{rad}}(r) (\Phi - 1) \frac{a}{2\cosh^2(a(r - x_{\text{op}}))}$$
+       - Implemented GPU kernel `virialGPU_angular` in `src/Subsweep_Energy_CUDA.cuf` and CPU reference routine in `src/energy.cuf`.
+    2. **Site-Site Continuous Patchy Models (`SSP`, `pot_int = 2`; `SB`, `pot_int = 3`)**:
+       - Implemented exact center-of-mass virial projection for off-center patch interaction sites:
+         $$w_{\text{patch}} = \mathbf{R}_{ij} \cdot \mathbf{f}_{\text{patch}} = F_{\text{patch}}(d_{\text{patch}}) \frac{\mathbf{R}_{ij} \cdot \mathbf{d}_{\text{patch}}}{d_{\text{patch}}}$$
+         where $\mathbf{d}_{\text{patch}} = \mathbf{R}_{ij} + \mathbf{p}_j - \mathbf{p}_i$ and $F_{\text{patch}} = -dV/dd$.
+       - Added force evaluation functions `vpatch_palaia_force`, `vcsw_force`, `vphs_virial`, and `vlj_palaia_virial` in `src/potential_functions.cuf`.
+       - Implemented GPU device subroutine `vpatch_sitesite_virial_dev` and CUDA kernel `virialGPU_sitesite` in `src/Subsweep_Energy_CUDA.cuf`.
+       - Implemented CPU host subroutine `vpatch_sitesite_virial_host` and unified `compute_virial_cpu` in `src/energy.cuf`.
+  - **Universal Virial Monitoring & Averaging**:
+    - Removed `pot_int < 1` guards across `src/CB_system_energy_gpu.cuf`, `src/Tools.cuf`, and `src/Main.cuf`.
+    - Instantaneous virial pressure `P σ³/kT` is now computed on GPU and displayed at every `Nsave` interval for all interaction potentials.
+    - Accumulated thermodynamic average `Average Pσ³/kT = <P> ± <err>` is reported for all systems upon completion.
+    - NetCDF trajectory output records the virial stress tensor for all interaction models.
+  - **Parsing & CPU Reference Fixes**:
+    - Updated `src/Read_input_data_nml.cuf` section searches (`vpot matrix`, `sigmas_ang`, `sigma_LJ`) to skip comment lines (`!` or `#`), preventing false header matches.
+    - Fixed pre-existing CPU energy evaluation in `ener` (`src/energy.cuf`) for LJG: properly nested patchy angular interaction within `R12 < rangep_aux` and enforced core LJ cutoff, ensuring exact GPU vs CPU energy agreement ($|\Delta E| < 10^{-2}$ on 7695 particles).
+- **Validation**:
+  - Successfully validated NpT simulations on GPU against CPU reference routines (`Ecpu_check = .true.`):
+    - Isotropic tabulated potential mixture (`model = 'TABLE'`).
+    - Site-Site patchy Palaia mixture (`model = 'SSP'`, `pot_int = 2`).
+    - Continuous square-well Sanchez-Burgos mixture (`model = 'SB'`, `pot_int = 3`).
+    - Angular patchy Lennard-Jones-Gauss system (`model = 'LJG'`, `pot_int = 1`).
+  - All tests completed with zero virial check discrepancies ($|P_{\text{GPU}} - P_{\text{CPU}}| < 10^{-3}$).
+
+---
+
+## [2.8.10] - 2026-10-15
+
+### Added & Optimized
+- **Virial Force and Virial Pressure Calculation for All Isotropic Potentials (`pot_int < 1`)**:
+  - Implemented exact pairwise virial force and thermodynamic pressure calculation for all systems without orientational degrees of freedom:
+    1. **Lennard-Jones (`pot_int = 0`)**:
+       - Implemented analytical pair virial $w(r) = -r \frac{dV}{dr} = 24\epsilon \left[ 2\left(\frac{\sigma}{r}\right)^{12} - \left(\frac{\sigma}{r}\right)^6 \right]$ and radial force $F(r) = w(r)/r$ (`vlj_virial` and `vlj_force` in `src/potential_functions.cuf`), evaluated directly from $r^2$ without square roots on GPU.
+    2. **Tabulated Potentials (`pot_int < 0`, `table_mc = .true.`)**:
+       - Extracted pairwise force $F(r) = -dV/dr$ from column 4 of LAMMPS table files in `src/Read_input_data_nml.cuf` into `table_F` (host) and `table_F_dev` (device).
+       - Implemented Catmull-Rom cubic spline force interpolation (`eval_table_force_dev` and `eval_table_force_host` in `src/potential_functions.cuf`) with pair virial $w(r) = r \cdot F(r)$.
+    3. **Hard Spheres (`pot_int = -1`)**:
+       - Preserved exact contact extrapolation $g(\sigma^+)$ via `HS_Virial_Pressure`.
+  - **GPU Accelerated Virial Accumulation Kernel**:
+    - Implemented CUDA device kernel `virialGPU_LJ` in `src/Subsweep_Energy_CUDA.cuf` and host interface `CB_system_virial_GPU` in `src/CB_system_energy_gpu.cuf`.
+    - Evaluates total scalar virial $W = \sum_{i < j} r_{ij} F(r_{ij})$ across all checkerboard cell sets and 26 neighbor cells in $\sim 0.3\,\text{ms}$ on GPU.
+    - Thermodynamic virial pressure: $P_{\text{virial}} = \frac{N k_B T + W / 3}{V}$.
+  - **CPU Verification & Diagnostics**:
+    - Added CPU reference routines `compute_virial_isotropic_cpu` and `compute_per_atom_forces_cpu` in `src/energy.cuf`.
+    - Integrated automatic cross-verification under `Ecpu_check = .true.`, with coordinate synchronization (`Convert_CB_RU`) ensuring exact GPU vs CPU agreement ($|P_{\text{GPU}} - P_{\text{CPU}}| < 10^{-5}$).
+  - **Output & Trajectory Integration**:
+    - Updated progress table in `src/Main.cuf` to display instantaneous virial pressure `P σ³/kT` for all `pot_int < 1`.
+    - Updated `src/Tools.cuf` (`Calculate_averages`) to accumulate and print `Average Pσ³/kT = <P> ± <err>` in the final thermodynamic averages summary.
+    - Updated NetCDF trajectory frames (`netcdf_write_frame`) in `src/Main.cuf` to embed the virial stress tensor for all isotropic potentials.
+
+---
+
+## [2.8.9] - 2026-10-14
+
+### Added & Optimized
+- **Two-Tier Dynamic Scheduling & Lightweight Nucleation Regime for AVBMC**:
+  - Implemented a two-tier dynamic scheduling optimization for Aggregation Volume Bias Monte Carlo (AVBMC) moves that distinguishes between the early nucleation regime (small clusters/oligomers $\le 5$ particles) and the condensed aggregate regime:
+    1. **Tier 1 (Small-Cluster / Pre-Nucleation Regime, $\text{max\_size} \le 5$)**:
+       - Bypasses full host DBSCAN BFS clustering, cluster size distribution analysis, trajectory file output (`mclast_clconf.lammpstrj`), and computationally expensive surface detection (geometric dipole asymmetry $\bm{\eta}_i$ or GPU per-atom energy).
+       - Classifies particles into **bound** (`neighbors >= bound_min_neighbors`, default 1) and **isolated** (`neighbors == 0`) using fast $O(N)$ GPU cell-list neighbor counting (`neighbor_search`).
+       - Executes lightweight AVBMC exchange attempts between isolated monomers ($V_{\text{bulk}}$) and bound particles ($V_{\text{bind}}$) every `n_avbmc` sweeps (default 10).
+       - Periodically evaluates full DBSCAN cluster size every `ncluster_init` sweeps (default 500) to detect whether nucleation has occurred.
+    2. **Tier 2 (Large-Cluster / Condensed Regime, $\text{max\_size} > 5$)**:
+       - Automatically triggered when a cluster exceeding `cluster_threshold` (default 5 particles) is discovered (`cluster_regime_large = .true.`).
+       - Sets `n_avbmc = ncluster`, executing full DBSCAN clustering, surface boundary detection (geometric asymmetry or energy criterion), border trajectory output (`mclast_brdconf.lammpstrj`), and AVBMC surface pair exchanges every `ncluster` sweeps.
+       - Reverts dynamically to Tier 1 if the maximum cluster size drops $\le \text{cluster\_threshold}$ (e.g. aggregate evaporation).
+  - Added new configurable namelist parameters under `&Control_Params`:
+    - `n_avbmc`: Frequency (in MC sweeps) of lightweight AVBMC moves in Tier 1 (default `10`).
+    - `ncluster_init`: Periodicity (in MC sweeps) of full DBSCAN nucleation checks in Tier 1 (default `500`).
+    - `cluster_threshold`: Cluster size threshold defining the transition between Tier 1 and Tier 2 (default `5`).
+    - `bound_min_neighbors`: Minimum coordination number for bound classification in Tier 1 (default `1`, identifying dimers and higher oligomers).
+  - Implemented `extract_avbmc_data_lightweight` in `src/mod_avbmc.cuf` and `run_lightweight_avbmc_step` / `get_cluster_mask` in `src/mod_clusters.cuf`.
+  - Added an initial cluster state check before the main simulation loop in `src/Main.cuf` to select the correct regime on startup.
+  - Successfully validated on a 1000-particle Lennard-Jones fluid test case (`test_cases/test_twotier_avbmc/`), confirming seamless Tier 1 operation, automatic Tier 2 regime transition upon cluster nucleation at sweep 200, and exact zero energy drift (`0.0000E+00`).
+
+---
+
+## [2.8.8] - 2026-10-13
+
+### Changed & Documented
+- **Author Ordering & Attribution**:
+  - Updated author ordering across `README.md`, all Fortran source headers in `src/`, runtime startup banner, and CPC manuscript to:
+    **A. Díaz-Pozuelo, E. Lomba, and E. G. Noya**.
+- **Foundational Code Lineage & Citations**:
+  - Explicitly credited the foundational Monte Carlo simulation code written in CUDA-C by **E. G. Noya** (available on GitHub at [https://github.com/evanoya/MC_GPU](https://github.com/evanoya/MC_GPU)) in `README.md`, `src/Main.cuf` (header and runtime banner), and the CPC manuscript.
+  - Included full bibliographic citations for the seminal publications establishing this methodology:
+    1. *Nature* **596**, 367–371 (2021), DOI: `10.1038/s41586-021-03700-2`
+    2. *ACS Nano* **19** (14), 13714–13722 (2025), DOI: `10.1021/acsnano.4c14885`
+    3. *J. Chem. Phys.* **163** (24), 244904 (2025), DOI: `10.1063/5.0292922`
+
+---
+
+## [2.8.7] - 2026-10-13
+
+### Fixed
+- **Array Indexing in Cluster Border Asymmetry Calculation (`src/mod_clusters.cuf`)**:
+  - Resolved 0-based coordinate indexing bug in geometric asymmetry routine (`border_criterion = 'asymmetry'`, lines 656–665).
+  - Corrected `r(indx_i + 1, + 2, + 3)` and `r(indx_j + 1, + 2, + 3)` to `r(indx_i, + 1, + 2)` and `r(indx_j, + 1, + 2)`.
+  - Eliminated out-of-bounds buffer overrun past `3*natoms - 1` and corrected coordinate permutation that previously distorted the geometric asymmetry dipole vector $\mathbf{S}_i$.
+- **Checkerboard Cell Buffer Headroom (`src/InitializeCheckerboard.cuf`)**:
+  - Aligned `Nat_cell_max` buffer sizing with `UpdateCheckerboard.cuf` (`Max(64, int(3.0d0 * sqrt(2.d0) * W(0)*W(1)*W(2)) + 32)`), preventing cell capacity overflow during localized condensation or dense droplet clustering.
+- **Linker and NetCDF Dependencies in Build System (`src/Makefile`)**:
+  - Added `-lnetcdf` alongside `-lnetcdff` to resolve undefined reference errors (`nc_open`, `nc_abort`) from NetCDF C bindings.
+  - Added multi-architecture `lib64` / `lib` detection and automatic module environment fallbacks for NVIDIA HPC SDK and NetCDF.
+
+### Added
+- **Validation Benchmark: Lennard-Jones Fluid with and without AVBMC (`test_cases/lj_avbmc_validation/`)**:
+  - Performed 21,000-sweep canonical MC benchmark on $N = 1000$ Lennard-Jones fluid at $T^* = 0.75$, $\rho^* = 0.03$ ($L = 32.183\sigma$, $r_c = 2.5\sigma$) with (`avbmc = .true.`) and without (`avbmc = .false.`) AVBMC moves.
+  - Demonstrated that both algorithms sample the exact same canonical ensemble in the fully equilibrated regime (steps 15,000–21,000):
+    - **Standard MC (no AVBMC)**: $\langle U/N \rangle = -0.22891 \pm 0.00277\,\epsilon$, $\sigma = 0.01462\,\epsilon$, $C_v / N k_B = 0.3800$, $\tau_{\text{int}} = 21.6$ sweeps.
+    - **AVBMC MC**: $\langle U/N \rangle = -0.23298 \pm 0.00212\,\epsilon$, $\sigma = 0.01417\,\epsilon$, $C_v / N k_B = 0.3570$, $\tau_{\text{int}} = 13.5$ sweeps.
+    - Energy difference $\Delta \langle U/N \rangle = 0.00407\,\epsilon$ is within standard statistical error bars ($\pm 0.00277$ and $\pm 0.00212$).
+    - Fitted Gaussian/Boltzmann probability density distributions $P(U/N)$ demonstrate near-perfect overlap.
+    - Integrated autocorrelation time is reduced by $\sim 38\%$ with AVBMC, verifying enhanced sampling efficiency and accelerated barrier crossing.
+  - Generated publication-quality 4-panel analysis plot (`lj_avbmc_validation_comparison.png`) displaying full energy relaxation, DBSCAN cluster size dynamics, canonical energy distributions with Gaussian fits, and autocorrelation decay.
+
+## [2.8.6] - 2026-09-23
+
+### Fixed
+- **Sanchez-Burgos Interaction Hamiltonian Topology Alignment (`setup_sb_avbmc.py`, `datos.nml`, `pot22.dat`)**:
+  - Aligned Monte Carlo interaction matrices with the Sanchez-Burgos benchmark forcefield (`forcefield.inc` in LAMMPS MD):
+    - **Scaffold (Species 1, 4-site tetrahedral)**: Attracts both scaffold patches ($3 \leftrightarrow 3$, active CSW) and surfactant patches ($3 \leftrightarrow 4$, active CSW).
+    - **Surfactant (Species 2, 3-site planar)**: Attracts scaffold patches ($4 \leftrightarrow 3$, active CSW) but possesses **no self-attraction** ($4 \leftrightarrow 4$, inactive/zero CSW).
+  - Corrected patch interaction matrix in `test_cases/sb_avbmc_50_50/datos.nml` and `test_cases/sb_avbmc_50_50_3x3x3/datos.nml`:
+    $$\text{vpot} = \begin{pmatrix} 1.0 & 1.0 \\ 1.0 & 0.0 \end{pmatrix}$$
+    (previously set to unlike-only interactions $\begin{pmatrix} 0.0 & 1.0 \\ 1.0 & 0.0 \end{pmatrix}$).
+  - Regenerated `pot22.dat` as a zero-potential table to eliminate residual surfactant-surfactant CSW attraction.
+  - Updated `setup_sb_avbmc.py` to correctly map species 1 to scaffold (4 patches) and species 2 to surfactant (3 patches), resolving species inversion.
+
+### Added
+- **Cross-Code Benchmark and Validation Report (`report_sb_mc_vs_lammps/`)**:
+  - Authored a comprehensive 5-page publication-ready LaTeX report (`report_sb_mc_vs_lammps.tex`) and compiled document (`report_sb_mc_vs_lammps.pdf`) comparing GPU-accelerated Monte Carlo (AVBMC) in `MC_Checkerboard` against LAMMPS Molecular Dynamics for the equimolar $50:50$ Sanchez-Burgos patchy model.
+  - Included publication-quality vector and raster figures generated via `generate_figures.py`:
+    - `fig1_energy.pdf` / `.png`: Potential energy relaxation curves demonstrating quantitative convergence ($\langle U/N \rangle = -15.51 \pm 0.001\,k_B T$ in MC vs. $-15.27 \pm 0.01\,k_B T$ in LAMMPS MD, $\sim 1.5\%$ difference due to slab surface penalties vs. bulk cubic droplet).
+    - `fig2_rdf.pdf` / `.png`: Pair correlation functions $g_{ij}(r)$ capturing simultaneous contact bonding in $g_{11}(r)$ ($15.21$) and $g_{12}(r)$ ($47.57$), alongside purely repulsive excluded volume in $g_{22}(r)$ ($0.597$).
+    - `fig3_sq.pdf` / `.png`: Total structure factor $S_{NN}(Q)$ exhibiting dramatic low-$Q$ divergence ($S_{NN}(Q_{\text{min}}) = 11,027$), confirming macroscopic liquid-liquid phase separation.
+    - `fig4_cluster.pdf` / `.png`: Condensation kinetics showing $99.68\%$ droplet particle fraction and stabilized condensed scaffold mole fraction ($x_1 \approx 0.485$).
+- **Automated Trajectory Assessment Script (`test_cases/compare_mc_lammps.py`)**:
+  - Implemented standalone analysis script parsing thermo files, structure factors, radial distribution functions, and cluster statistics across both MC and LAMMPS simulation decks.
+- **SLURM Trajectory Analysis Runner for 3x3x3 Supercell (`test_cases/sb_avbmc_50_50_3x3x3/run_trj_analysis.slurm`, `trj.nml`)**:
+  - Added batch runner for CUDA-accelerated `trj_analysis` on the 54,000-particle production trajectory, analyzing DBSCAN clustering, radial distribution functions, and structure factors in 7.7 seconds.
+
+## [2.8.5] - 2026-09-21
+
+### Added
+- **Sanchez-Burgos 50:50 3x3x3 Supercell Simulation Case (`test_cases/sb_avbmc_50_50_3x3x3/`)**:
+  - Added configuration generator script `replicate_restart.py` for replicating LAMMPS ellipsoid data files into arbitrary $(n_x \times n_y \times n_z)$ supercells while preserving particle types, orientations (quaternions), and thermodynamic density.
+  - Generated $N = 54,000$-particle initial configuration `data.atoms` ($L = 73.499592\sigma$, $\rho^* = 0.136000$) from the 2,000-particle equilibrated restart file `test_cases/sb_avbmc_50_50/data.restart`.
+  - Configured simulation deck `datos.nml` for 50,000 equilibration sweeps and 100,000 production sweeps with AVBMC and tabulated potentials.
+  - Benchmarked GPU performance on NVIDIA RTX PRO 4500 Blackwell ($0.057\text{ s} / \text{sweep}$, completing 150,000 sweeps in $\sim 2.38\text{ hours}$ within the `gpu_v4_short` queue).
+  - Added SLURM batch submission script `run_sb_avbmc_3x3x3.slurm` and trajectory analysis deck `trj.nml`.
+
+## [2.8.4] - 2026-09-21
+
+### Added
+- **Comprehensive Documentation & Parameter Comments in Input Files (`*.nml`)**:
+  - Added descriptive comments, section banners, and units across all 27 `.nml` simulation input files in `examples/` and `test_cases/`.
+  - Documented physical meanings, reduced units, defaults, and algorithmic roles for all parameters across namelists:
+    - `&Control_Params`: Step counters (`istep_ini`, `istep_fin`, `Neq`, `Nmove`), I/O and checkpoint frequencies (`Nsave`, `Ndump`, `Nrestart`, `imovie`, `traj_format`, `data_file`), multicomponent types (`Npart_types`), CPU energy consistency verification (`Ecpu_check`), DBSCAN clustering parameters (`ncluster`, `rcl`, `minPts`, `asym_threshold`, `cluster_types`), AVBMC cluster moves (`avbmc`, `border_criterion`, `energy_threshold`, `energy_border_ratio`, `use_energy_ratio`, `avbmc_k_trials`, `avbmc_max_trials`), and LAMMPS HMC parameters (`lammps`, `Nmc_hmc`, `Nmd_hmc`, `tstep_hmc`).
+    - `&MC_Params`: Maximum displacements (`hmax`, `omax`, `vmax`), adaptive displacement tuning (`displ_update`), temperature controls (`temp0`, `temp1`), ensemble flags (`npt`, `Nvolf`, `iscale`, `pres`), PRNG seed (`seed`), and GPU checkerboard identity swap moves (`swap_moves`, `Nswap`, `Nswapf`).
+    - `&Potential_Params`: Interaction models (`HS`, `LJ`, `SSP`, `SB`, `TABLE`), angular patch widths and tolerances (`sigma_jon_aux`, `sigma_tor_jon`, `Bool_tor`), interaction ranges (`rangepp`), Palaia SSP potential parameters (`sigp_factor`, `Rcp_factor`, `Rc_factor`, `epsp_factor`), Sanchez-Burgos parameters (`eps_R`, `eps_CSW`, `rw_CSW`, `alpha_CSW`, `rc_CSW`, `patch_radial_factor`), and GPU table potential configurations (`table_mc`, `table_lammps`, `table_file_mc`, `table_file_lammps`).
+    - `&Lammps_Params`: Hybrid Monte Carlo integration parameters (`timestep`, `Nmd`, `hmc_freq`, `neigh_skin`, `thermo_freq`, `use_gpu`, `gpu_id`, `table_lammps`, `table_file_lammps`).
+  - Documented trailing geometry, topology, and matrix definitions (number of patches, orientation unit vectors, torsional reference vectors, torsional angle counts, patch-patch energy matrices `vpot`, patch angular widths `sigmas_ang`, and core diameter/well depth matrices `sigma_LJ` / `epsilon_LJ`).
+
+### Fixed
+- **Fortran Formatted Matrix Reader Compatibility in Examples (`examples/HS/datos.nml`, `examples/LJ/datos.nml`)**:
+  - Repositioned explanatory comments immediately before section headers (`--- HS SIGMA MATRIX ---`, `--- LJ SIGMA MATRIX ---`, `--- LJ EPSILON MATRIX ---`) rather than between headers and numeric data rows.
+  - Resolves Fortran floating-point input conversion errors (`Bad value during floating point read`) during non-advancing formatted reads (`F6.3`) in `src/Read_input_data_nml.cuf`.
+
+## [2.8.3] - 2026-09-21
+
+
+### Fixed
+- **Simulation Checkpoint & Restart Generation (`input-restart.nml`, `Write_Input_File`, `Read_Input_Data`)**:
+  - Fixed Fortran EOF read crash (`FIO-F-252`) when restarting from `input-restart.nml` caused by case-sensitivity differences in section headers (`Sigma_ang` vs `sigmas_ang`/`SIGMAS_ANG` and `Sigma_LJ` vs `sigma_LJ`/`SIGMA_LJ`).
+  - Added centralized `uppercase` subroutine in `MODULE utils` (`src/Definitions.cuf`) enabling case-insensitive matching across all input section headers (`TOPOLOGY`, `VPOT`, `SIGMAS_ANG`, `SIGMA_LJ`, `HS SIGMA MATRIX`, `LJ SIGMA MATRIX`) with informative fatal error messages on missing sections or premature EOF.
+  - Fixed missing namelist parameters in checkpointed `input-restart.nml` (`Write_Input_File`):
+    - Added `data_file = 'data.restart'` so restarts correctly load the latest configuration rather than falling back to `data.atoms`.
+    - Preserved active AVBMC parameters (`avbmc`, `border_criterion`, `avbmc_k_trials`, `avbmc_max_trials`, `energy_threshold`, `energy_border_ratio`, `use_energy_ratio`).
+    - Preserved DBSCAN cluster analysis parameters (`ncluster`, `rcl`, `minPts`, `asym_threshold`, `cluster_types`).
+    - Preserved tabulated potential settings (`table_mc`, `table_file_mc`).
+    - Preserved CPU energy check flag `Ecpu_check`.
+    - Standardized matrix headers (`-- vpot matrix --`, `-- sigmas_ang --`, `-- sigma_LJ --`).
+
+## [2.8.2] - 2026-09-16
+
+### Added
+- **Sanchez-Burgos Patchy Protein Condensation Model (`model = 'SB'`, `pot_int = 3`)**:
+  - Implemented the minimal patchy protein model of Sanchez-Burgos *et al.* (*Sci. Rep.* 11, 15241 (2021)) for simulating liquid-liquid phase separation (LLPS) and size-conserved biomolecular condensates in binary mixtures of multivalent scaffolds and surfactant clients.
+  - **Pseudo-Hard Sphere (PHS) Core Potential**:
+    $$U_{\text{PHS}}(r) = C \epsilon_R \left[ \left(\frac{\sigma}{r}\right)^{50} - \left(\frac{\sigma}{r}\right)^{49} \right] + \epsilon_R \quad (r < \tfrac{50}{49}\sigma), \quad 0 \quad (r \ge \tfrac{50}{49}\sigma)$$
+    with $\epsilon_R = 2/3$ and prefactor $C = 50(50/49)^{49} \approx 136.0888$, vanishing smoothly with zero derivative at $r_c^{\text{PHS}} = \frac{50}{49}\sigma \approx 1.0204\sigma$.
+  - **Continuous Square-Well (CSW) Patch Potential**:
+    $$U_{\text{CSW}}(d) = -\frac{\epsilon_{\text{CSW}}}{2} \left[ 1 - \tanh\left(\frac{d - r_w}{\alpha}\right) \right] \quad (d < r_c), \quad 0 \quad (d \ge r_c)$$
+    with well depth $\epsilon_{\text{CSW}} = 1/T^* = 1/0.09 \approx 11.1111$, well radius $r_w = 0.12\sigma$, smoothing parameter $\alpha = 0.005\sigma$, and cutoff $r_c = 0.20\sigma$.
+  - Implemented dual CPU/CUDA GPU routines `vphs` and `vcsw` in `src/potential_functions.cuf`.
+  - Added module parameters and device reflections (`eps_R`, `eps_CSW`, `rw_CSW`, `alpha_CSW`, `rc_CSW`, `pot_int_dev`) in `src/Definitions.cuf`.
+  - Integrated into checkerboard sweep kernels (`subsweep_sitesite`, `enerGPU_sitesite`, `cell_per_atom_enerGPU_sitesite`, `accumulate_atom_energy_sitesite`) in `src/Subsweep_Energy_CUDA.cuf` and CPU evaluation in `src/energy.cuf`.
+  - Added namelist support in `&Potential_Params` (`model = 'SB'`, `'SANCHEZ_BURGOS'`), strict column-width I/O parsing, and geometric cutoff validation ensuring $r_{\text{cut}} \ge r_{p,i} + r_{p,j} + r_{c,\text{CSW}}$ in `src/Read_input_data_nml.cuf`.
+  - Created validation test suite in `test_cases/sanchez_burgos_validation/` with LAMMPS configuration converter `convert_lammps_to_mc.py`. Verified initial total potential energy against a 2,000-particle LAMMPS benchmark snapshot (`-151.70959` vs LAMMPS `-151.70991`, discrepancy $< 0.0002\%$).
+- **CPC Manuscript Updates (`manuscript_cpc/mccb_gpu_cpc.tex`, `manuscript_cpc/references.bib`)**:
+  - Added bibliographic reference `sanchezburgos2021size` for Sanchez-Burgos *et al.* (2021) in `references.bib`.
+  - Added Section 2.3 detailing the mathematical formulation of site-site patchy models, PHS core, CSW patch attraction, and biological scaffold-client stoichiometry.
+  - Documented namelist parameters (`eps_R`, `eps_CSW`, `rw_CSW`, `alpha_CSW`, `rc_CSW`) in Table 3 and Table 4 (`table_lammps`).
+  - Added dedicated paragraph in Section 2.7 explaining analytical vs. tabulated forces in LAMMPS HMC, clarifying when native pair styles apply (e.g. LJ, SSP) vs. when numerical tables are mandatory (SB CSW patch potential), alongside Hamiltonian consistency and short-range / long-range potential splitting.
+  - Added validation benchmark against LAMMPS in Section 4.1.
+
+## [2.8.1] - 2026-09-14
+
+### Changed & Improved
+- **CPC Manuscript Vector Figures Replotting & Layout Optimization (`manuscript_cpc/figures/`, `manuscript_cpc/mccb_gpu_cpc.tex`)**:
+  - Re-plotted all manuscript figures in high-resolution vector PDF format (`hmc_overhead_benchmark_comparison.pdf`, `consistency_all.pdf`, `scaling_benchmark.pdf`, `avbmc_benchmark_comparison.pdf`, `avbmc_csd_distribution.pdf`) using publication-grade serif fonts, vector stroke geometry, and enlarged labels.
+  - **Figure 1 (In-Memory HMC Profiling)**: Enlarged to span both columns (`figure*`, spanning full `\textwidth`) at the top of Page 5, maintaining balanced two-column text below it.
+  - **Figure 2 (Thermodynamic Consistency across Ensembles)**: Regrouped into a unified 2-row $\times$ 3-column layout (`consistency_all.pdf`), stacking reduced density $\rho^*(t)$ (top) and thermodynamic observables ($P^*(t)$ with analytical Carnahan-Starling EOS line for HS; $\langle U/N \rangle(t)$ for LJ and SSP) vertically per physical system column sharing the x-axis ("Monte Carlo Sweeps").
+  - **Figure 3 (CPU vs. GPU Scaling)**: Redesigned into a 2-row $\times$ 1-column vertically stacked panel sharing the x-axis (`Particle Count N`), placing execution time on top and effective speedup on the bottom for enhanced visual comparison.
+  - **Figure 4 (Patchy Colloidal Cluster Kinetics and Acceptance Rates)**: Eliminated cluster abundance kinetics, stacking maximum cluster size growth kinetics $S_{\max}(t)$ (top) and Monte Carlo acceptance rates (bottom) sharing the x-axis ("Monte Carlo Steps").
+  - **Figure 5 (Cluster Size Distribution)**: Extracted cluster size distribution into a standalone publication figure (`avbmc_csd_distribution.pdf`) showing $P(s)$ vs $s$ on log-log scale.
+  - Recompiled manuscript (`mccb_gpu_cpc.pdf`), strictly maintaining the exact 12-page budget with seamless layout and balanced typography.
+- **Bibliography & DOI Verification (`manuscript_cpc/references.bib`)**:
+  - Validated all 19 bibliographic DOIs against the official Crossref registry API.
+  - Corrected Ref [6] (`noya2014phase`): Set authors to E. G. Noya, I. Kolovos, G. Doppelbauer, G. Kahl, E. Bianchi (*Soft Matter* 10 (42), 8464–8474 (2014)) and updated DOI to `10.1039/c4sm01559b`.
+  - Corrected Ref [7] (`palaia2022patchy`): Set authors to I. Palaia and A. Šarić (*J. Chem. Phys.* 156 (19), 194902 (2022)) and confirmed DOI `10.1063/5.0087769`.
+- **Software Citation for gpMC (`manuscript_cpc/references.bib`, `manuscript_cpc/mccb_gpu_cpc.tex`)**:
+  - Added dedicated bibliographic entry `gpmc2026` for **gpMC** (authors: E. Lomba and E. G. Noya, title: *gpMC: A General Purpose Monte Carlo Program*, available at \url{https://github.com/elomba/MCcol.git}).
+  - Added in-text citation `\cite{gpmc2026}` to the CPU benchmark baseline description in Section 4.1.
+  - Linked repository in `test_cases/benchmark.tex` and `test_cases/scaling/gpMC_bench/README.md`.
+
+## [2.8.0] - 2026-09-08
+
+### Added
+- **Computer Physics Communications (CPC) Program Manuscript Package (`manuscript_cpc/`)**:
+  - Prepared and compiled complete 12-page manuscript in Elsevier `elsarticle` format (`final,5p,times,twocolumn`) for submission to *Computer Physics Communications* (CPiP).
+  - Included full Program Summary, detailed mathematical formulation of 3D checkerboard domain decomposition (8 sublattices), canonical ($NVT$) and isobaric-isothermal ($NpT$) sampling, and virial pressure evaluation for hard spheres.
+  - Formulated Association Volume Bias Monte Carlo (AVBMC) with analytical proof and machine-precision verification of microscopic reversibility ($\text{arg}_{\text{fwd}} \cdot \text{arg}_{\text{rev}} \equiv 1.0$).
+  - Documented cluster surface geometry identification using geometric dipole asymmetry ($\eta_i \ge 0.5$) and its connection to GPU G-DBSCAN clustering from companion package `trj_analysis`.
+  - Detailed multicomponent particle identity swaps ($A \leftrightarrow B$) with proofs of cell occupancy invariance and microscopic reversibility.
+  - Documented in-memory persistent Hybrid Monte Carlo (HMC) coupling with LAMMPS via direct C-API scatter/gather.
+  - Added comprehensive tables for all namelist inputs (`&Control_Params`, `&MC_Params`, `&Potential_Params`, `&Lammps_Params`), input/output file formats, thermodynamic consistency benchmarks, and GPU scaling comparisons with moves-per-particle throughput normalizations.
+  - Included publication-quality figures (`scaling_benchmark.png`, `avbmc_benchmark_comparison.png`, `hmc_overhead_benchmark_comparison.png`, `consistency_hs.png`, `consistency_lj.png`, `consistency_ssp.png`), BibTeX database (`references.bib`), and author biographies.
+- **Thermodynamic Consistency Benchmark Suite: NpT vs NVT Ensembles (`test_cases/npt_nvt_consistency/`)**:
+  - Developed an automated two-stage simulation framework verifying thermodynamic consistency ($\langle A \rangle_{NpT} = \langle A \rangle_{NVT}$) across all fundamental interaction models:
+    - **Hard Spheres (`HS`)**: Validated contact virial pressure $P_{\text{virial}}\sigma^3/k_B T$ in both $NpT$ ($0.67674 \pm 0.00218$) and $NVT$ ($0.72284 \pm 0.00059$) against the analytical Carnahan-Starling equation of state ($0.034\%$ and $0.038\%$ discrepancy, respectively).
+    - **Lennard-Jones (`LJ`)**: Verified density and potential energy consistency ($\langle U/N \rangle_{NpT} = -2.64028$ vs $\langle U/N \rangle_{NVT} = -2.63133$, $0.339\%$ discrepancy, $0.35\sigma$ statistical $Z$-score).
+    - **Site-Site Patchy Colloids (`SSP`)**: Verified internal energy consistency for 4-patch tetrahedral colloids ($-1.87301$ vs $-1.88494$, $0.637\%$ discrepancy, $1.15\sigma$; exact restart match $-1.88562$ vs $-1.88560$, $0.001\%$).
+  - Added SLURM multi-node batch scripts (`run_hs.slurm`, `run_lj.slurm`, `run_ssp.slurm`, `submit_all.sh`) configured for simultaneous multi-GPU execution across cluster nodes `ladon28` and `ladon29`.
+  - Added automated statistical analysis tool `analyze_consistency.py` with system-adaptive equilibration detection, Z-score evaluation, and Carnahan-Starling EOS validation.
+  - Added publication-quality plotting tool `plot_consistency.py` generating dual-panel density and energy/virial-pressure evolution figures (`consistency_hs.png`, `consistency_lj.png`, `consistency_ssp.png`).
+- **gpMC CPU vs MCCB-gpu GPU Scaling Benchmark Reproduction (`test_cases/scaling/gpMC_bench/`)**:
+  - Replicated Table 2 scaling benchmarks from `benchmark.tex` comparing CPU code `gpMC` (Intel Fortran `ifx` on Intel Xeon Gold 6548Y+) against GPU code `MCCB-gpu` (NVIDIA RTX PRO 4500) for binary LJ mixtures across system sizes $N = 8000, 15625, 32768, 125000$.
+  - Expanded scaling measurements to both canonical ($NVT$) and isobaric-isothermal ($NpT$) ensembles:
+    - In $NpT$, measured execution times of 15.16 s ($N=8000$), 35.95 s ($N=15625$), 59.23 s ($N=32768$), and 254.09 s ($N=125000$) for gpMC (CPU) vs 6.26 s, 11.88 s, 9.94 s, and 10.14 s for MCCB-gpu (GPU).
+    - Accounted for differing trial displacements per particle between codes ($\mu_{\text{CPU}} = 1.0$ vs $\mu_{\text{GPU}} = N_{\text{cells}} N_{\text{move}} / N = 1.73 - 3.38$ moves/particle/cycle): effective throughput speedups reach **61.41× ($NVT$)** and **68.76× ($NpT$)** at $N=125,000$ (raw cycle speedups of 22.39× and 25.06×).
+  - Corrected outdated input parameter `Nsave2` to `Ndump` in `test_cases/scaling/{1,2,3,4}/datos.nml`.
+  - Developed conversion utility `utils/convert_lammps_lj_to_real.py` translating reduced LJ coordinates and topologies into physical Angstrom units with $\sigma_0 = 3.0$ Å for gpMC compatibility.
+  - Replicated anomalous scaling saturation: GPU execution time plateaus at $\sim 8$ s ($NVT$) and $\sim 10$ s ($NpT$) across $N=15,625$ to $N=125,000$.
+  - Updated `test_cases/benchmark.tex`: revised Table 2 to include side-by-side $NVT$ and $NpT$ scaling runtimes, moves-per-particle normalization, normalized GPU times, and effective speedups, added Section 1.3 with Table 3 for thermodynamic consistency validation, and updated structural discussion insights.
+- **Persistent-Memory LAMMPS Wrapper for Hybrid Monte Carlo (`src/lammps_hmc_wrapper.cuf`)**:
+  - Implemented persistent in-memory LAMMPS state architecture: the LAMMPS instance, box geometry, topology, pair styles, and GPU neighbor lists are initialized once during the initial trial (`setup_lammps_system`) and held in memory across all HMC trials.
+  - Eliminated per-trial disk file I/O (`lammps_hmc.data`), `clear` commands, ASCII re-parsing, and neighbor list destruction.
+  - Replaced disk communication with direct in-memory C API data injection: coordinates are transferred via `scatter_atoms("x")` and retrieved via `gather_atoms("x")` in $< 0.5$ ms.
+  - Implemented dynamic rigid-body and periodic boundary synchronization for patchy particles (`pot_int == 2`): dynamically resets atom image flags to zero (`set group all image 0 0 0`) and refreshes `fix rigid/nve molecule` before each MD trajectory, preventing boundary unwrap distortion, coordinate drift, and spurious particle overlaps across successive HMC moves.
+  - Bypassed atom tag 64-bit array casting bugs in the LAMMPS library interface by strictly avoiding `scatter_atoms("image")`.
+- **Hybrid Monte Carlo for Tabulated Potential Mixtures (`model = 'TABLE'`)**:
+  - Generalized HMC LAMMPS moves to plain tabulated potentials (`model = 'TABLE'`) with point particles using `fix nve` on GPU with exact table metadata matching.
+  - Added compatibility verification check: automatically disables hybrid LAMMPS moves with an explanatory notice if `lammps = .true.` is specified for `HS`, `LJ`, or `LJG` potentials.
+  - Added dedicated `&Lammps_Params` namelist for configuring internal LAMMPS parameters (`timestep`, `Nmd`, `hmc_freq`, `neigh_skin`, `thermo_freq`, `use_gpu`, `gpu_id`, `table_lammps`, `table_file_lammps`).
+  - Added dedicated example case in `examples/HMC_table_mixture/` with Mie 50-49 tabulated binary mixture input and documentation.
+- **Multicomponent Mixture Identity Swaps ($N_{\text{species}} \ge 2$)**:
+  - Extended identity swap kernels (intra-cell and cross-cell) across all potential models (`HS`, `LJ`, `TABLE`, `LJG`, `SSP`) to support arbitrary multicomponent mixtures ($N_{\text{part\_types}} \ge 2$).
+  - Trial species pairs $(A, B)$ are chosen uniformly at random for each swap attempt, preserving microscopic reversibility and caching trial species in block-shared variables for concurrent neighbor evaluations.
+- **Generalized Identity Swap Moves for All Potential Models**:
+  - Generalized GPU checkerboard identity swap moves ($A \leftrightarrow B$) from hard spheres (`HS`) to all supported interaction models:
+    - Lennard-Jones and tabular mixtures (`LJ`, `TABLE`, `pot_int = 0` / `pot_int < 1`).
+    - Angular patchy particles (`LJG`, `pot_int = 1`).
+    - Site-site patchy particles (`SSP`, `pot_int = 2`).
+  - Added dedicated CUDA device evaluators:
+    - `eval_pair_energy_single_LJ`: Pair energy and overlap evaluation for LJ and Catmull-Rom interpolated tables.
+    - `eval_pair_energy_single_angular`: Angular and torsional modulation using rotated patch and reference vectors.
+    - `eval_pair_energy_single_sitesite`: Palaia site-site distances and cutoff evaluations.
+  - Implemented 6 new CUDA global kernels in `src/Subsweep_Energy_CUDA.cuf`:
+    - Intra-cell kernels: `subsweep_LJ_swap`, `subsweep_angular_swap`, `subsweep_sitesite_swap`.
+    - Cross-cell kernels: `subsweep_LJ_cross_swap`, `subsweep_angular_cross_swap`, `subsweep_sitesite_cross_swap`.
+  - Mutual pair interaction evaluation: In intra-cell swaps, the mutual pair interaction $u(a, b)$ between the two swapped particles is evaluated both before and after the identity swap, correctly accounting for orientation differences:
+    $$\Delta E_{ab} = u(a_{\text{new}}, b_{\text{new}}) - u(a_{\text{old}}, b_{\text{old}})$$
+  - Directional coin flip: In cross-cell swaps, added a 50/50 symmetric coin toss for swap direction ($0 \leftrightarrow 1$ vs $1 \leftrightarrow 0$) to guarantee microscopic reversibility and detailed balance.
+  - CPU reference subroutine `calc_swap_energy_cpu` in `src/energy.cuf` for verification and double-checking.
+  - Automated verification test suite `src/test_swap_energy.cuf` validating $\Delta E = E_{\text{tot}}(\text{after}) - E_{\text{tot}}(\text{before})$ to within floating-point precision ($< 10^{-7}$) across HS, LJ, angular patchy, and site-site patchy potentials.
+- **Documentation & Installation Guide**:
+  - Added comprehensive `INSTALL.md` detailing system requirements, software dependencies (NVHPC, NetCDF, LAMMPS, cuRAND), HPC module loading, building LAMMPS with Fortran wrappers, Makefile customization, verification tests, and troubleshooting.
+  - Added `examples/README.md` and `examples/HMC/README.md` detailing all benchmark cases, namelists, and execution commands.
+
+### Changed & Fixed
+- **Input Parsing Robustness**:
+  - Added lookahead comment and whitespace skipping loops in `src/Read_input_data_nml.cuf` to safely ignore comment lines (`!` and `#`) and blank lines preceding formatted patch geometry data sections.
+- **Driver and Energy Accumulation**:
+  - `src/Subsweep_Energy_CUDA.cuf`: Updated host wrappers `subsweep_swap_gpu` and `subsweep_cross_swap_gpu` to dispatch to the appropriate kernel according to `pot_int`, synchronize device execution, and accumulate `Delta_E` into running energy `En_tot`.
+  - `src/MCsweep_Checkerboard.cuf`: Removed `pot_int /= -1` early return guard in `MCswap_Checkerboard()` and routed `En_tot` through the host wrappers.
+  - `src/Main.cuf`:
+    - Removed `pot_int == -1` restriction on swap moves during the main simulation loop.
+    - Formatted `P_Swap` column output for patchy potential simulation runs.
+    - Added energy drift tracking (`|En_tot - En_tot_old|`) at periodic checkpoints and at final GPU energy evaluation.
+  - `src/Read_input_data_nml.cuf`: Removed fatal error stopping non-HS potentials when `swap_moves = .true.` and updated initialization banner logs.
+- **Executable and Program Branding**:
+  - Renamed target executable from `mc_gpu.exe` to `MCCB-gpu` in `src/Makefile` (with backward-compatible symlink `bin/mc_gpu.exe -> MCCB-gpu`).
+  - Updated Fortran program unit to `Program MCCB_gpu`, updated runtime banners to `HYBRID MCCB-gpu/LAMMPS SIMULATION ENGINE`, and updated NetCDF trajectory metadata attribute `program = 'MCCB-gpu'`.
+  - Updated all documentation, verification scripts, and example runners to reference `MCCB-gpu`.
+
+---
+
+## [2.7.0] - 2026-09-04
+
+### Changed & Removed
+- **Removed Mandatory MPI Runtime Requirement**:
+  - Removed obsolete `Use mpi`, `MPI_Init`, and `MPI_Finalize` calls from `src/Main.cuf`.
+  - The executable `MCCB-gpu` can now be invoked directly as a standalone binary (e.g. `./bin/MCCB-gpu datos.nml 0`) without needing `mpirun -np 1` or OpenMPI runtime daemon initialization.
+  - Retained full backward compatibility for setups that continue to invoke `mpirun -np 1`.
+- **Makefile & Build Modernization**:
+  - Configured default Fortran compiler in `src/Makefile` to `FC ?= nvfortran` (overriding GNU Make's internal `f77` default).
+  - Added robust auto-detection for local workstation NVHPC SDK installations (`/opt/nvidia/hpc_sdk/Linux_x86_64/2025`, `25.9`, `current`) and NetCDF paths (`/usr/local/netcdf-nv`).
+  - Exported `PATH` from Makefile so `nvfortran` is resolved automatically without requiring manual environment module loads or shell exports on standard systems.
+- **Launcher Scripts & Documentation**:
+  - Updated `bin/run_MCGPU` and `examples/table_mixture/README.md` to execute `MCCB-gpu` directly without OpenMPI wrappers.
+
+---
+
+## [2.6.0] - 2026-09-04
+
+### Added
+- **Tabulated Potential Mixtures (`model = 'TABLE'`)**:
+  - Implemented GPU-accelerated Monte Carlo simulation for simple $n$-component fluid mixtures interacting via LAMMPS potential tables (`pot_int = 0`, `table_mc = .true.`).
+  - Added support for both `RSQ` ($r^2$-uniform spacing from LAMMPS `pair_write ... rsq ...`) and linear `R` grid styles in `eval_table_pot_dev` and `eval_table_pot_host` (`src/potential_functions.cuf`).
+  - Added 4-point cubic Catmull-Rom spline interpolation with boundary clamping on device constant memory and host.
+  - Implemented flexible table loading in `load_table_potentials` (`src/Read_input_data_nml.cuf`):
+    - Automatically discovers separate pairwise files (`pot11.dat`, `pot12.dat`, `pot22.dat`, or `mie11.dat`, `mie12.dat`, `mie22.dat`) or unified multi-table files.
+    - Matches section keywords case-insensitively (`mie11`, `POT11`, `1_1`, `11`).
+    - Robustly parses tokenized `N` line with style detection (`RSQ` vs `R`) and spacing calculation.
+    - Dynamically configures the interaction cutoff matrix `rangep(i, j) = table_rmax(i, j)` directly from table headers, ensuring consistent checkerboard cell decompositions.
+  - Integrated table evaluation into GPU checkerboard MC kernels:
+    - `subsweep_LJ` for internal and neighbor cell moves with $r_{\min}$ overlap checks (`src/Subsweep_Energy_CUDA.cuf`).
+    - Full-system and per-atom energy verification kernels `enerGPU_LJ` and `cell_per_atom_enerGPU_LJ`.
+    - Host verification routines `ener` and `ener_LJ` (`src/energy.cuf`).
+  - Created example benchmark case in `examples/table_mixture/` matching LAMMPS Mie 50-49 binary mixture data and verified that initial GPU energy matches LAMMPS to $< 0.001\%$.
+
+### Fixed
+- **OpenACC Dynamic Symbol Collision (`libgomp: TODO`)**:
+  - Provided a `bind(C, name="acc_register_library")` stub in `src/Tools.cuf` to prevent NVHPC runtime from invoking GCC's unfinished `acc_register_library` implementation in `libgomp.so.1` (loaded by dynamic LAMMPS library dependencies).
+
+---
+
+## [2.5.1] - 2026-08-28
+
+### Added
+- **Adaptive Identity Swap Throttling**:
+  - Automatically monitors rolling identity swap acceptance probability ($P_{\text{swap}}$) in `Main.cuf`.
+  - When $P_{\text{swap}} < 0.00005$ due to high-density jamming, `Nswapf` is automatically throttled from 1 to 100 sweeps to avoid wasteful GPU kernel calls, and automatically restored to 1 if $P_{\text{swap}}$ recovers.
+  - Added real-time color-coded terminal notices when throttling activates or restores.
+- **Decoupled Move Frequencies (`Nvolf` and `Nswapf`)**:
+  - Added `Nvolf` (NpT volume move frequency) and `Nswapf` (identity swap frequency) parameters to `&MC_Params` in `Read_input_data_nml.cuf` for decoupled sampling.
+- **High-Accuracy Virial Pressure Calculation (Method A + Method B)**:
+  - **Fine-Grain Log-Linear Contact Fit (Method A)**: Upgraded near-contact pair histogram in `src/energy.cuf` from 5 coarse $0.01\sigma$ shells to **10 fine shells of width $0.0025\sigma$** ($1.0000\sigma \to 1.0250\sigma$). Extrapolates contact correlation $g(\sigma_{ab}^+)$ via Log-Linear fitting ($\ln g(r) = a + b(r - \sigma_{ab})$) to match exponential near-contact peak in dense hard-sphere systems.
+  - **Block Time-Accumulation (Method B)**: Added `mod_hs_virial_accum` module (`src/Definitions.cuf`) and `Accumulate_HS_Virial_Histogram` (`src/energy.cuf`), which periodically collects pair distance histograms across each `Nsave` window. Computes window-averaged $\langle g_{ab}(\sigma^+)\rangle$ and average box volume $\langle V \rangle$, reducing statistical noise by $\sim 3.16\times$ in NpT and NVT ensembles.
+
+### Changed & Formatted
+- **Terminal Progress Table Formatting**:
+  - Aligned all header titles with exact field widths across active simulation feature sets.
+  - Increased `P_swap` precision in progress tables to 5 decimal places (`f10.5`).
+
+---
+
+## [2.5.0] - 2026-08-27
+
+### Added
+- **GPU-Accelerated Identity Swap Moves ($A \leftrightarrow B$) for Binary Mixtures**:
+  - Implemented CUDA device kernel `subsweep_HS_swap` for intra-cell swaps across all active cells in the 8 checkerboard subsets, concurrently testing the central cell and 26 neighbor cells across GPU warp threads in $O(1)$ time.
+  - Implemented CUDA device kernel `subsweep_HS_cross_swap` for long-range cross-cell swaps between paired disjoint cells across opposite halves of the simulation volume ($\ge L/2 > 2\sigma_{\text{max}}$) with exact Hastings detailed balance:
+    $$\alpha = \min\left(1, \frac{n_{A,1}\, n_{B,2}}{(n_{B,1} + 1)(n_{A,2} + 1)}\right)$$
+  - Added host wrappers `subsweep_swap_gpu` and `subsweep_cross_swap_gpu` in `Subsweep_Energy_CUDA.cuf`.
+  - Added driver subroutine `MCswap_Checkerboard` in `MCsweep_Checkerboard.cuf`.
+  - Added host-device species type synchronization in `Convert_CB_RU` updating host `itype(i)` from device `List_Cell`.
+  - Added namelist parameters `swap_moves` (`.true.` / `.false.`, default: `.false.`) and `Nswap` (sub-passes per MC cycle, default: `1`) to `&MC_Params` in `Read_input_data_nml.cuf`.
+  - Added real-time tracking of swap acceptance rate (`P_Swap`) in main MC progress tables and cumulative 64-bit production counters (`nswap_att_tot`, `nswap_acc_tot`).
+- **Binary Mixture & Model Consistency Checks**:
+  - Implemented fatal error validation during namelist initialization stopping execution immediately if `swap_moves = .true.` is requested with `Npart_types /= 2` or non-HS models (`model /= 'HS'`).
+  - Added internal safety guard returns (`If (.not. swap_moves .or. Npart_types /= 2 .or. pot_int /= -1) Return`) across all swap move routines.
+- **Virial Pressure & Thermodynamics Enhancements**:
+  - Integrated contact virial pressure accumulation into thermodynamic averages (`P_virial_av` in `Tools.cuf`).
+  - Embedded virial pressure into per-atom stress tensor components in NetCDF trajectory frames (`netcdf_write_frame` in `netcdf_trajectory.cuf`).
+  - Increased buffer cell safety factor in Hard Sphere volume moves (`Volume_move.cuf`) to prevent grid rebuild overflows during large volume expansions.
+
+### Fixed
+- **Contact Overlap Trap in Hard-Sphere Subsweep Kernel**:
+  - Fixed strict strict inequality evaluation at line 2388 and 2411 of `Subsweep_Energy_CUDA.cuf` by updating contact boundary checks (`RSQ < 0.249999_wp`) to eliminate self-displacement false rejections on exact contact configurations.
+- Suppressed repetitive cell info prints during periodic $NpT$ volume updates in `UpdateCheckerboard.cuf`.
+
+### Documentation
+- Updated `README.md` with algorithmic formulation, checkerboard parallelization mechanics, input parameters, and methodological citations for identity swap moves.
+- Updated `examples/HS/datos.nml` with commented identity swap configuration options.
+
+---
+
+## [2.4.0] - 2026-08-20
+
+### Added
+- **Hard-Sphere (HS) Potential Model (`pot_int = -1`)**:
+  - Athermal hard-sphere fluid and multicomponent mixture potential with support for non-additive cross diameters ($\sigma_{ij} \ne \frac{1}{2}(\sigma_{ii} + \sigma_{jj})$).
+  - Dedicated `--- HS SIGMA MATRIX ---` block reading in `Read_input_data_nml.cuf`.
+  - CPU verification routines in `energy.cuf` (`ener_HS`).
+- **Contact Virial Pressure Calculation (`HS_Virial_Pressure`)**:
+  - Multicomponent Lebowitz-Percus contact pair-correlation extrapolation from near-contact histogram shells.
+  - Periodic `[P_HS]` progress output after equilibration.
+- **Aggregation Volume Bias Monte Carlo (AVBMC)**:
+  - Implemented AVBMC cluster association (bulk $\rightarrow V_{\text{in}}$) and dissociation ($V_{\text{in}} \rightarrow$ bulk) pair moves (`mod_avbmc.cuf`).
+  - Configurable Rosenbluth (CBMC) $K$-trial scheme for bulk volume probing.
+  - $O(1)$ single-particle cell list updates (`update_single_particle_cell`).
+- **Progress Table Streamlining**:
+  - Distinct equilibration (`Neq`) and production (`istep_fin`) phases with automated counter resets.
+  - Consolidated single-line progress table with dynamic columns for cluster analysis and AVBMC acceptance.
+
+---
+
+## [2.3.1] - 2026-08-10
+
+### Added
+- **Cluster Border Points Analysis**:
+  - Geometric asymmetry criterion based on normalized net neighbor displacement vectors.
+  - Configurable threshold `asym_threshold` in `Control_Params` namelist.
+  - Dedicated output trajectory files for clusters (`mclast_clconf.lammpstrj`) and border particles (`mclast_brdconf.lammpstrj`).
+
+---
+
+## [2.3.0] - 2026-08-01
+
+### Added
+- **LAMMPS Integration & Build System**:
+  - Externalized LAMMPS potential definitions into modular `.lmp` include files (`potential_ssp_analytic.lmp`, `potential_ssp_table.lmp`).
+  - Added compilation helper utility `utils/build_lammps.sh`.
+  - Updated branding to `HYBRID MCCB-gpu/LAMMPS SIMULATION ENGINE`.
+
+---
+
+## [2.2.0] - 2026-07-20
+
+### Added
+- **Tabulated Potential Interpolation**:
+  - Support for prefix-based tabulated potentials with cubic spline interpolation on CPU and GPU.
+  - GPU neighbor list integration (`neigh yes`) for LAMMPS HMC integration.
+  - Static compile-time table memory structures eliminating dope vector lookups in CUDA kernels.
+
+---
+
+## [2.1.0] - 2026-07-10
+
+### Added
+- **Hybrid Monte Carlo (HMC)**:
+  - Integrated multi-step LAMMPS Molecular Dynamics (MD) rigid-body segments with GPU checkerboard MC moves.
+  - GPU acceleration for LAMMPS MD segments via `-pk gpu`.
+  - Multi-site molecular mapping for patchy particles.
+  - Energy per site (`En_tot/Ns`) logging in progress tables.
+
+---
+
+## [1.5.0] - 2026-06-25
+
+### Added
+- **GPU-Accelerated DBSCAN Cluster Analysis**:
+  - Parallel BFS and neighbor searching kernels (`mod_clusters.cuf`).
+  - $O(N)$ GPU cell-list neighbor finder.
+  - Time-series cluster evolution export (`clusevol_mc.dat`).
+
+---
+
+## [1.4.0] - 2026-06-15
+
+### Added
+- **Site-Site Patchy (SSP / Palaia) Potential Model**:
+  - Weeks-Chandler-Andersen (WCA) core with attractive cosine-squared tail.
+  - Configurable scaling parameters: `sigp_factor`, `Rcp_factor`, `Rc_factor`, `epsp_factor`, and `patch_radial_factor`.
+  - LAMMPS cross-validation scripts and test examples.
+  - Custom input configuration file path via `data_file`.
+
+---
+
+## [1.3.0] - 2026-06-05
+
+### Added
+- Dedicated CUDA Subsweep LJ kernel for optimized single-particle translations.
+- Mixed-precision CUDA implementation (`dkind` accumulator with single-precision arithmetic).
+- Cell-based per-atom energy calculation routines on GPU.
+
+---
+
+## [1.2.0] - 2026-05-25
+
+### Added
+- Fortran namelist input configuration (`Read_input_data_nml.cuf`).
+- Isotropic Lennard-Jones (LJ) fluids and multicomponent LJ mixtures.
+- Parallel per-atom energy calculation on GPU.
+- CPU energy validation check flag (`Ecpu_check`).
+
+---
+
+## [1.1.0] - 2026-05-15
+
+### Added
+- NetCDF binary trajectory export format (`netcdf_trajectory.cuf`) with AMBER conventions, cell dimensions, and quaternion metadata.
+
+---
+
+## [0.9.0] - 2026-05-01
+
+### Added
+- Initial 3D checkerboard cellular decomposition for GPU-accelerated Monte Carlo simulations.
+- Support for patchy particles with Lennard-Jones-Gauss (LJG) potentials and Kern-Frenkel angular/torsional modulations.
+- Canonical ($NVT$) and Isobaric-Isothermal ($NpT$) ensembles.

@@ -1,0 +1,80 @@
+! ==============================================================================
+! SUBROUTINE: CB_system_energy_GPU
+! ==============================================================================
+! DESCRIPTION:
+!   Calculates the total potential energy of the system using GPU acceleration
+!   with the checkerboard cell decomposition. Calls the CUDA kernel to compute
+!   pairwise interactions between particles in neighboring cells.
+!
+! ARGUMENTS:
+!   state - Integer flag indicating computation mode:
+!           0: initial energy calculation
+!           1: regular energy update during simulation
+!           2: final energy verification
+!
+! AUTHORS:
+!   Antonio Díaz-Pozuelo   - adiaz@iqf.csic.es
+!   Enrique Lomba          - enrique.lomba@csic.es
+!   Eva González Noya      - eva.noya@iqf.csic.es
+!
+! DATE:
+!   February 2026
+! ==============================================================================
+Subroutine CB_system_energy_GPU(state)
+
+   Use set_precision
+   Use Cell
+   Use configuration
+   Use potential
+   Use rundata
+   Use utils
+   Use properties
+   Use cuda_fortran, only: computeenergygpu
+
+   Integer      ::  i, j, k, l, indx, ngpus
+   Integer      ::  nmol,state
+   Real(wp)     ::  energy(Natoms)
+   Real (dkind) ::  Ener_tot
+
+   call computeenergygpu(pot_int, bool_tor, state, Ndim, Nat_cell_max, Ntot_Cell, Npart_types, &
+                     &   Nrb_sites_max, Ntor_max, sigp_factor, Rcp_factor, Rc_factor, &
+                     &   Nrb_sites, patch, ref_tor_vec, &
+                     &   sigma_jon, sigma_tor_jon, sigma_LJ, epsilon_LJ, &
+                     &   rangeP, VL0, xop, &
+                     &   Ntor_angle, tor_angle, Vpot_Matrix, &
+                     &   h, Sphere_Cell, List_Cell, Map_Cell, Nl_Cell, Nat_Cell, DR_Cell, Ener_tot)
+   En_tot = Ener_tot
+
+End Subroutine CB_system_energy_GPU
+
+! ==============================================================================
+! SUBROUTINE: CB_system_virial_GPU
+! ==============================================================================
+! DESCRIPTION:
+!   Calculates the total virial sum W = sum_{i<j} r_ij * F(r_ij) and virial
+!   pressure using GPU acceleration for all systems (isotropic and anisotropic).
+! ==============================================================================
+Subroutine CB_system_virial_GPU(W_tot, P_vir)
+   Use set_precision
+   Use Cell, only: Nat_cell_max, Ntot_Cell
+   Use configuration, only: Ndim, Natoms, h
+   Use potential, only: Npart_types, Nrb_sites_max, Ntor_max, sigp_factor, Rcp_factor, Rc_factor, sigma_tor_jon, bool_tor
+   Use rundata, only: Temp, pot_int, Ecpu_check
+   Use cuda_fortran, only: computevirialgpu
+   Implicit None
+   Real(wp), Intent(Out) :: W_tot, P_vir
+   Real(wp) :: W_cpu, P_cpu
+
+   Call computevirialgpu(pot_int, bool_tor, Ndim, Nat_cell_max, Ntot_Cell, Npart_types, &
+                         Nrb_sites_max, Ntor_max, sigp_factor, Rcp_factor, Rc_factor, sigma_tor_jon, &
+                         h, Natoms, Temp, W_tot, P_vir)
+
+   If (Ecpu_check) Then
+      Call Convert_CB_RU
+      Call compute_virial_cpu(W_cpu, P_cpu)
+      If (abs(P_vir - P_cpu) > 1.0e-3_wp) Then
+         write(*,'(A,F14.6,A,F14.6,A,ES11.4)') &
+            ' [VIRIAL CHECK WARNING] GPU P = ', P_vir, ' | CPU P = ', P_cpu, ' | Diff = ', abs(P_vir - P_cpu)
+      End If
+   End If
+End Subroutine CB_system_virial_GPU

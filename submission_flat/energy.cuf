@@ -1,0 +1,952 @@
+! ==============================================================================
+! CPU ROUTINE: calculate_patchy_energy_angular (pot_int == 1)
+! ==============================================================================
+Subroutine calculate_patchy_energy_angular(itypei, itypej, r12, rsq, dxp, dyp, dzp, &
+                                   Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
+                                   sigma_LJ_aux, eps_LJ_aux, xop_aux, vl0_aux, en_patchy)
+    Use set_precision
+    Use configuration
+    Use potential
+    Use potential_functions, only: vpatch_angular, vlj, eval_table_pot_host
+    Implicit None
+
+    Integer, Intent(In)  :: itypei, itypej
+    Real(wp), Intent(In) :: r12, rsq, dxp, dyp, dzp
+    Real(wp), Intent(In) :: Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23
+    Real(wp), Intent(In) :: sigma_LJ_aux, eps_LJ_aux, xop_aux, vl0_aux
+    Real(wp), Intent(Out) :: en_patchy
+
+    Real(wp) :: Q102, Q112, Q122, Q132, Q10Q11, Q10Q12, Q10Q13, Q11Q12, Q11Q13, Q12Q13
+    Real(wp) :: R111, R112, R113, R121, R122, R123, R131, R132, R133
+    Real(wp) :: Q202, Q212, Q222, Q232, Q20Q21, Q20Q22, Q20Q23, Q21Q22, Q21Q23, Q22Q23
+    Real(wp) :: R211, R212, R213, R221, R222, R223, R231, R232, R233
+    Real(wp) :: R1(0:8), R2(0:8), Vangtor_max, VRAD, FX, FXI, pi, dospi, a
+
+    pi = acos(-1.d0); dospi = 2.d0*pi; a = 1000.d0  
+
+    Q102=Q10*Q10; Q112=Q11*Q11; Q122=Q12*Q12; Q132=Q13*Q13
+    Q10Q11=Q10*Q11; Q10Q12=Q10*Q12; Q10Q13=Q10*Q13; Q11Q12=Q11*Q12; Q11Q13=Q11*Q13; Q12Q13=Q12*Q13
+    R111=Q102+Q112-Q122-Q132;    R112=2.d00*(Q11Q12-Q10Q13); R113=2.d00*(Q11Q13+Q10Q12)
+    R121=2.d00*(Q11Q12+Q10Q13); R122=Q102-Q112+Q122-Q132;    R123=2.d00*(Q12Q13-Q10Q11)
+    R131=2.d00*(Q11Q13-Q10Q12); R132=2.d00*(Q12Q13+Q10Q11); R133=Q102-Q112-Q122+Q132
+
+    Q202=Q20*Q20; Q212=Q21*Q21; Q222=Q22*Q22; Q232=Q23*Q23
+    Q20Q21=Q20*Q21; Q20Q22=Q20*Q22; Q20Q23=Q20*Q23; Q21Q22=Q21*Q22; Q21Q23=Q21*Q23; Q22Q23=Q22*Q23
+    R211=Q202+Q212-Q222-Q232;    R212=2.d00*(Q21Q22-Q20Q23); R213=2.d00*(Q21Q23+Q20Q22)
+    R221=2.d00*(Q21Q22+Q20Q23); R222=Q202-Q212+Q222-Q232;    R223=2.d00*(Q22Q23-Q20Q21)
+    R231=2.d00*(Q21Q23-Q20Q22); R232=2.d00*(Q22Q23+Q20Q21); R233=Q202-Q212-Q222+Q232
+
+    R1(0)=R111; R1(1)=R112; R1(2)=R113
+    R1(3)=R121; R1(4)=R122; R1(5)=R123
+    R1(6)=R131; R1(7)=R132; R1(8)=R133
+
+    R2(0)=R211; R2(1)=R212; R2(2)=R213
+    R2(3)=R221; R2(4)=R222; R2(5)=R223
+    R2(6)=R231; R2(7)=R232; R2(8)=R233
+
+    call vpatch_angular(dxp, dyp, dzp, r12, &
+         R1, R2, bool_tor, Npart_types, Nrb_sites_max, Ndim, Ntor_max, a, pi, dospi, sigma_tor_jon, &
+         Nrb_sites, PATCH, sigma_jon, Vpot_matrix, Ntor_angle, tor_angle, &
+         itypei, itypej, Vangtor_max)
+
+    If (Vangtor_max == -1.d00) then
+        en_patchy = 0.0 
+    Else 
+        FX  = (1.d0 + Tanh(a * (-xop_aux + r12))) / 2.d00
+        FXI = (1.d0 - Tanh(a * (-xop_aux + r12))) / 2.d00
+        if (table_mc .and. has_table(itypei, itypej)) then
+            call eval_table_pot_host(r12, itypei, itypej, VRAD)
+        else
+            call vlj(rsq, sigma_LJ_aux, eps_LJ_aux, vl0_aux, VRAD)
+        end if
+        en_patchy = VRAD * (FXI + Vangtor_max * FX) 
+    End If
+End Subroutine calculate_patchy_energy_angular
+
+! ==============================================================================
+! CPU ROUTINE: calculate_patchy_energy_sitesite (pot_int == 2)
+! ==============================================================================
+Subroutine calculate_patchy_energy_sitesite(itypei, itypej, dxp, dyp, dzp, &
+                                   Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
+                                   sigma_LJ_aux, en_patches)
+   Use set_precision
+   Use configuration
+   Use potential
+   Use potential_functions, only: vpatch_sitesite_host
+   Implicit None
+
+   Integer, Intent(In)  :: itypei, itypej
+   Real(wp), Intent(In) :: dxp, dyp, dzp
+   Real(wp), Intent(In) :: Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23
+   Real(wp), Intent(In) :: sigma_LJ_aux
+   Real(wp), Intent(Out) :: en_patches
+
+   Real(wp) :: Q102, Q112, Q122, Q132, Q10Q11, Q10Q12, Q10Q13, Q11Q12, Q11Q13, Q12Q13
+   Real(wp) :: R111, R112, R113, R121, R122, R123, R131, R132, R133
+   Real(wp) :: Q202, Q212, Q222, Q232, Q20Q21, Q20Q22, Q20Q23, Q21Q22, Q21Q23, Q22Q23
+   Real(wp) :: R211, R212, R213, R221, R222, R223, R231, R232, R233
+   Real(wp) :: R1(0:8), R2(0:8)
+
+   Q102=Q10*Q10; Q112=Q11*Q11; Q122=Q12*Q12; Q132=Q13*Q13
+   Q10Q11=Q10*Q11; Q10Q12=Q10*Q12; Q10Q13=Q10*Q13; Q11Q12=Q11*Q12; Q11Q13=Q11*Q13; Q12Q13=Q12*Q13
+   R111=Q102+Q112-Q122-Q132;    R112=2.d00*(Q11Q12-Q10Q13); R113=2.d00*(Q11Q13+Q10Q12)
+   R121=2.d00*(Q11Q12+Q10Q13); R122=Q102-Q112+Q122-Q132;    R123=2.d00*(Q12Q13-Q10Q11)
+   R131=2.d00*(Q11Q13-Q10Q12); R132=2.d00*(Q12Q13+Q10Q11); R133=Q102-Q112-Q122+Q132
+
+   Q202=Q20*Q20; Q212=Q21*Q21; Q222=Q22*Q22; Q232=Q23*Q23
+   Q20Q21=Q20*Q21; Q20Q22=Q20*Q22; Q20Q23=Q20*Q23; Q21Q22=Q21*Q22; Q21Q23=Q21*Q23; Q22Q23=Q22*Q23
+   R211=Q202+Q212-Q222-Q232;    R212=2.d00*(Q21Q22-Q20Q23); R213=2.d00*(Q21Q23+Q20Q22)
+   R221=2.d00*(Q21Q22+Q20Q23); R222=Q202-Q212+Q222-Q232;    R223=2.d00*(Q22Q23-Q20Q21)
+   R231=2.d00*(Q21Q23-Q20Q22); R232=2.d00*(Q22Q23+Q20Q21); R233=Q202-Q212-Q222+Q232
+
+   R1(0)=R111; R1(1)=R112; R1(2)=R113
+   R1(3)=R121; R1(4)=R122; R1(5)=R123
+   R1(6)=R131; R1(7)=R132; R1(8)=R133
+
+   R2(0)=R211; R2(1)=R212; R2(2)=R213
+   R2(3)=R221; R2(4)=R222; R2(5)=R223
+   R2(6)=R231; R2(7)=R232; R2(8)=R233
+
+    call vpatch_sitesite_host(dxp, dyp, dzp, R1, R2, sigp_factor, Rcp_factor, patch_radial_factor, &
+          itypei, itypej, Npart_types, Nrb_sites_max, Ndim, &
+          Nrb_sites, PATCH, sigma_LJ, Vpot_Matrix, en_patches)
+End Subroutine calculate_patchy_energy_sitesite
+
+! ==============================================================================
+! CPU ROUTINE: ener (Master Router)
+! ==============================================================================
+Subroutine ener(i1, i2, en, overlap)
+      Use set_precision
+      Use configuration
+      Use potential
+      Use rundata        
+      Use potential_functions, only: vlj, vlj_palaia, eval_table_pot_host, vphs
+      Implicit None
+      
+      Integer, Intent(In)   :: i1, i2
+      Real(wp), Intent(Out) :: en
+      Logical, Intent(Out)  :: overlap
+
+      Integer  :: Indxi, Indxj, itypei, itypej, Indx
+      Real(wp) :: X1, Y1, Z1, X2, Y2, Z2, DX, DY, DZ, DXP, DYP, DZP, RSQ, R12
+      Real(wp) :: Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23
+      Real(wp) :: sigma_LJ_aux, eps_LJ_aux, xop_aux, vl0_aux, rangep_aux
+      Real(wp) :: en_patches
+
+      en = 0.0_wp
+      overlap = .False.
+
+      Indxi = i1*Ndim
+      X1 = R(Indxi);   Y1 = R(Indxi+1); Z1 = R(Indxi+2)
+      Indxi = i1*4
+      Q10 = q(Indxi); Q11 = q(Indxi+1); Q12 = q(Indxi+2); Q13 = q(Indxi+3)
+      itypei = itype(i1)
+
+      Indxj = i2*Ndim
+      X2 = R(Indxj);   Y2 = R(Indxj+1); Z2 = R(Indxj+2)
+      Indxj = i2*4
+      Q20 = q(Indxj); Q21 = q(Indxj+1); Q22 = q(Indxj+2); Q23 = q(Indxj+3)
+      itypej = itype(i2)
+
+      DX = X2 - X1; DY = Y2 - Y1; DZ = Z2 - Z1
+      DX = DX - NINT(DX); DY = DY - NINT(DY); DZ = DZ - NINT(DZ)
+ 
+      DXP = H(0)*DX + H(1)*DY + H(2)*DZ
+      DYP = H(3)*DX + H(4)*DY + H(5)*DZ
+      DZP = H(6)*DX + H(7)*DY + H(8)*DZ
+ 
+      RSQ = DXP**2.0 + DYP**2.0 + DZP**2.0
+      R12 = SQRT(RSQ)
+
+      Indx = itypei*Npart_types+itypej
+      sigma_LJ_aux = sigma_LJ(Indx)
+      eps_LJ_aux   = epsilon_LJ(Indx)
+      xop_aux      = xop(Indx)
+      vl0_aux      = vl0(Indx)
+      rangep_aux   = rangep(Indx)
+
+      IF (table_mc .and. has_table(itypei, itypej)) THEN
+          IF (R12 < table_rmin(itypei, itypej)) THEN
+              overlap = .True.
+              en = 9.e+33_wp  
+              Return
+          ELSEIF (R12 < rangep_aux) THEN
+              call eval_table_pot_host(R12, itypei, itypej, en)
+              if (en > 1.0e30_wp) overlap = .True.
+          END IF
+      ELSE
+          IF (R12 < 0.5_wp) THEN
+              overlap = .True.
+              en = 9.e+33_wp  
+              Return
+          ELSEIF (R12 < rangep_aux) THEN
+              If (pot_int == 2) then
+                  ! Site-Site uses Palaia WCA + Cosine Tail. 
+                  ! We pass vl0_aux as the 'epsp' patch depth parameter.
+                  Call vlj_palaia(RSQ, sigma_LJ_aux, eps_LJ_aux, vl0_aux, Rc_factor, en)
+                  If (NRB_SITES(itypei) > 0 .and. NRB_SITES(itypej) > 0) then
+                      Call calculate_patchy_energy_sitesite(itypei, itypej, dxp, dyp, dzp, &
+                                                   Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
+                                                   sigma_LJ_aux, en_patches)
+                      en = en + en_patches
+                  End If
+              Else if (pot_int == 1) then
+                  If (RSQ < 0.9604_wp * sigma_LJ_aux * sigma_LJ_aux .or. &
+                      NRB_SITES(itypei) <= 1 .or. NRB_SITES(itypej) <= 1) then
+                      Call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, vl0_aux, en)
+                  Else
+                      Call calculate_patchy_energy_angular(itypei, itypej, r12, rsq, dxp, dyp, dzp, &
+                                                   Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
+                                                   sigma_LJ_aux, eps_LJ_aux, xop_aux, vl0_aux, en)
+                  End If
+              Else if (pot_int == 3) then
+                  Call vphs(RSQ, sigma_LJ_aux, eps_R, en)
+                  If (NRB_SITES(itypei) > 0 .and. NRB_SITES(itypej) > 0) then
+                      Call calculate_patchy_energy_sitesite(itypei, itypej, dxp, dyp, dzp, &
+                                                   Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23, &
+                                                   sigma_LJ_aux, en_patches)
+                      en = en + en_patches
+                  End If
+              endif
+          END IF
+      END IF 
+END Subroutine ener
+
+! ==============================================================================
+! CPU ROUTINE: ener_LJ
+! ==============================================================================
+Subroutine ener_LJ(i1, i2, en, overlap)
+   Use set_precision
+   Use configuration
+   Use potential
+   Use potential_functions, only: vlj, eval_table_pot_host
+   Implicit None
+   
+   Integer, Intent(in)   :: i1, i2
+   Real(wp), Intent(out) :: en
+   Logical, Intent(out)  :: overlap
+   
+   Integer  :: itypei, itypej, Indx, Indxi, Indxj
+   Real(wp) :: X1, Y1, Z1, X2, Y2, Z2, DX, DY, DZ
+   Real(wp) :: DXP, DYP, DZP, RSQ, R12
+   Real(wp) :: sigma_LJ_aux, eps_LJ_aux, rangep_aux, vl0_aux
+
+   Indxi = I1 * Ndim
+   X1 = r(Indxi); Y1 = r(Indxi+1); Z1 = r(Indxi+2)
+   itypei = itype(I1)
+
+   Indxj = I2 * Ndim
+   X2 = r(Indxj); Y2 = r(Indxj+1); Z2 = r(Indxj+2)
+   itypej = itype(I2)
+
+   DX = X2 - X1; DY = Y2 - Y1; DZ = Z2 - Z1
+   DX = DX - NINT(DX)  
+   DY = DY - NINT(DY)
+   DZ = DZ - NINT(DZ)
+
+   DXP = H(0)*DX + H(1)*DY + H(2)*DZ
+   DYP = H(3)*DX + H(4)*DY + H(5)*DZ
+   DZP = H(6)*DX + H(7)*DY + H(8)*DZ
+
+   RSQ = DXP**2.0_wp + DYP**2.0_wp + DZP**2.0_wp
+   R12 = SQRT(RSQ)
+
+   en = 0.0_wp
+   overlap = .false.
+   Indx = itypei * Npart_types + itypej
+   sigma_LJ_aux = sigma_LJ(Indx)
+   eps_LJ_aux   = epsilon_LJ(Indx)
+   rangep_aux   = rangep(Indx)
+   vl0_aux      = vl0(Indx)       
+
+   IF (table_mc .and. has_table(itypei, itypej)) THEN
+        IF (R12 < table_rmin(itypei, itypej)) THEN
+             en = 9.e+33_wp
+             overlap = .true.
+        ELSEIF (R12 < rangep_aux) THEN
+             call eval_table_pot_host(R12, itypei, itypej, en)
+             if (en > 1.0e30_wp) overlap = .true.
+        END IF
+   ELSE
+        IF (R12 < 0.5_wp) THEN
+             en = 9.e+33_wp
+             overlap = .true.
+        ELSEIF (R12 < rangep_aux) THEN
+             call vlj(RSQ, sigma_LJ_aux, eps_LJ_aux, vl0_aux, en)
+        END IF
+   END IF
+End Subroutine ener_LJ
+
+! ==============================================================================
+! CPU ROUTINE: ener_HS (Hard Sphere pair, possibly non-additive mixture)
+! DESCRIPTION: Athermal contact interaction. The energy is zero unless the two
+! spheres overlap (center-center distance below the pair diameter sigma_ij), in
+! which case the configuration is forbidden. Used only for CPU verification of
+! the initial/final configuration.
+! ==============================================================================
+Subroutine ener_HS(i1, i2, en, overlap)
+   Use set_precision
+   Use configuration
+   Use potential
+   Implicit None
+
+   Integer, Intent(in)   :: i1, i2
+   Real(wp), Intent(out) :: en
+   Logical, Intent(out)  :: overlap
+
+   Integer  :: itypei, itypej, Indx, Indxi, Indxj
+   Real(wp) :: X1, Y1, Z1, X2, Y2, Z2, DX, DY, DZ
+   Real(wp) :: DXP, DYP, DZP, RSQ, sigma_HS_aux
+
+   Indxi = I1 * Ndim
+   X1 = r(Indxi); Y1 = r(Indxi+1); Z1 = r(Indxi+2)
+   itypei = itype(I1)
+
+   Indxj = I2 * Ndim
+   X2 = r(Indxj); Y2 = r(Indxj+1); Z2 = r(Indxj+2)
+   itypej = itype(I2)
+
+   DX = X2 - X1; DY = Y2 - Y1; DZ = Z2 - Z1
+   DX = DX - NINT(DX)
+   DY = DY - NINT(DY)
+   DZ = DZ - NINT(DZ)
+
+   DXP = H(0)*DX + H(1)*DY + H(2)*DZ
+   DYP = H(3)*DX + H(4)*DY + H(5)*DZ
+   DZP = H(6)*DX + H(7)*DY + H(8)*DZ
+
+   RSQ = DXP**2.0_wp + DYP**2.0_wp + DZP**2.0_wp
+
+   en = 0.0_wp
+   overlap = .false.
+   Indx = itypei * Npart_types + itypej
+   sigma_HS_aux = sigma_LJ(Indx)
+
+   IF (RSQ < sigma_HS_aux*sigma_HS_aux) THEN
+        en = 9.e+33_wp
+        overlap = .true.
+   END IF
+End Subroutine ener_HS
+
+! ==============================================================================
+! CPU ROUTINE: Accumulate_HS_Virial_Histogram (pot_int == -1 only)
+! DESCRIPTION: Accumulates pair distance counts into near-contact shells and
+! accumulates simulation box volume across MC cycles within the Nsave window.
+! ==============================================================================
+Subroutine Accumulate_HS_Virial_Histogram()
+   Use set_precision
+   Use configuration
+   Use potential, Only: Npart_types, sigma_LJ
+   Use mod_hs_virial_accum
+   Implicit None
+
+   Integer, Parameter :: Nbins = 10
+   Real(wp), Parameter :: shell_frac = 0.0025_wp
+
+   Integer :: i, j, ti, tj, a, b, pidx, k, npairs_types_tot
+   Real(wp) :: DX, DY, DZ, DXP, DYP, DZP, R12
+   Real(wp) :: sigma_ab, delta_ab, Vol
+
+   npairs_types_tot = Npart_types*(Npart_types+1)/2
+   If (.not. allocated(counts_accum)) Then
+      Allocate( counts_accum(0:npairs_types_tot-1, Nbins) )
+      counts_accum = 0.0_wp
+      Vol_accum = 0.0_wp
+      nsamples_virial = 0
+   End If
+
+   ! Box volume
+   Vol = h(0)*(h(4)*h(8)-h(5)*h(7)) - h(3)*(h(1)*h(8)-h(2)*h(7)) + h(6)*(h(1)*h(5)-h(2)*h(4))
+   Vol_accum = Vol_accum + Vol
+   nsamples_virial = nsamples_virial + 1
+
+   ! Pairwise near-contact shell histogram (10 fine bins of width 0.0025*sigma)
+   Do i = 0, Natoms-2
+      ti = itype(i)
+      Do j = i+1, Natoms-1
+         tj = itype(j)
+         a = min(ti,tj); b = max(ti,tj)
+         pidx = a*Npart_types - a*(a-1)/2 + (b-a)
+         sigma_ab = sigma_LJ(ti*Npart_types+tj)
+         delta_ab = shell_frac * sigma_ab
+
+         DX = R(j*Ndim)   - R(i*Ndim)
+         DY = R(j*Ndim+1) - R(i*Ndim+1)
+         DZ = R(j*Ndim+2) - R(i*Ndim+2)
+         DX = DX - NINT(DX); DY = DY - NINT(DY); DZ = DZ - NINT(DZ)
+         DXP = H(0)*DX + H(1)*DY + H(2)*DZ
+         DYP = H(3)*DX + H(4)*DY + H(5)*DZ
+         DZP = H(6)*DX + H(7)*DY + H(8)*DZ
+         R12 = SQRT(DXP*DXP + DYP*DYP + DZP*DZP)
+
+         If (R12 >= sigma_ab .and. R12 < sigma_ab + Nbins*delta_ab) Then
+            k = int( (R12 - sigma_ab)/delta_ab ) + 1
+            If (k >= 1 .and. k <= Nbins) counts_accum(pidx,k) = counts_accum(pidx,k) + 1.0_wp
+         End If
+      End Do
+   End Do
+End Subroutine Accumulate_HS_Virial_Histogram
+
+! ==============================================================================
+! CPU ROUTINE: HS_Virial_Pressure (pot_int == -1 only)
+! DESCRIPTION: Computes time-averaged virial pressure from accumulated near-contact
+! pair histograms and box volume over the Nsave window.
+! ==============================================================================
+Subroutine HS_Virial_Pressure(P_HS)
+   Use set_precision
+   Use configuration
+   Use potential, Only: Npart_types, sigma_LJ
+   Use rundata, Only: Temp
+   Use mod_hs_virial_accum
+   Implicit None
+   Real(wp), Intent(Out) :: P_HS
+
+   Integer, Parameter :: Nbins = 10
+   Real(wp), Parameter :: shell_frac = 0.0025_wp
+   Real(wp), Parameter :: pi = 3.14159265358979_wp
+
+   Integer :: i, ti, tj, a, b, pidx, k, npairs_type, valid_bins
+   Real(wp) :: sigma_ab, delta_ab, rin, rout, rmid, shellvol, Vol, xval, yval
+   Real(wp) :: sumx, sumy, sumxy, sumxx, slope, intercept, denom
+   Real(wp) :: g_contact, sum_term
+   Integer, Allocatable :: Ntype(:)
+   Real(wp), Allocatable :: rho(:), counts(:,:)
+
+   If (nsamples_virial == 0) Then
+      Call Accumulate_HS_Virial_Histogram()
+   End If
+
+   Vol = Vol_accum / dble(nsamples_virial)
+
+   Allocate( Ntype(0:Npart_types-1) )
+   Allocate( rho(0:Npart_types-1) )
+   Allocate( counts(0:Npart_types*(Npart_types+1)/2-1, Nbins) )
+   Ntype = 0
+
+   counts = counts_accum / dble(nsamples_virial)
+
+   Do i = 0, Natoms-1
+      Ntype(itype(i)) = Ntype(itype(i)) + 1
+   End Do
+
+   Do a = 0, Npart_types-1
+      rho(a) = dble(Ntype(a)) / Vol
+   End Do
+
+   ! Multicomponent virial sum using time-averaged counts
+   sum_term = 0.0_wp
+   Do a = 0, Npart_types-1
+      Do b = a, Npart_types-1
+         pidx = a*Npart_types - a*(a-1)/2 + (b-a)
+         sigma_ab = sigma_LJ(a*Npart_types+b)
+         delta_ab = shell_frac * sigma_ab
+
+         If (a == b) Then
+            npairs_type = Ntype(a)*(Ntype(a)-1)/2
+         Else
+            npairs_type = Ntype(a)*Ntype(b)
+         End If
+
+         ! Try Log-Linear fit (ln(g) vs r - sigma) for exponential contact peak; fallback to linear fit
+         sumx = 0.0_wp; sumy = 0.0_wp; sumxy = 0.0_wp; sumxx = 0.0_wp
+         valid_bins = 0
+         Do k = 1, Nbins
+            rin  = sigma_ab + dble(k-1)*delta_ab
+            rout = sigma_ab + dble(k)*delta_ab
+            rmid = 0.5_wp*(rin+rout)
+            shellvol = (4.0_wp*pi/3.0_wp)*(rout**3 - rin**3)
+            If (npairs_type > 0) Then
+               g_contact = counts(pidx,k) / (dble(npairs_type)*shellvol/Vol)
+            Else
+               g_contact = 0.0_wp
+            End If
+
+            If (g_contact > 1.0e-8_wp) Then
+               xval = rmid - sigma_ab
+               yval = log(g_contact)
+               sumx  = sumx  + xval
+               sumy  = sumy  + yval
+               sumxy = sumxy + xval*yval
+               sumxx = sumxx + xval*xval
+               valid_bins = valid_bins + 1
+            End If
+         End Do
+
+         If (valid_bins >= 3) Then
+            denom = dble(valid_bins)*sumxx - sumx*sumx
+            If (abs(denom) > 1.0e-12_wp) Then
+               intercept = (sumy*sumxx - sumx*sumxy) / denom
+               g_contact = exp(intercept)
+            Else
+               g_contact = exp(sumy / dble(valid_bins))
+            End If
+         Else
+            ! Standard linear fallback fit (g vs r - sigma)
+            sumx = 0.0_wp; sumy = 0.0_wp; sumxy = 0.0_wp; sumxx = 0.0_wp
+            Do k = 1, Nbins
+               rin  = sigma_ab + dble(k-1)*delta_ab
+               rout = sigma_ab + dble(k)*delta_ab
+               rmid = 0.5_wp*(rin+rout)
+               shellvol = (4.0_wp*pi/3.0_wp)*(rout**3 - rin**3)
+               If (npairs_type > 0) Then
+                  g_contact = counts(pidx,k) / (dble(npairs_type)*shellvol/Vol)
+               Else
+                  g_contact = 0.0_wp
+               End If
+               xval = rmid - sigma_ab
+               sumx  = sumx  + xval
+               sumy  = sumy  + g_contact
+               sumxy = sumxy + xval*g_contact
+               sumxx = sumxx + xval*xval
+            End Do
+            denom = dble(Nbins)*sumxx - sumx*sumx
+            If (abs(denom) > 1.0e-12_wp) Then
+               intercept = (sumy*sumxx - sumx*sumxy) / denom
+               g_contact = intercept
+            Else
+               g_contact = sumy / dble(Nbins)
+            End If
+         End If
+
+         If (g_contact < 0.0_wp) g_contact = 0.0_wp
+
+         If (a == b) Then
+            sum_term = sum_term + rho(a)*rho(a)*sigma_ab**3*g_contact
+         Else
+            sum_term = sum_term + 2.0_wp*rho(a)*rho(b)*sigma_ab**3*g_contact
+         End If
+      End Do
+   End Do
+
+   P_HS = (dble(Natoms)/Vol)*Temp + (2.0_wp*pi/3.0_wp)*Temp*sum_term
+
+   Deallocate(Ntype, rho, counts)
+
+   ! Reset accumulators for next Nsave window
+   counts_accum = 0.0_wp
+   Vol_accum = 0.0_wp
+   nsamples_virial = 0
+End Subroutine HS_Virial_Pressure
+
+! ==============================================================================
+! CPU ROUTINE: calc_swap_energy_cpu
+! DESCRIPTION: Computes the exact energy difference Delta_E on the CPU when
+! swapping the species identities of particles i1 and i2.
+! Supports all interaction potentials (HS, LJ, Table, Angular, Site-Site).
+! Properly accounts for non-spherically symmetric orientations and mutual pair
+! energy changes between i1 and i2.
+! ==============================================================================
+Subroutine calc_swap_energy_cpu(i1, i2, delta_e, overlap)
+   Use set_precision
+   Use configuration
+   Use potential
+   Use rundata, Only: pot_int
+   Implicit None
+   Integer, Intent(in)   :: i1, i2
+   Real(wp), Intent(out) :: delta_e
+   Logical, Intent(out)  :: overlap
+
+   Integer :: k, orig_type1, orig_type2
+   Real(wp) :: e_old_12, e_new_12, e_old_1, e_new_1, e_old_2, e_new_2
+   Logical :: ov_k
+
+   delta_e = 0.0_wp
+   overlap = .false.
+
+   orig_type1 = itype(i1)
+   orig_type2 = itype(i2)
+
+   If (orig_type1 == orig_type2) Return
+
+   ! 1. Evaluate mutual interaction between i1 and i2 in old configuration
+   If (pot_int == -1) Then
+      Call ener_HS(i1, i2, e_old_12, ov_k)
+   ElseIf (pot_int < 1) Then
+      Call ener_LJ(i1, i2, e_old_12, ov_k)
+   Else
+      Call ener(i1, i2, e_old_12, ov_k)
+   EndIf
+   If (ov_k) overlap = .true.
+
+   ! 2. Evaluate mutual interaction in swapped configuration
+   itype(i1) = orig_type2
+   itype(i2) = orig_type1
+
+   If (pot_int == -1) Then
+      Call ener_HS(i1, i2, e_new_12, ov_k)
+   ElseIf (pot_int < 1) Then
+      Call ener_LJ(i1, i2, e_new_12, ov_k)
+   Else
+      Call ener(i1, i2, e_new_12, ov_k)
+   EndIf
+   If (ov_k) overlap = .true.
+
+   If (pot_int /= -1) Then
+      delta_e = delta_e + (e_new_12 - e_old_12)
+   EndIf
+
+   ! 3. Evaluate interactions with all other particles k /= i1, i2
+   Do k = 0, Natoms - 1
+      If (k /= i1 .and. k /= i2) Then
+         ! Interactions in new swapped configuration (itype(i1)=orig_type2, itype(i2)=orig_type1)
+         If (pot_int == -1) Then
+            Call ener_HS(i1, k, e_new_1, ov_k)
+            If (ov_k) overlap = .true.
+            Call ener_HS(i2, k, e_new_2, ov_k)
+            If (ov_k) overlap = .true.
+         ElseIf (pot_int < 1) Then
+            Call ener_LJ(i1, k, e_new_1, ov_k)
+            If (ov_k) overlap = .true.
+            Call ener_LJ(i2, k, e_new_2, ov_k)
+            If (ov_k) overlap = .true.
+         Else
+            Call ener(i1, k, e_new_1, ov_k)
+            If (ov_k) overlap = .true.
+            Call ener(i2, k, e_new_2, ov_k)
+            If (ov_k) overlap = .true.
+         EndIf
+
+         ! Interactions in old configuration: temporarily restore original types
+         itype(i1) = orig_type1
+         itype(i2) = orig_type2
+         If (pot_int == -1) Then
+            Call ener_HS(i1, k, e_old_1, ov_k)
+            If (ov_k) overlap = .true.
+            Call ener_HS(i2, k, e_old_2, ov_k)
+            If (ov_k) overlap = .true.
+         ElseIf (pot_int < 1) Then
+            Call ener_LJ(i1, k, e_old_1, ov_k)
+            If (ov_k) overlap = .true.
+            Call ener_LJ(i2, k, e_old_2, ov_k)
+            If (ov_k) overlap = .true.
+         Else
+            Call ener(i1, k, e_old_1, ov_k)
+            If (ov_k) overlap = .true.
+            Call ener(i2, k, e_old_2, ov_k)
+            If (ov_k) overlap = .true.
+         EndIf
+         ! Re-apply swapped types for remainder of the loop
+         itype(i1) = orig_type2
+         itype(i2) = orig_type1
+
+         If (pot_int /= -1) Then
+            delta_e = delta_e + (e_new_1 - e_old_1) + (e_new_2 - e_old_2)
+         EndIf
+      EndIf
+   EndDo
+
+   ! Restore original types
+   itype(i1) = orig_type1
+   itype(i2) = orig_type2
+End Subroutine calc_swap_energy_cpu
+
+! ==============================================================================
+! CPU ROUTINE: calc_single_particle_energy
+! ==============================================================================
+! Evaluates the interaction energy of particle `id_atom` (1-based) placed at
+! trial reduced position `r_pos` (3D, in [0,1)) with all other particles in
+! the system using the 27-cell neighborhood. If hard-core overlap (R < 0.5)
+! is detected, returns is_overlap = .true. and e_total = 9.0e33.
+Subroutine calc_single_particle_energy(id_atom, r_pos, e_total, is_overlap)
+   Use set_precision
+   Use configuration, Only: r, ndim
+   Use Cell, Only: Nat_Cell, List_Cell, Nat_cell_max, Map_Cell, W_RU, Nl_Cell
+   Use rundata, Only: pot_int
+   Implicit None
+
+   Integer, Intent(In)   :: id_atom  ! 1-based index
+   Real(wp), Intent(In)  :: r_pos(3)
+   Real(wp), Intent(Out) :: e_total
+   Logical, Intent(Out)  :: is_overlap
+
+   Integer :: i_atom, Indx(3), icell_center, icell_idx, c, k, j_atom
+   Real(wp) :: XI, YI, ZI, r_saved(3), en_pair
+   Logical :: ov
+   Integer, External :: icell
+
+   i_atom = id_atom - 1
+   e_total = 0.0_wp
+   is_overlap = .False.
+
+   ! Save current position of i_atom and temporarily set to wrapped r_pos
+   r_saved(1:3) = r(i_atom * ndim : i_atom * ndim + 2)
+
+   XI = r_pos(1) - Floor(r_pos(1))
+   YI = r_pos(2) - Floor(r_pos(2))
+   ZI = r_pos(3) - Floor(r_pos(3))
+
+   r(i_atom * ndim)     = XI
+   r(i_atom * ndim + 1) = YI
+   r(i_atom * ndim + 2) = ZI
+
+   Indx(1) = Int(XI / w_RU(0))
+   Indx(2) = Int(YI / w_RU(1))
+   Indx(3) = Int(ZI / w_RU(2))
+
+   If (Indx(1) >= Nl_Cell(0)) Indx(1) = Nl_Cell(0) - 1
+   If (Indx(1) < 0) Indx(1) = 0
+   If (Indx(2) >= Nl_Cell(1)) Indx(2) = Nl_Cell(1) - 1
+   If (Indx(2) < 0) Indx(2) = 0
+   If (Indx(3) >= Nl_Cell(2)) Indx(3) = Nl_Cell(2) - 1
+   If (Indx(3) < 0) Indx(3) = 0
+
+   icell_center = icell(Indx(1), Indx(2), Indx(3))
+
+   ! Loop over 27 cells (center cell + 26 neighbors)
+   Do icell_idx = 0, 26
+      If (icell_idx == 0) Then
+         c = icell_center
+      Else
+         c = Map_Cell(icell_center * 26 + (icell_idx - 1))
+      End If
+
+      Do k = 0, Nat_Cell(c) - 1
+         j_atom = List_Cell(c * Nat_cell_max * 2 + k * 2)
+         If (j_atom /= i_atom) Then
+            If (pot_int == -1) Then
+               Call ener_HS(i_atom, j_atom, en_pair, ov)
+            ElseIf (pot_int < 1) Then
+               Call ener_LJ(i_atom, j_atom, en_pair, ov)
+            Else
+               Call ener(i_atom, j_atom, en_pair, ov)
+            End If
+
+            If (ov) Then
+               is_overlap = .True.
+               e_total = 9.0e33_wp
+               r(i_atom * ndim : i_atom * ndim + 2) = r_saved(1:3)
+               Return
+            End If
+            e_total = e_total + en_pair
+         End If
+      End Do
+   End Do
+
+   ! Restore saved position
+   r(i_atom * ndim : i_atom * ndim + 2) = r_saved(1:3)
+End Subroutine calc_single_particle_energy
+
+! ==============================================================================
+! CPU ROUTINE: compute_virial_cpu
+! DESCRIPTION: Computes scalar virial W = sum_{i<j} r_ij * F(r_ij) and virial
+! pressure for all models (isotropic LJ/table and anisotropic LJG/SSP/SB) on CPU.
+! ==============================================================================
+Subroutine compute_virial_cpu(W_tot, P_vir)
+   Use set_precision
+   Use configuration
+   Use potential
+   Use rundata, Only: Temp, pot_int
+   Use potential_functions, only: vlj, vlj_virial, eval_table_pot_host, eval_table_force_host, &
+                                  vlj_palaia_virial, vphs_virial, vpatch_angular, &
+                                  vpatch_sitesite_virial_host
+   Implicit None
+   Real(wp), Intent(Out) :: W_tot, P_vir
+
+   Integer :: i, j, ti, tj, Indx
+   Real(wp) :: DX, DY, DZ, DXP, DYP, DZP, RSQ, R12, Vol, w_pair, F_val
+   Real(wp) :: sigma_ab, eps_ab, rcut, vl0_aux, xop_aux
+   Real(wp) :: Q10, Q11, Q12, Q13, Q20, Q21, Q22, Q23
+   Real(wp) :: Q102, Q112, Q122, Q132, Q10Q11, Q10Q12, Q10Q13, Q11Q12, Q11Q13, Q12Q13
+   Real(wp) :: Q202, Q212, Q222, Q232, Q20Q21, Q20Q22, Q20Q23, Q21Q22, Q21Q23, Q22Q23
+   Real(wp) :: R1(0:8), R2(0:8)
+   Real(wp) :: a, pi, dospi, Vangtor_max, Vrad, FX, FXI, dFX, th, w_lj, w_core, w_patches
+
+   a = 1000.0_wp; pi = acos(-1.0_wp); dospi = 2.0_wp*pi
+   W_tot = 0.0_wp
+
+   If (Ndim == 2) Then
+      Vol = h(0)*h(3) - h(1)*h(2)
+   Else
+      Vol = h(0)*(h(4)*h(8)-h(5)*h(7)) - h(3)*(h(1)*h(8)-h(2)*h(7)) + h(6)*(h(1)*h(5)-h(2)*h(4))
+   End If
+
+   Do i = 0, Natoms - 2
+      ti = itype(i)
+      Q10 = q(i*4); Q11 = q(i*4+1); Q12 = q(i*4+2); Q13 = q(i*4+3)
+      Q102=Q10*Q10; Q112=Q11*Q11; Q122=Q12*Q12; Q132=Q13*Q13
+      Q10Q11=Q10*Q11; Q10Q12=Q10*Q12; Q10Q13=Q10*Q13; Q11Q12=Q11*Q12; Q11Q13=Q11*Q13; Q12Q13=Q12*Q13
+      R1(0) = Q102+Q112-Q122-Q132; R1(1) = 2.0_wp*(Q11Q12-Q10Q13); R1(2) = 2.0_wp*(Q11Q13+Q10Q12)
+      R1(3) = 2.0_wp*(Q11Q12+Q10Q13); R1(4) = Q102-Q112+Q122-Q132; R1(5) = 2.0_wp*(Q12Q13-Q10Q11)
+      R1(6) = 2.0_wp*(Q11Q13-Q10Q12); R1(7) = 2.0_wp*(Q12Q13+Q10Q11); R1(8) = Q102-Q112-Q122+Q132
+
+      Do j = i + 1, Natoms - 1
+         tj = itype(j)
+         Indx = ti * Npart_types + tj
+         sigma_ab = sigma_LJ(Indx)
+         eps_ab   = epsilon_LJ(Indx)
+         rcut     = rangep(Indx)
+         vl0_aux  = vl0(Indx)
+         xop_aux  = xop(Indx)
+
+         DX = r(j*Ndim)   - r(i*Ndim)
+         DY = r(j*Ndim+1) - r(i*Ndim+1)
+         DZ = r(j*Ndim+2) - r(i*Ndim+2)
+         DX = DX - anint(DX); DY = DY - anint(DY); DZ = DZ - anint(DZ)
+         DXP = h(0)*DX + h(1)*DY + h(2)*DZ
+         DYP = h(3)*DX + h(4)*DY + h(5)*DZ
+         DZP = h(6)*DX + h(7)*DY + h(8)*DZ
+         RSQ = DXP*DXP + DYP*DYP + DZP*DZP
+
+         If (RSQ < rcut*rcut) Then
+            R12 = sqrt(RSQ)
+            w_pair = 0.0_wp
+
+            If (pot_int < 1) Then
+               If (table_mc .and. has_table(ti, tj)) Then
+                  Call eval_table_force_host(R12, ti, tj, F_val)
+                  w_pair = R12 * F_val
+               Else
+                  Call vlj_virial(RSQ, sigma_ab, eps_ab, w_pair)
+               End If
+            Else If (pot_int == 1) Then
+               If (RSQ < 0.9604_wp * sigma_ab * sigma_ab .or. Nrb_sites(ti) <= 1 .or. Nrb_sites(tj) <= 1) Then
+                  If (table_mc .and. has_table(ti, tj)) Then
+                     Call eval_table_force_host(R12, ti, tj, F_val)
+                     w_pair = R12 * F_val
+                  Else
+                     Call vlj_virial(RSQ, sigma_ab, eps_ab, w_pair)
+                  End If
+               Else
+                  Q20 = q(j*4); Q21 = q(j*4+1); Q22 = q(j*4+2); Q23 = q(j*4+3)
+                  Q202=Q20*Q20; Q212=Q21*Q21; Q222=Q22*Q22; Q232=Q23*Q23
+                  Q20Q21=Q20*Q21; Q20Q22=Q20*Q22; Q20Q23=Q20*Q23; Q21Q22=Q21*Q22; Q21Q23=Q21*Q23; Q22Q23=Q22*Q23
+                  R2(0) = Q202+Q212-Q222-Q232; R2(1) = 2.0_wp*(Q21Q22-Q20Q23); R2(2) = 2.0_wp*(Q21Q23+Q20Q22)
+                  R2(3) = 2.0_wp*(Q21Q22+Q20Q23); R2(4) = Q202-Q212+Q222-Q232; R2(5) = 2.0_wp*(Q22Q23-Q20Q21)
+                  R2(6) = 2.0_wp*(Q21Q23-Q20Q22); R2(7) = 2.0_wp*(Q22Q23+Q20Q21); R2(8) = Q202-Q212-Q222+Q232
+
+                  Call vpatch_angular(DXP, DYP, DZP, R12, &
+                       R1, R2, bool_tor, Npart_types, Nrb_sites_max, Ndim, Ntor_max, a, pi, dospi, sigma_tor_jon, &
+                       Nrb_sites, PATCH, sigma_jon, Vpot_matrix, Ntor_angle, tor_angle, &
+                       ti, tj, Vangtor_max)
+
+                  If (Vangtor_max /= -1.0_wp) Then
+                     th = tanh( a*(-xop_aux + R12) )
+                     FX  = (1.0_wp + th)/2.0_wp
+                     FXI = (1.0_wp - th)/2.0_wp
+                     dFX = (a / 2.0_wp) * (1.0_wp - th*th)
+                     If (table_mc .and. has_table(ti, tj)) Then
+                        Call eval_table_pot_host(R12, ti, tj, Vrad)
+                        Call eval_table_force_host(R12, ti, tj, F_val)
+                        w_lj = R12 * F_val
+                     Else
+                        Call vlj(RSQ, sigma_ab, eps_ab, vl0_aux, Vrad)
+                        Call vlj_virial(RSQ, sigma_ab, eps_ab, w_lj)
+                     End If
+                     w_pair = w_lj * ( FXI + Vangtor_max * FX ) - R12 * Vrad * (Vangtor_max - 1.0_wp) * dFX
+                  End If
+               End If
+            Else If (pot_int == 2 .or. pot_int == 3) Then
+               If (table_mc .and. has_table(ti, tj)) Then
+                  Call eval_table_force_host(R12, ti, tj, F_val)
+                  w_core = R12 * F_val
+               Else If (pot_int == 3) Then
+                  Call vphs_virial(RSQ, sigma_ab, eps_R, w_core)
+               Else
+                  Call vlj_palaia_virial(RSQ, sigma_ab, eps_ab, vl0_aux, Rc_factor, w_core)
+               End If
+               w_pair = w_core
+
+               If (Nrb_sites(ti) > 0 .and. Nrb_sites(tj) > 0) Then
+                  Q20 = q(j*4); Q21 = q(j*4+1); Q22 = q(j*4+2); Q23 = q(j*4+3)
+                  Q202=Q20*Q20; Q212=Q21*Q21; Q222=Q22*Q22; Q232=Q23*Q23
+                  Q20Q21=Q20*Q21; Q20Q22=Q20*Q22; Q20Q23=Q20*Q23; Q21Q22=Q21*Q22; Q21Q23=Q21*Q23; Q22Q23=Q22*Q23
+                  R2(0) = Q202+Q212-Q222-Q232; R2(1) = 2.0_wp*(Q21Q22-Q20Q23); R2(2) = 2.0_wp*(Q21Q23+Q20Q22)
+                  R2(3) = 2.0_wp*(Q21Q22+Q20Q23); R2(4) = Q202-Q212+Q222-Q232; R2(5) = 2.0_wp*(Q22Q23-Q20Q21)
+                  R2(6) = 2.0_wp*(Q21Q23-Q20Q22); R2(7) = 2.0_wp*(Q22Q23+Q20Q21); R2(8) = Q202-Q212-Q222+Q232
+
+                  Call vpatch_sitesite_virial_host(DXP, DYP, DZP, R1, R2, sigp_factor, Rcp_factor, patch_radial_factor, &
+                       ti, tj, Npart_types, Nrb_sites_max, Ndim, &
+                       Nrb_sites, PATCH, sigma_LJ, Vpot_matrix, w_patches)
+                  w_pair = w_pair + w_patches
+               End If
+            End If
+
+            W_tot = W_tot + w_pair
+         End If
+      End Do
+   End Do
+
+   If (Ndim == 2) Then
+      P_vir = (real(Natoms, wp)*Temp + W_tot / 2.0_wp) / Vol
+   Else
+      P_vir = (real(Natoms, wp)*Temp + W_tot / 3.0_wp) / Vol
+   End If
+End Subroutine compute_virial_cpu
+
+Subroutine compute_virial_isotropic_cpu(W_tot, P_vir)
+   Use set_precision
+   Implicit None
+   Real(wp), Intent(Out) :: W_tot, P_vir
+   Call compute_virial_cpu(W_tot, P_vir)
+End Subroutine compute_virial_isotropic_cpu
+
+! ==============================================================================
+! CPU ROUTINE: compute_per_atom_forces_cpu
+! DESCRIPTION: Computes 3D pairwise force vectors and per-atom scalar virials
+! for all particles in isotropic systems (LJ and Tabulated).
+! ==============================================================================
+Subroutine compute_per_atom_forces_cpu(fx, fy, fz, w_atom)
+   Use set_precision
+   Use configuration
+   Use potential
+   Use potential_functions, only: vlj_force, eval_table_force_host
+   Implicit None
+   Real(wp), Intent(Out) :: fx(0:Natoms-1), fy(0:Natoms-1), fz(0:Natoms-1), w_atom(0:Natoms-1)
+
+   Integer :: i, j, ti, tj, Indx
+   Real(wp) :: DX, DY, DZ, DXP, DYP, DZP, RSQ, R12, w_pair, F_val
+   Real(wp) :: fx_ij, fy_ij, fz_ij, rinv
+   Real(wp) :: sigma_ab, eps_ab, rcut
+
+   fx = 0.0_wp; fy = 0.0_wp; fz = 0.0_wp
+   w_atom = 0.0_wp
+
+   Do i = 0, Natoms - 2
+      ti = itype(i)
+      Do j = i + 1, Natoms - 1
+         tj = itype(j)
+         Indx = ti * Npart_types + tj
+         sigma_ab = sigma_LJ(Indx)
+         eps_ab   = epsilon_LJ(Indx)
+         rcut     = rangep(Indx)
+
+         DX = r(j*Ndim)   - r(i*Ndim)
+         DY = r(j*Ndim+1) - r(i*Ndim+1)
+         DZ = r(j*Ndim+2) - r(i*Ndim+2)
+         DX = DX - anint(DX); DY = DY - anint(DY); DZ = DZ - anint(DZ)
+         DXP = h(0)*DX + h(1)*DY + h(2)*DZ
+         DYP = h(3)*DX + h(4)*DY + h(5)*DZ
+         DZP = h(6)*DX + h(7)*DY + h(8)*DZ
+         RSQ = DXP*DXP + DYP*DYP + DZP*DZP
+
+         If (RSQ < rcut*rcut) Then
+            R12 = sqrt(RSQ)
+            rinv = 1.0_wp / R12
+            If (table_mc .and. has_table(ti, tj)) Then
+               Call eval_table_force_host(R12, ti, tj, F_val)
+               w_pair = R12 * F_val
+            Else
+               Call vlj_force(RSQ, sigma_ab, eps_ab, F_val, w_pair)
+            End If
+
+            ! Force on i from j: f_ij = -F_val * (r_ij / r_12)
+            ! Force on j from i: f_ji = -f_ij
+            fx_ij = -F_val * DXP * rinv
+            fy_ij = -F_val * DYP * rinv
+            fz_ij = -F_val * DZP * rinv
+
+            fx(i) = fx(i) + fx_ij
+            fy(i) = fy(i) + fy_ij
+            fz(i) = fz(i) + fz_ij
+
+            fx(j) = fx(j) - fx_ij
+            fy(j) = fy(j) - fy_ij
+            fz(j) = fz(j) - fz_ij
+
+            w_atom(i) = w_atom(i) + 0.5_wp * w_pair
+            w_atom(j) = w_atom(j) + 0.5_wp * w_pair
+         End If
+      End Do
+   End Do
+End Subroutine compute_per_atom_forces_cpu
+

@@ -1,0 +1,1446 @@
+! ==============================================================================
+! SUBROUTINE: Write_Input_File
+! ==============================================================================
+Subroutine Write_Input_File(istep)
+
+   Use set_precision
+   Use rundata
+   Use configuration, Only : ndim
+   Use potential
+   Use utils
+   Implicit None
+   Integer :: istep, istep_ini_new
+   Integer :: J, Indx, Indx_tor, Indx_tor2, I, Indx2, K, Indx1, M
+
+   Open(21,file='input-restart.nml',status='unknown')
+
+   ! --- Write Namelist: Control_Params ---
+   Write(21,*) "&Control_Params"
+   Write(21,*) "  istep_ini = ", istep, ","
+   Write(21,*) "  istep_fin = ", istep_fin, ","
+   Write(21,*) "  Neq = 0,"
+   Write(21,*) "  Nmove = ", Nmove, ","
+   Write(21,*) "  Nsave = ", Nsave, ","
+   Write(21,*) "  Ndump = ", Ndump, ","
+   Write(21,*) "  Nrestart = ", Nrestart, ","
+   Write(21,*) "  imovie = ", imovie, ","
+   Write(21,*) "  traj_format = '", trim(traj_format), "',"
+   Write(21,*) "  data_file = 'data.restart',"
+   Write(21,*) "  Npart_types = ", Npart_types, ","
+   Write(21,*) "  Ecpu_check = ", Ecpu_check, ","
+   if (ncluster > 0) then
+      Write(21,*) "  ncluster = ", ncluster, ","
+      Write(21,*) "  rcl = ", rcl, ","
+      Write(21,*) "  minPts = ", minPts, ","
+      Write(21,*) "  asym_threshold = ", asym_threshold, ","
+      block
+         integer :: num_ct, k_ct
+         num_ct = 0
+         do k_ct = 1, 10
+            if (cluster_types(k_ct) /= -1) num_ct = num_ct + 1
+         end do
+         if (num_ct > 0) then
+            Write(21,'(A)',advance='no') "  cluster_types = "
+            do k_ct = 1, num_ct
+               if (k_ct < num_ct) then
+                  Write(21,'(I0,A)',advance='no') cluster_types(k_ct), ", "
+               else
+                  Write(21,'(I0,A)') cluster_types(k_ct), ","
+               end if
+            end do
+         end if
+      end block
+   end if
+   if (avbmc) then
+      Write(21,*) "  avbmc = ", avbmc, ","
+      Write(21,*) "  n_avbmc = ", n_avbmc, ","
+      Write(21,*) "  ncluster_init = ", ncluster_init, ","
+      Write(21,*) "  cluster_threshold = ", cluster_threshold, ","
+      Write(21,*) "  bound_min_neighbors = ", bound_min_neighbors, ","
+      Write(21,*) "  border_criterion = '", trim(border_criterion), "',"
+      Write(21,*) "  avbmc_k_trials = ", avbmc_k_trials, ","
+      Write(21,*) "  avbmc_max_trials = ", avbmc_max_trials, ","
+      if (trim(border_criterion) == 'energy') then
+         Write(21,*) "  energy_threshold = ", energy_threshold, ","
+         Write(21,*) "  energy_border_ratio = ", energy_border_ratio, ","
+         Write(21,*) "  use_energy_ratio = ", use_energy_ratio, ","
+      end if
+   end if
+   Write(21,*) "  lammps = ", lammps
+   Write(21,*) "/"
+
+   if (lammps) then
+      write(21,*) "&Lammps_Params"
+      write(21,*) "  timestep = ", tstep_hmc, ","
+      write(21,*) "  Nmd = ", Nmd_hmc, ","
+      write(21,*) "  hmc_freq = ", Nmc_hmc, ","
+      write(21,*) "  table_lammps = ", table_lammps, ","
+      if (len_trim(table_file_lammps) > 0) write(21,*) "  table_file_lammps = '", trim(table_file_lammps), "',"
+      write(21,*) "  neigh_skin = ", lammps_skin, ","
+      write(21,*) "  thermo_freq = ", lammps_thermo, ","
+      write(21,*) "  use_gpu = ", lammps_gpu
+      write(21,*) "/"
+   end if
+
+   ! --- Write Namelist: MC_Params ---
+   Write(21,*) "&MC_Params"
+   Write(21,*) "  hmax = ", hmax, ","
+   Write(21,*) "  omax = ", omax, ","
+   Write(21,'("  vmax = ", 3F12.6, ",")') vmax(0), vmax(1), vmax(2)
+   Write(21,*) "  displ_update = ", displ_update, ","
+   temp0 = 1.0_wp / beta
+   Write(21,*) "  temp0 = ", temp0, ","
+   Write(21,*) "  npt = ", npt, ","
+   Write(21,*) "  Nvolf = ", Nvolf, ","
+   Write(21,*) "  iscale = ", iscale, ","
+   Write(21,*) "  pres = ", pres, ","
+   Write(21,*) "  seed = ", seed, ","
+   Write(21,*) "  swap_moves = ", swap_moves, ","
+   Write(21,*) "  Nswap = ", Nswap, ","
+   Write(21,*) "  Nswapf = ", Nswapf
+   Write(21,*) "/"
+
+   ! --- Write Namelist: Potential_Params ---
+   Write(21,*) "&Potential_Params"
+   Write(21,*) "  model = '", trim(model), "',"
+   Write(21,*) "  sigma_jon_aux = ", sigma_jon_aux, ","
+   Write(21,*) "  sigma_tor_jon = ", dsqrt(sigma_tor_jon/2.d0), ","
+   Write(21,*) "  rangepp = ", rangepp, ","
+   Write(21,*) "  Bool_tor = ", Bool_tor, ","
+   Write(21,*) "  sigp_factor = ", sigp_factor, ","
+   Write(21,*) "  Rcp_factor = ", Rcp_factor, ","
+   Write(21,*) "  Rc_factor = ", Rc_factor, ","
+   Write(21,*) "  epsp_factor = ", epsp_factor, ","
+   Write(21,*) "  patch_radial_factor = ", patch_radial_factor, ","
+   Write(21,*) "  table_mc = ", table_mc, ","
+   if (len_trim(table_file_mc) > 0) Write(21,*) "  table_file_mc = '", trim(table_file_mc), "',"
+   Write(21,*) "  eps_R = ", eps_R, ","
+   Write(21,*) "  eps_CSW = ", eps_CSW, ","
+   Write(21,*) "  rw_CSW = ", rw_CSW, ","
+   Write(21,*) "  alpha_CSW = ", alpha_CSW, ","
+   Write(21,*) "  rc_CSW = ", rc_CSW
+   Write(21,*) "/"
+
+   ! =========================================================================
+   ! BRANCH: HARD SPHERE MODE (diameter matrix only, no energy scale)
+   ! =========================================================================
+   If (pot_int == -1) Then
+      Write(21,*) "--- HS SIGMA MATRIX ---"
+      Do I=0,Npart_types-1
+           Indx = I*Npart_types
+           Do J = 0, Npart_types-1
+              Write(21,'(F6.3)',advance='no') sigma_LJ(indx+j)
+           EndDo
+           Write(21,*)
+      EndDo
+
+   ! =========================================================================
+   ! BRANCH: PURE LENNARD-JONES MODE
+   ! =========================================================================
+   Else If (pot_int < 1) Then
+      Write(21,*) "--- LJ SIGMA MATRIX ---"
+      Do I=0,Npart_types-1
+           Indx = I*Npart_types
+           Do J = 0, Npart_types-1
+              Write(21,'(F6.3)',advance='no') sigma_LJ(indx+j)
+           EndDo
+           Write(21,*) 
+      EndDo
+      Write(21,*) "--- LJ EPSILON MATRIX ---"
+      Do I=0,Npart_types-1
+           Indx = I*Npart_types
+           Do J = 0, Npart_types-1
+              Write(21,'(F6.3)',advance='no') epsilon_LJ(indx+j)
+           EndDo
+           Write(21,*) 
+      EndDo
+
+   ! =========================================================================
+   ! BRANCH: PATCHY ANISOTROPIC MODE (ORIGINAL LOGIC)
+   ! =========================================================================
+   Else
+      Write(21,*) "--- TOPOLOGY AND PATCH GEOMETRY DATA ---"
+      Write(21,*) (Nrb_sites(J),J=0,Npart_types-1)
+      
+      Do J = 0, Npart_types-1
+         Indx = J * Nrb_sites_max*Ndim
+         Indx_tor = J * Nrb_sites_max
+         Indx_tor2 = J * Nrb_sites_max*Ntor_max
+         If( Nrb_sites(J) >= 2 ) Then 
+            Do I = 0, Nrb_sites(J)-1
+               Indx2 = Indx + I*Ndim
+               Write(21,'(3F12.8)',advance='no') patch( Indx2 ),patch( Indx2+1 ),patch( Indx2+2 )
+               If (Ntor_angle(Indx_tor+i) == 0 ) Then 
+                   Write(21,'(3F12.8,3x,I3)') ref_tor_vec( Indx2 ), ref_tor_vec( Indx2+1 ), ref_tor_vec( Indx2+2 ), Ntor_angle( Indx_tor + I )
+               Else
+                   Write(21,'(3F12.8,3x,I3)',advance='no') ref_tor_vec( Indx2 ), ref_tor_vec( Indx2+1 ), ref_tor_vec( Indx2+2 ), Ntor_angle( Indx_tor + I )
+                   Do K = 0, Ntor_angle( Indx_tor+I )-1
+                      Write(21,'(F12.6)',advance='no') tor_angle( Indx_tor2 +I*Ntor_max + K )
+                   EndDo
+                   Write(21,*)
+               EndIf
+            End Do
+         ElseIf( Nrb_sites(J) == 1) Then
+               Write(21,'(3F12.8)')  ( patch( Indx+K ), K = 0, Ndim -1 )
+         Endif
+      EndDo
+
+      Write(21,*) "-- vpot matrix --"
+      Do I = 0, Npart_types -1
+        Indx1= I * Npart_types * Nrb_sites_max *Nrb_sites_max
+        Do J = 0, Nrb_sites(I) -1
+          Indx2 = Indx1 +  J * (Nrb_sites_max*Npart_types) 
+            Do K = 0, Npart_types -1
+               Do M = 0, Nrb_sites(K) -1
+                    write(21,'(F5.2)',advance='no') Vpot_Matrix( Indx2+k*Nrb_sites_max+M )
+               EndDo
+            EndDo
+            write(21,*) 
+        EndDo
+      EndDo
+
+      If(sigma_jon_aux.gt.0.d0) then
+      Else
+         Write(21,*) '-- sigmas_ang --' 
+         Do I= 0, Npart_types-1
+            Indx= I *Nrb_sites_max
+            Do J = 0, Nrb_sites(i)-1
+               write(21,'(F6.3)',advance='no') sigma_jon(indx+j)
+            EndDo
+            write(21,*)
+         EndDo
+
+         Write(21,*) '-- sigma_LJ --'
+         Do I=0,Npart_types-1
+              Indx = I*Npart_types
+              Do J = 0, Npart_types-1
+                 Write(21,'(F6.3)',advance='no') sigma_LJ(indx+j)
+              EndDo
+              Write(21,*) 
+         EndDo
+      EndIf
+   End If
+
+   Close(21)
+End Subroutine Write_Input_File
+
+
+! ==============================================================================
+! SUBROUTINE: Read_Input_Data
+! ==============================================================================
+Subroutine Read_Input_Data
+ 
+   Use set_precision
+   Use rundata
+   Use configuration, Only : ndim
+   Use potential 
+   Use utils
+   Implicit None
+   Integer :: i, j, k, l, m, Indx, Indx1, Indx2, ios, Indx_tor, Indx_tor2
+   Integer :: i_fila, i_columna
+   Logical :: found_mat
+   Real(wp) :: norm, px, py, pz, sigma_jon_ij, xopp, Rmin_ij, req_range
+   real(wp), Allocatable :: Matrix(:,:)
+   Character(len=256) :: line, uline
+
+  
+   ! Namelists for simulation control, MC parameters, and potential parameters.
+   ! Control_Params include AVBMC options:
+   !   avbmc: .true. / .false. (Enable AVBMC moves)
+   !   border_criterion: 'asymmetry' / 'energy' (Surface particle detection method)
+   !   energy_border_ratio: Ratio for energy-based border identification (default 0.5)
+   !   avbmc_k_trials: Number of Rosenbluth trial positions (K) in bulk (default 10)
+   !   avbmc_max_trials: Cap on maximum AVBMC pair attempts per step (default 50)
+   !   n_avbmc: AVBMC move period in small-cluster regime (default 10)
+   !   ncluster_init: DBSCAN check period in small-cluster regime (default 500)
+   !   cluster_threshold: Size threshold to switch between regimes (default 5)
+   !   bound_min_neighbors: Min neighbors for bound classification in small regime (default 1)
+   !   lammps: .true. / .false. (Enable hybrid LAMMPS HMC moves, .false. by default)
+   Namelist /Control_Params/ istep_ini, istep_fin, Neq, Nmove, Nsave, Ndump, Nrestart, imovie, traj_format, Npart_types, Ecpu_check, data_file, &
+                              rcl, minPts, asym_threshold, ncluster, cluster_types, lammps, Nmc_hmc, Nmd_hmc, tstep_hmc, avbmc, &
+                              border_criterion, energy_threshold, energy_border_ratio, use_energy_ratio, avbmc_k_trials, avbmc_max_trials, &
+                              n_avbmc, ncluster_init, cluster_threshold, bound_min_neighbors
+    ! MC_Params include:
+    !   Nvolf: Frequency (in MC sweeps) of NpT volume moves (default 1)
+    !   swap_moves: .true. / .false. (Enable GPU checkerboard identity swaps, binary mixtures)
+    !   Nswap: Number of swap sub-passes per MC cycle (default 1)
+    !   Nswapf: Frequency (in MC sweeps) of identity swap moves (default 1)
+    Namelist /MC_Params/ hmax, omax, vmax, displ_update, temp0, temp1, npt, Nvolf, iscale, pres, seed, swap_moves, Nswap, Nswapf
+    Namelist /Potential_Params/ model, cosmax_KF, ctor_max_KF, delta_KF, Bool_tor, sigma_jon_aux, sigma_tor_jon, rangepp, &
+                                sigp_factor, Rcp_factor, Rc_factor, epsp_factor, patch_radial_factor, &
+                                table_mc, table_lammps, table_file_mc, table_file_lammps, &
+                                eps_R, eps_CSW, rw_CSW, alpha_CSW, rc_CSW
+
+   ! Lammps_Params namelist for internal LAMMPS simulation and HMC parameters
+   ! Local/alias variables for Lammps_Params namelist
+   real(wp) :: timestep
+   integer :: Nmd, hmc_freq, thermo_freq, gpu_id, ios_lmp
+   real(wp) :: neigh_skin
+   logical :: use_gpu
+
+   Namelist /Lammps_Params/ lammps, timestep, tstep_hmc, Nmd, Nmd_hmc, hmc_freq, Nmc_hmc, &
+                            table_lammps, table_file_lammps, neigh_skin, &
+                            thermo_freq, use_gpu, gpu_id
+
+   traj_format = 'netcdf'; data_file = 'data.atoms'
+   imovie = .false.; displ_update = .false.; npt = .false.; Nvolf = 1; swap_moves = .false.; Nswap = 1; Nswapf = 1
+   sigp_factor = 0.1_wp; Rcp_factor = 0.3_wp; Rc_factor = 2.0_wp; epsp_factor = -1.0_wp; patch_radial_factor = 0.5_wp
+   rcl = 1.8_wp; minPts = 3; asym_threshold = 0.5_wp; ncluster = 0; cluster_types(:) = -1; avbmc = .false.
+   n_avbmc = 10; ncluster_init = 500; cluster_threshold = 5; bound_min_neighbors = 1
+   border_criterion = 'asymmetry'; energy_threshold = -2.0_wp; energy_border_ratio = 0.5_wp; use_energy_ratio = .false.
+   lammps = .false.
+   timestep = -1.0_wp; tstep_hmc = 0.0025_wp
+   Nmd = -1; Nmd_hmc = 50
+   hmc_freq = -1; Nmc_hmc = 0
+   neigh_skin = 0.3_wp
+   thermo_freq = 0
+   use_gpu = .true.
+   gpu_id = -1
+   table_mc = .false.; table_lammps = .false.
+   table_file_mc = ""; table_file_lammps = ""
+   ! Temperature defaults (HS mixtures do not require temperature as input)
+   temp0 = 1.0_wp; temp1 = 1.0_wp
+
+   Open(20,file=input_filename, status='old')
+   Read(20, NML=Control_Params)
+   Read(20, NML=MC_Params)
+   Read(20, NML=Potential_Params)
+
+   rewind(20)
+   read(20, NML=Lammps_Params, iostat=ios_lmp)
+   rewind(20)
+
+   ! Synchronize LAMMPS parameters from Lammps_Params namelist aliases
+   if (timestep > 0.0_wp) tstep_hmc = timestep
+   if (Nmd > 0) Nmd_hmc = Nmd
+   if (hmc_freq > 0) Nmc_hmc = hmc_freq
+
+   lammps_skin = neigh_skin
+   lammps_thermo = thermo_freq
+   lammps_gpu = use_gpu
+   lammps_gpuid = gpu_id
+
+   ! Backward compatibility: if Nmc_hmc was given > 0, activate lammps
+   if (Nmc_hmc > 0 .and. .not. lammps) then
+      lammps = .true.
+   end if
+
+   ! If lammps is enabled, ensure Nmc_hmc has a positive frequency
+   if (lammps .and. Nmc_hmc <= 0) then
+      if (hmc_freq > 0) then
+         Nmc_hmc = hmc_freq
+      else
+         Nmc_hmc = 10
+      end if
+   end if
+
+   ! If lammps is disabled, ensure Nmc_hmc is 0
+   if (.not. lammps) then
+      Nmc_hmc = 0
+   end if
+
+   ! If AVBMC is enabled, ensure valid positive frequencies for both regimes
+   if (avbmc) then
+      if (ncluster <= 0) ncluster = 50
+      if (n_avbmc <= 0) n_avbmc = 10
+      if (ncluster_init <= 0) ncluster_init = 500
+      if (cluster_threshold <= 0) cluster_threshold = 5
+      if (bound_min_neighbors <= 0) bound_min_neighbors = 1
+   end if
+
+   if (trim(model)=='HS') then
+      pot_int = -1
+   else if (trim(model)=='LJ') then
+      pot_int = 0
+   else if (trim(model)=='LJG') then
+      pot_int = 1
+   else if (trim(model)=='SSP') then
+      pot_int = 2
+   else if (trim(model)=='SB' .or. trim(model)=='SANCHEZ_BURGOS' .or. trim(model)=='sanchez_burgos') then
+      pot_int = 3
+   else if (trim(model)=='TABLE' .or. trim(model)=='table') then
+      pot_int = 0
+      table_mc = .true.
+   else
+      write(*,'(/A,"*** Fatal error: interaction ", A, " not implemented ***",A)')c_red, trim(model), c_reset
+      stop  
+   end if
+   if (table_mc .and. pot_int /= 2 .and. pot_int /= 3) then
+      pot_int = 0
+   end if
+
+   ! Initial check: LAMMPS moves are only supported for TABLE and SSP models.
+   ! Disable them with a clear warning for HS, LJ, and LJG potentials.
+   if (lammps) then
+      if (trim(model) == 'HS' .or. trim(model) == 'LJ' .or. trim(model) == 'LJG') then
+         write(*,'(/A,"*** [LAMMPS Check] Hybrid LAMMPS moves are disabled for ", A, " potentials. ***",A)') &
+            c_yellow, trim(model), c_reset
+         write(*,'(A,"*** Hybrid LAMMPS moves are only supported for TABLE and SSP models. Disabling LAMMPS moves. ***",A/)') &
+            c_yellow, c_reset
+         flush(6)
+         lammps = .false.
+         Nmc_hmc = 0
+      end if
+   end if
+
+   ! For TABLE potential with LAMMPS enabled, activate table_lammps and inherit table_file
+   if (lammps .and. (trim(model) == 'TABLE' .or. trim(model) == 'table')) then
+      table_lammps = .true.
+      if (len_trim(table_file_lammps) == 0 .and. len_trim(table_file_mc) > 0) then
+         table_file_lammps = table_file_mc
+      end if
+   end if
+  
+
+   write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
+   write(*,'(A)') c_cyan // '                              SIMULATION PARAMETERS LOADED                              ' // c_reset
+   write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
+   write(*,'(A,I10,A,I10)') '  -> MC Cycles (Ini / Fin):   ', istep_ini, ' / ', istep_ini + Neq + istep_fin
+   write(*,'(A,I10)')       '     - Equilibration Steps:   ', Neq
+   write(*,'(A,I10)')       '     - Production Steps:      ', istep_fin
+   write(*,'(A,I10)')       '  -> Random Seed:             ', seed
+   write(*,'(A)') ''
+   write(*,'(A)') c_cyan // ' --- Thermodynamic State ---' // c_reset
+   write(*,'(A,F10.4,A,F10.4)') '  -> Temperature (Ini -> Fin):', temp0, ' -> ', temp1
+   
+   If(NpT) Then
+      If (Nvolf < 1) Nvolf = 1
+      write(*,'(A)') c_yellow // '  -> Ensemble:                NpT (Isobaric-Isothermal)' // c_reset
+      write(*,'(A,I6)')         '     - Volume move frequency: ', Nvolf
+   Else
+      write(*,'(A)') c_yellow // '  -> Ensemble:                NVT (Canonical)' // c_reset
+   EndIf
+
+   write(*,'(A)') ''
+   write(*,'(A)') c_cyan // ' --- Monte Carlo Moves ---' // c_reset
+   write(*,'(A,F10.4)') '  -> Max Trans Displacement:  ', hmax
+   If (pot_int > 0) write(*,'(A,F10.4)') '  -> Max Rot Displacement:    ', omax
+   If (swap_moves) Then
+      If (Npart_types < 2) Then
+         write(*,'(/A,"*** Fatal error: Identity swap moves require at least 2 particle species (Npart_types >= 2). Found Npart_types = ", I0, "***",A)') &
+            c_red, Npart_types, c_reset
+         stop 1
+      End If
+      If (Nswap < 1) Nswap = 1
+      If (Nswapf < 1) Nswapf = 1
+      write(*,'(A)') c_green // '  -> Identity Swap Moves:     ENABLED (Checkerboard GPU)' // c_reset
+      write(*,'(A,A)')          '     - Potential model:       ', trim(model)
+      write(*,'(A,I6)')         '     - Swap trials per cycle: ', Nswap
+      write(*,'(A,I6)')         '     - Swap move frequency:   ', Nswapf
+   Else
+      write(*,'(A)') c_yellow // '  -> Identity Swap Moves:     DISABLED' // c_reset
+   End If
+   If (avbmc) Then
+      write(*,'(A)') c_green // '  -> AVBMC Moves:             ENABLED (Two-Tier Dynamic Scheduling)' // c_reset
+      write(*,'(A,I6)')         '     - AVBMC Move Frequency:  ', n_avbmc
+      write(*,'(A,I6)')         '     - DBSCAN Check Interval: ', ncluster_init
+      write(*,'(A,I6)')         '     - Transition Threshold:  ', cluster_threshold
+      write(*,'(A,I6)')         '     - Min Bound Neighbors:   ', bound_min_neighbors
+      write(*,'(A,A)')          '     - Border Criterion:      ', trim(border_criterion)
+      If (trim(border_criterion) == 'energy') Then
+         If (use_energy_ratio) Then
+            write(*,'(A,F10.4)') '     - Energy Border Ratio:   ', energy_border_ratio
+         Else
+            write(*,'(A,F10.4)') '     - Energy Border Thresh:  ', energy_threshold
+         End If
+      Else
+         write(*,'(A,F10.4)')    '     - Asymmetry Threshold:   ', asym_threshold
+      End If
+      write(*,'(A,I6)')         '     - Bulk Trials (K):       ', avbmc_k_trials
+      write(*,'(A,I6)')         '     - Max Attempts / Sweep:  ', avbmc_max_trials
+   Else
+      write(*,'(A)') c_yellow // '  -> AVBMC Moves:             DISABLED' // c_reset
+   End If
+   If (lammps) Then
+      write(*,'(A)') c_green // '  -> Hybrid LAMMPS Moves:     ENABLED' // c_reset
+      write(*,'(A,A)')          '     - Potential Model:       ', trim(model)
+      write(*,'(A,I6)')         '     - HMC Move Frequency:    ', Nmc_hmc
+      write(*,'(A,I6)')         '     - MD Trajectory Length:  ', Nmd_hmc
+      write(*,'(A,F10.5)')      '     - MD Timestep:           ', tstep_hmc
+      write(*,'(A,F10.4)')      '     - Neighbor Skin:         ', lammps_skin
+      if (table_lammps .or. trim(model) == 'TABLE' .or. trim(model) == 'table') then
+         write(*,'(A)')         '     - Force Representation:  TABULATED (pair_style table linear)'
+         if (len_trim(table_file_lammps) > 0) then
+            write(*,'(A,A)')    '     - Table Source:          ', trim(table_file_lammps)
+         end if
+      else
+         write(*,'(A)')         '     - Force Representation:  ANALYTIC (hybrid/overlay)'
+      end if
+      if (lammps_gpu) then
+         write(*,'(A)')         '     - LAMMPS Acceleration:   GPU (package gpu)'
+      else
+         write(*,'(A)')         '     - LAMMPS Acceleration:   CPU'
+      end if
+   Else
+      write(*,'(A)') c_yellow // '  -> Hybrid LAMMPS Moves:     DISABLED' // c_reset
+   End If
+   
+   write(*,'(A)') ''
+   write(*,'(A)') c_cyan // ' --- Output & Potential Model ---' // c_reset
+   If (pot_int == -1) Then
+      write(*,'(A)') c_green // '  -> Potential Mode:          HARD SPHERE (possibly non-additive mixture)' // c_reset
+      write(*,'(A)') c_yellow// '  -> Temperature:             IGNORED (athermal potential)' // c_reset
+      write(*,'(A)') c_yellow// '  -> Patch Data:              IGNORED (Skipping Quaternions)' // c_reset
+   Else If (pot_int < 1) Then
+      if (table_mc) then
+         write(*,'(A)') c_green // '  -> Potential Mode:          TABULATED POTENTIAL MIXTURE' // c_reset
+         write(*,'(A,A)')       '     - Table Source:          ', trim(table_file_mc)
+      else
+         write(*,'(A)') c_green // '  -> Potential Mode:          PURE ISOTROPIC LENNARD-JONES' // c_reset
+      end if
+      write(*,'(A)') c_yellow// '  -> Patch Data:              IGNORED (Skipping Quaternions)' // c_reset
+   Else
+      write(*,'(A,A)')  '  -> Potential Model:         ', trim(model)
+      if( trim(model) == 'LJG') sigma_tor_jon = 2.d0*sigma_tor_jon*sigma_tor_jon
+      if (pot_int == 2) then
+          write(*,'(A,F10.4)') '     - Patch radius factor:   ', sigp_factor
+          write(*,'(A,F10.4)') '     - Patch cutoff factor:   ', Rcp_factor
+          write(*,'(A,F10.4)') '     - Core tail factor:      ', Rc_factor
+          if (epsp_factor >= 0.0_wp) then
+              write(*,'(A,F10.4)') '     - Colloid tail depth:    ', epsp_factor
+          else
+              write(*,'(A)')       '     - Colloid tail depth:    Calculated (WCA-consistent)'
+          end if
+      else if (pot_int == 3) then
+          write(*,'(A,F10.4)') '     - PHS eps_R:             ', eps_R
+          write(*,'(A,F10.4)') '     - CSW well depth (eps):  ', eps_CSW
+          write(*,'(A,F10.4)') '     - CSW well width (rw):   ', rw_CSW
+          write(*,'(A,F10.4)') '     - CSW smoothing (alpha): ', alpha_CSW
+          write(*,'(A,F10.4)') '     - CSW cutoff (rc):       ', rc_CSW
+          write(*,'(A,F10.4)') '     - Patch radial factor:   ', patch_radial_factor
+      end if
+   EndIf
+   write(*,'(A,I5)') '  -> Number of Particle Types:', Npart_types
+   write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
+   write(*,'(A)') ''
+
+   Allocate( Nrb_sites(0:Npart_types) )
+
+   If (pot_int == -1) Then
+      ! ==========================================================================
+      ! HARD SPHERE (HS) mixtures (possibly non-additive).
+      ! Only the diameter matrix sigma_ij is read; there is no epsilon matrix and
+      ! temperature is irrelevant (athermal). The contact distance sigma_ij plays
+      ! the role of the interaction range for the checkerboard cell decomposition.
+      ! ==========================================================================
+      Nrb_sites = 0
+      ! Allocate dummy variables to prevent GPU interface bounds errors
+      Allocate( patch(1) ); Allocate( ref_tor_vec(1) ); Allocate( Ntor_angle(1) )
+      Allocate( tor_angle(1) ); Allocate( Vpot_Matrix(1) ); Allocate( sigma_jon(1) )
+      patch=0.d0; ref_tor_vec=0.d0; Ntor_angle=0; tor_angle=0.d0; Vpot_Matrix=0.d0; sigma_jon=0.d0
+
+      ! Fast forward input_filename to the HS diameter matrix section
+      Do
+         Read(20, '(A)', IOSTAT=ios) line
+         If (ios /= 0) Then
+            write(*, '(/A,"*** Fatal error: HS SIGMA MATRIX not found in ", A, "***",A)') c_red, trim(input_filename), c_reset
+            stop 1
+         End If
+         uline = line
+         call uppercase(uline)
+         If (index(uline, 'HS SIGMA MATRIX') > 0) Exit
+      End Do
+
+      Allocate ( sigma_LJ(0:Npart_types*Npart_types-1) )
+      Allocate ( epsilon_LJ(0:Npart_types*Npart_types-1) )
+      Allocate ( rangep(0:Npart_types*Npart_types-1) )
+      Allocate ( VL0(0:Npart_types*Npart_types-1) )
+      Allocate ( xop(0:Npart_types*Npart_types-1) )
+      ! HS carries no energy scale; these are kept only for interface consistency.
+      epsilon_LJ = 0.0_wp; VL0 = 0.0_wp; xop = 0.0_wp
+
+      Do I=0,Npart_types-1
+           Indx = I*Npart_types
+           Do J = 0, Npart_types-1
+              Read(20,'(F6.3)',advance='no') sigma_jon_ij
+              sigma_LJ(indx+j) = sigma_jon_ij
+              ! For HS the contact distance sigma_ij is the interaction cutoff/range.
+              rangep(indx+j) = sigma_jon_ij
+           EndDo
+           Read(20,*)
+      EndDo
+
+   Else If (pot_int < 1) Then
+      Nrb_sites = 0
+      ! Allocate dummy variables to prevent GPU interface bounds errors
+      Allocate( patch(1) ); Allocate( ref_tor_vec(1) ); Allocate( Ntor_angle(1) )
+      Allocate( tor_angle(1) ); Allocate( Vpot_Matrix(1) ); Allocate( sigma_jon(1) )
+      patch=0.d0; ref_tor_vec=0.d0; Ntor_angle=0; tor_angle=0.d0; Vpot_Matrix=0.d0; sigma_jon=0.d0
+
+      Allocate ( sigma_LJ(0:Npart_types*Npart_types-1) )
+      Allocate ( epsilon_LJ(0:Npart_types*Npart_types-1) ) 
+      Allocate ( rangep(0:Npart_types*Npart_types-1) )
+      Allocate ( VL0(0:Npart_types*Npart_types-1) )
+      Allocate ( xop(0:Npart_types*Npart_types-1) )
+      sigma_LJ = 1.0_wp
+      epsilon_LJ = 1.0_wp
+      rangep = 2.5_wp
+      VL0 = 0.0_wp
+      xop = 0.0_wp
+
+      ! Check if SIGMA MATRIX is in input file
+      Rewind(20)
+      found_mat = .false.
+      Do
+         Read(20, '(A)', IOSTAT=ios) line
+         If (ios /= 0) Exit
+         uline = line
+         call uppercase(uline)
+         If (index(uline, 'LJ SIGMA MATRIX') > 0 .or. &
+             index(uline, 'SIGMA MATRIX') > 0) Then
+            found_mat = .true.
+            Exit
+         End If
+      End Do
+
+      If (found_mat) Then
+         Do I=0,Npart_types-1
+              Indx = I*Npart_types
+              Do J = 0, Npart_types-1
+                 Read(20,'(F6.3)',advance='no') sigma_jon_ij
+                 sigma_LJ(indx+j) = sigma_jon_ij 
+                 rangep(indx+j) = rangepp * sigma_jon_ij
+                 VL0(indx+j)=(sigma_jon_ij/rangep(indx+j))**12.d0-(sigma_jon_ij/rangep(indx+j))**6.0
+                 xopp = (1.d0+sqrt(1.d0+4.d00*VL0(indx+j)))/2.d0
+                 xop(indx+j) = sigma_jon_ij/(xopp**(1.d0/6.d0))
+              EndDo
+              Read(20,*) 
+         EndDo
+      Else If (.not. table_mc) Then
+         write(*, '(/A,"*** Fatal error: LJ SIGMA MATRIX not found in ", A, "***",A)') c_red, trim(input_filename), c_reset
+         stop 1
+      End If
+
+      ! Check if EPSILON MATRIX is in input file
+      Rewind(20)
+      found_mat = .false.
+      Do 
+         Read(20, '(A)', IOSTAT=ios) line
+         If (ios /= 0) Exit
+         uline = line
+         call uppercase(uline)
+         If (index(uline, 'LJ EPSILON MATRIX') > 0 .or. &
+             index(uline, 'EPSILON MATRIX') > 0) Then
+            found_mat = .true.
+            Exit
+         End If
+      End Do
+
+      If (found_mat) Then
+         Do I=0,Npart_types-1
+              Indx = I*Npart_types
+              Do J = 0, Npart_types-1
+                 Read(20,'(F6.3)',advance='no') epsilon_LJ(indx+j)
+              EndDo
+              Read(20,*) 
+         EndDo
+      Else If (.not. table_mc) Then
+         write(*, '(/A,"*** Fatal error: LJ EPSILON MATRIX not found in ", A, "***",A)') c_red, trim(input_filename), c_reset
+         stop 1
+      End If
+   Else
+         Do 
+            Read(20, '(A)', IOSTAT=ios) line
+            If (ios /= 0) Then
+               write(*, '(/A,"*** Fatal error: TOPOLOGY AND PATCH GEOMETRY DATA not found in ", A, "***",A)') c_red, trim(input_filename), c_reset
+               stop 1
+            End If
+            line = adjustl(line)
+            if (line(1:1) == '!' .or. line(1:1) == '#') cycle
+            uline = line
+            call uppercase(uline)
+            If (index(uline, 'TOPOLOGY') > 0) Exit
+         End Do
+        Read(20,*) (Nrb_sites(J),J=0,Npart_types-1)
+
+      Do i = 0, Npart_types-1
+          If (Nrb_sites(i) > Nrb_sites_max) stop ' [FATAL ERROR] Particle type exceeds maximum patches'
+      EndDo
+
+      Allocate ( patch(0:Nrb_sites_max*Npart_types*ndim-1) ); Allocate ( ref_tor_vec(0:Nrb_sites_max*Npart_types*ndim-1) )
+      Allocate( Ntor_angle(0:Npart_types*Nrb_sites_max-1)); Allocate( tor_angle(0:Npart_types*Nrb_sites_max*Ntor_max-1)) 
+      Ntor_angle = 0; tor_angle = 0.d0; patch=0.d0
+
+      Do J = 0, Npart_types-1
+         Indx = J * Nrb_sites_max*Ndim; Indx_tor = J * Nrb_sites_max; Indx_tor2 = J * Nrb_sites_max*Ntor_max
+         If( Nrb_sites(J) >= 2 ) Then 
+            Do I = 0, Nrb_sites(J)-1
+               Indx2 = Indx + I*Ndim
+               Do
+                  Read(20, '(A)', IOSTAT=ios) line
+                  If (ios /= 0) Exit
+                  line = adjustl(line)
+                  If (len_trim(line) == 0 .or. line(1:1) == '!' .or. line(1:1) == '#') Cycle
+                  Backspace(20)
+                  Exit
+               End Do
+               Read(20,'(3F12.8)',advance='no')  px,py,pz
+               norm= sqrt(px*px+py*py+pz*pz)
+               patch( Indx2 ) =Px/norm; patch( Indx2+1 ) =Py/norm; patch( Indx2+2 ) =Pz/norm
+               Read(20,'(3F12.8,3x,I3)',advance='no',IOSTAT=ios) px, py, pz, Ntor_angle( Indx_tor + I )
+               norm= sqrt(px*px+py*py+pz*pz)
+               ref_tor_vec( Indx2 ) =Px/norm; ref_tor_vec( Indx2+1 ) =Py/norm; ref_tor_vec( Indx2+2 ) =Pz/norm
+               If(ios.ge.1) Then
+                   Ntor_angle(Indx_tor+i) = 0
+                   Read(20,*)
+               Else
+                   Do K = 0, Ntor_angle( Indx_tor+I )-1; Read(20,'(F12.6)',advance='no') tor_angle( Indx_tor2 +I*Ntor_max + K ); EndDo
+                   Read(20,*) 
+               EndIf
+            End Do
+          ElseIf( Nrb_sites(J) == 1) Then
+                Indx2 = Indx
+                Do
+                   Read(20, '(A)', IOSTAT=ios) line
+                   If (ios /= 0) Exit
+                   line = adjustl(line)
+                   If (len_trim(line) == 0 .or. line(1:1) == '!' .or. line(1:1) == '#') Cycle
+                   Backspace(20)
+                   Exit
+                End Do
+                Read(20,'(3F12.8)') px, py, pz
+                norm = sqrt(px*px+py*py+pz*pz)
+                patch( Indx2 ) = px/norm
+                patch( Indx2+1 ) = py/norm
+                patch( Indx2+2 ) = pz/norm
+          Endif
+      EndDo
+
+      If ( Maxval(Ntor_angle) > Ntor_max) stop 'Error: max torsional angles exceeded'
+
+      Allocate ( Vpot_Matrix( 0 : Npart_types*Npart_types*Nrb_sites_max*Nrb_sites_max -1 ) ); Vpot_Matrix = 0.
+      Do 
+         Read(20, '(A)', IOSTAT=ios) line
+         If (ios /= 0) Then
+            write(*, '(/A,"*** Fatal error: vpot matrix section not found in ", A, "***",A)') c_red, trim(input_filename), c_reset
+            stop 1
+         End If
+         line = adjustl(line)
+         if (line(1:1) == '!' .or. line(1:1) == '#') cycle
+         uline = line
+         call uppercase(uline)
+         If (index(uline, 'VPOT') > 0) Exit
+      End Do
+      Do I = 0, Npart_types -1
+        Indx1= I * Npart_types * Nrb_sites_max *Nrb_sites_max 
+        Do J = 0, Nrb_sites(I) -1 
+          Indx2 = Indx1 +  J * (Nrb_sites_max*Npart_types) 
+              Read(20,*) ((Vpot_Matrix( Indx2+k*Nrb_sites_max+M ), M=0, Nrb_sites(K) -1), k=0, Npart_types-1)
+        EndDo
+      EndDo
+
+      Allocate ( sigma_jon(0:Npart_types*Nrb_sites_max-1) )
+      Allocate ( sigma_LJ(0:Npart_types*Npart_types-1) )
+      Allocate ( rangep(0:Npart_types*Npart_types-1) )
+      Allocate ( epsilon_LJ(0:Npart_types*Npart_types-1) )
+      Allocate ( VL0(0:Npart_types*Npart_types-1) )
+      Allocate ( xop(0:Npart_types*Npart_types-1) )
+      epsilon_LJ = 1.0_wp
+
+      If(sigma_jon_aux.gt.0.d0) then
+         Do I = 0, Npart_types-1
+            Indx = I*Nrb_sites_max
+            Do J = 0, Nrb_sites(I)-1; sigma_jon(Indx+J) = sigma_jon_aux; EndDo
+         EndDo
+         Do I=0,Npart_types-1
+              Indx = I*Npart_types
+              Do J = 0, Npart_types-1
+                 sigma_LJ(indx+j) = 1.0_wp
+                 rangep(indx+j) = rangepp * sigma_LJ(indx+j)
+                 VL0(indx+j)=(sigma_LJ(indx+j)/rangep(indx+j))**12.d0-(sigma_LJ(indx+j)/rangep(indx+j))**6.0
+                 xopp = (1.d0+sqrt(1.d0+4.d00*VL0(indx+j)))/2.d0
+                 xop(indx+j) = sigma_LJ(indx+j)/(xopp**(1.d0/6.d0))
+              EndDo
+         EndDo
+      Else
+         Do 
+            Read(20, '(A)', IOSTAT=ios) line
+            If (ios /= 0) Then
+               write(*, '(/A,"*** Fatal error: sigmas_ang section not found in ", A, "***",A)') c_red, trim(input_filename), c_reset
+               stop 1
+            End If
+            line = adjustl(line)
+            if (line(1:1) == '!' .or. line(1:1) == '#') cycle
+            uline = line
+            call uppercase(uline)
+            If (index(uline, 'SIGMA_ANG') > 0 .or. index(uline, 'SIGMAS_ANG') > 0) Exit
+         End Do
+         Do I= 0, Npart_types-1
+            Indx = I*Nrb_sites_max
+            If(Nrb_sites(i).ge.1) Then
+               Do J = 0, Nrb_sites(i)-1; Read(20,'(F6.3)',advance='no') sigma_jon_ij; sigma_jon(indx+j) = sigma_jon_ij; EndDo
+               Read(20,*) 
+            EndIf
+         EndDo
+         Do 
+            Read(20, '(A)', IOSTAT=ios) line
+            If (ios /= 0) Then
+               write(*, '(/A,"*** Fatal error: sigma_LJ section not found in ", A, "***",A)') c_red, trim(input_filename), c_reset
+               stop 1
+            End If
+            line = adjustl(line)
+            if (line(1:1) == '!' .or. line(1:1) == '#') cycle
+            uline = line
+            call uppercase(uline)
+            If (index(uline, 'SIGMA_LJ') > 0) Exit
+         End Do
+         Do I=0,Npart_types-1
+              Indx = I*Npart_types
+              Do J = 0, Npart_types-1
+                 Read(20,'(F6.3)',advance='no') sigma_jon_ij; sigma_LJ(indx+j) = sigma_jon_ij 
+                 rangep(indx+j) = rangepp * sigma_jon_ij
+                 VL0(indx+j)=(sigma_jon_ij/rangep(indx+j))**12.d0-(sigma_jon_ij/rangep(indx+j))**6.0
+                 xopp = (1.d0+sqrt(1.d0+4.d00*VL0(indx+j)))/2.d0
+                 xop(indx+j) = sigma_LJ(indx+j)/(xopp**(1.d0/6.d0))
+              EndDo
+              Read(20,*) 
+         EndDo
+      EndIf
+   End If
+
+    ! ==============================================================================
+    ! SANITY CHECK: Palaia 2022 Patchy Potential Cutoff
+    ! Ensure rangeP is large enough to capture the full cosine-squared tail (Rc_factor * Rc)
+    ! NOTE (V1.4): Moved to the end of Read_Input_Data to prevent Segmentation Faults. 
+    ! This ensures arrays sigma_LJ and rangeP have already been allocated and populated.
+    ! ==============================================================================
+   If (pot_int == 2) Then
+       If (Allocated(sigma_LJ) .and. Allocated(rangeP)) Then
+           Do i = 0, Npart_types - 1
+               Do j = 0, Npart_types - 1
+                   Indx = i * Npart_types + j
+                   Rmin_ij = sigma_LJ(Indx) * 1.122462048309373_wp
+                   If (rangeP(Indx) < Rc_factor * Rmin_ij) Then
+                       Print *, c_red, "======================================================"
+                       Print *, " FATAL ERROR: CUTOFF TOO SHORT FOR PALAIA PATCHY MODEL"
+                       Print *, "======================================================"
+                       Print *, "Particle Types : ", i, " and ", j
+                       Print *, "Current rangeP : ", rangeP(Indx)
+                       Print *, "Required rangeP: ", Rc_factor * Rmin_ij, " (or greater)"
+                       Print *, "Reason: The attractive cosine tail extends to Rc_factor * Rc."
+                       Print *, "Please increase 'rangep' in your datos.nml file."
+                       Print *, "======================================================",c_reset
+                       Stop 1
+                   End If
+               End Do
+           End Do
+       End If
+   End If
+
+    ! ==============================================================================
+    ! SANITY CHECK: Sanchez-Burgos 2021 Patchy Potential Cutoff
+    ! Ensure rangeP is large enough to capture patches at 0.5*sigma + 0.5*sigma + rc_CSW
+    ! ==============================================================================
+    If (pot_int == 3) Then
+        If (Allocated(sigma_LJ) .and. Allocated(rangeP)) Then
+            Do i = 0, Npart_types - 1
+                Do j = 0, Npart_types - 1
+                    Indx = i * Npart_types + j
+                    req_range = patch_radial_factor * (sigma_LJ(i * Npart_types + i) + sigma_LJ(j * Npart_types + j)) + rc_CSW
+                    If (rangeP(Indx) < req_range) Then
+                        Print *, c_red, "=========================================================="
+                        Print *, " FATAL ERROR: CUTOFF TOO SHORT FOR SANCHEZ-BURGOS MODEL"
+                        Print *, "=========================================================="
+                        Print *, "Particle Types : ", i, " and ", j
+                        Print *, "Current rangeP : ", rangeP(Indx)
+                        Print *, "Required rangeP: ", req_range, " (or greater)"
+                        Print *, "Reason: Maximum patch interaction distance is r_patch1 + r_patch2 + rc_CSW."
+                        Print *, "Please increase 'rangepp' in your datos.nml file."
+                        Print *, "==========================================================", c_reset
+                        Stop 1
+                    End If
+                End Do
+            End Do
+        End If
+    End If
+
+    ! ==============================================================================
+    ! OVERRIDE ATTRACTIVE TAIL DEPTH (V1.4): If epsp_factor is specified (>= 0.0)
+    ! in the namelist Potential_Params, override VL0 to be -epsp_factor.
+    ! ==============================================================================
+    If (pot_int == 2 .and. epsp_factor >= 0.0_wp) Then
+        If (Allocated(VL0)) Then
+            VL0 = -epsp_factor
+        End If
+    End If
+
+    ! Synchronize potential parameters to device
+    eps_R_dev = eps_R
+    eps_CSW_dev = eps_CSW
+    rw_CSW_dev = rw_CSW
+    alpha_CSW_dev = alpha_CSW
+    rc_CSW_dev = rc_CSW
+    pot_int_dev = pot_int
+
+   close(20)
+End Subroutine Read_input_data! =
+!=============================================================================
+! SUBROUTINE: Read_init_conf
+! ==============================================================================
+Subroutine Read_init_conf
+   Use set_precision
+   Use configuration
+   Use rundata
+   Use utils
+   Use potential, only: Npart_types
+   Implicit None
+   Integer :: i, Indx, id, ityp, eflag
+   Real(wp) :: den, x, y, z, sx, sy, sz, qw, qi, qj, qk
+   Real(wp) :: xlo, xhi, ylo, yhi, zlo, zhi
+   Character(len=256) :: line
+   Integer :: ios, n_types_in_file
+
+   write(*,'(A)') char(27)//'[1;33m' // ' >>> Reading initial configuration (LAMMPS data format)...' // char(27)//'[0m'
+   Open(21, file=trim(data_file), status='old', action='read')
+   h(:) = 0.0_wp
+
+   Do
+      Read(21, '(A)', iostat=ios) line
+      If (ios /= 0) Exit 
+      If (len_trim(line) == 0) Cycle
+      If (index(line, 'atom types') > 0) Then
+         ! Read the integer at the beginning of the line
+         Read(line, *) n_types_in_file
+      
+         ! Compare it with the namelist variable
+         If (n_types_in_file /= Npart_types) Then
+            Print *, c_red
+            Print *, "=========================================================================="
+            Print *, " *** FATAL SECURITY ERROR: Mismatch in Particle Types! ***"
+            Print *, "=========================================================================="
+            Print *, " -> Npart_types defined in input namelist : ", Npart_types
+            Print *, " -> 'atom types' defined in ", trim(data_file), "    : ", n_types_in_file
+            Print *, ""
+            Print *, " Please ensure your input namelist matches your configuration file."
+            Print *, " Simulation aborted to prevent reckless behavior."
+            Print *, "=========================================================================="
+            Print *, c_reset
+            Stop
+         End If
+      End If 
+
+      If (index(line, 'atoms') > 0 .and. index(line, 'types') == 0 .and. index(line, 'ellipsoids') == 0) Then
+         read(line, *) natoms
+         Allocate(r(0:natoms*ndim-1))
+         Allocate(itype(0:natoms-1))
+         
+         ! Always allocate q to ensure ABI compatibility with the NetCDF writer
+         Allocate(q(0:natoms*4-1))
+         q(:) = 0.0_wp
+         ! Give dummy particles a default identity quaternion so netcdf trajectory doesn't write zeroes
+         Do i = 0, natoms-1; q(i*4) = 1.0_wp; End Do
+      End If
+
+      If (index(line, 'xlo xhi') > 0) Then; read(line, *) xlo, xhi; h(0) = xhi - xlo; End If
+      If (index(line, 'ylo yhi') > 0) Then; read(line, *) ylo, yhi; h(4) = yhi - ylo; End If
+      If (index(line, 'zlo zhi') > 0) Then; read(line, *) zlo, zhi; h(8) = zhi - zlo; End If
+
+      If (index(adjustl(line), 'Atoms') == 1) Then
+         Do i = 1, natoms
+            If (pot_int < 1) Then
+               read(21, *) id, ityp, x, y, z
+            Else
+               read(21, *) id, ityp, eflag, den, x, y, z
+            End If
+             ! Convert 1-based atom type (ityp) from input file to 0-based internal type (itype)
+            Indx = (id - 1) * ndim; itype(id - 1) = ityp - 1
+            r(Indx)   = x - xlo;   r(Indx+1) = y - ylo;   r(Indx+2) = z - zlo
+            ! Apply periodic boundary conditions to wrap unwrapped input coordinates into [0, L]
+            If (h(0) > 0.0_wp) r(Indx)   = r(Indx)   - floor(r(Indx)   / h(0)) * h(0)
+            If (h(4) > 0.0_wp) r(Indx+1) = r(Indx+1) - floor(r(Indx+1) / h(4)) * h(4)
+            If (h(8) > 0.0_wp) r(Indx+2) = r(Indx+2) - floor(r(Indx+2) / h(8)) * h(8)
+         End Do
+         ! Skip reading ellipsoids if we are in pure LJ mode
+         If (pot_int < 1) Exit 
+      End If
+
+      If (trim(adjustl(line)) == 'Ellipsoids' .and. pot_int > 0) Then
+         Do i = 1, natoms
+            read(21, *) id, sx, sy, sz, qw, qi, qj, qk
+            Indx = (id - 1) * 4
+            q(Indx) = qw; q(Indx+1) = qi; q(Indx+2) = qj; q(Indx+3) = qk
+         End Do
+         Exit 
+      End If
+   End Do
+   Close (21)
+
+   Call Print_system_data_summary
+End Subroutine Read_init_conf
+
+! ==============================================================================
+! SUBROUTINE: Print_system_data_summary
+! ==============================================================================
+Subroutine Print_system_data_summary
+   Use set_precision
+   Use configuration
+   Use rundata
+   Use potential
+   Use utils
+   Implicit None
+   Integer :: k, p, count_k, indx_p, indx_sig
+   Real(wp) :: pct, px, py, pz, sig_a
+
+   write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
+   write(*,'(A)') c_cyan // '                     INITIAL CONFIGURATION & SPECIES SUMMARY                           ' // c_reset
+   write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
+   write(*,'(A,A)')     '  -> Data file read:          ', trim(data_file)
+   write(*,'(A,I10)')   '  -> Total particles read:    ', natoms
+   write(*,'(A,I5)')     '  -> Number of species:       ', Npart_types
+   write(*,'(A)') ''
+   write(*,'(A)') c_yellow // ' --- Species Breakdown ---' // c_reset
+   write(*,'(A)') '  Ext Type (Int Type) | Particle Count | % of System | Patch Count'
+   write(*,'(A)') '  ----------------------------------------------------------------'
+   Do k = 0, Npart_types - 1
+      count_k = count(itype == k)
+      If (natoms > 0) Then
+         pct = (Real(count_k, wp) / Real(natoms, wp)) * 100.0_wp
+      Else
+         pct = 0.0_wp
+      End If
+      If (pot_int > 0 .and. Allocated(Nrb_sites)) Then
+         write(*,'(A,I4,A,I4,A,I14,A,F10.2,A,I12)') '   Type ', k+1, ' (Int ', k, ')   | ', count_k, ' | ', pct, ' % | ', Nrb_sites(k)
+      Else
+         write(*,'(A,I4,A,I4,A,I14,A,F10.2,A,A)')   '   Type ', k+1, ' (Int ', k, ')   | ', count_k, ' | ', pct, ' % | ', 'N/A'
+      End If
+   End Do
+   write(*,'(A)') '  ----------------------------------------------------------------'
+
+   If ((pot_int == 2 .or. pot_int == 3) .and. Allocated(Nrb_sites) .and. Allocated(patch)) Then
+      write(*,'(A)') ''
+      write(*,'(A)') c_green // ' --- Patch Geometry Details ---' // c_reset
+      Do k = 0, Npart_types - 1
+         write(*,'(A,I2,A,I2,A,I3,A)') '  Species ', k+1, ' (Int ', k, '): ', Nrb_sites(k), ' patches'
+         Do p = 0, Nrb_sites(k) - 1
+            indx_p = k * Nrb_sites_max * ndim + p * ndim
+            px = patch(indx_p)
+            py = patch(indx_p + 1)
+            pz = patch(indx_p + 2)
+            If (Allocated(sigma_jon)) Then
+               indx_sig = k * Nrb_sites_max + p
+               sig_a = sigma_jon(indx_sig)
+               write(*,'(A,I2,A,3F11.6,A,F8.4)') '    Patch ', p+1, ': Vector = (', px, py, pz, '), sigma_ang = ', sig_a
+            Else
+               write(*,'(A,I2,A,3F11.6,A)')       '    Patch ', p+1, ': Vector = (', px, py, pz, ')'
+            End If
+         End Do
+      End Do
+   End If
+   write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
+   write(*,'(A)') ''
+End Subroutine Print_system_data_summary
+
+! ===============================================================================
+! SUBROUTINE: Write_final_conf (LAMMPS DATA FORMAT)
+! ==============================================================================
+Subroutine Write_final_conf
+   Use set_precision
+   Use configuration
+   Use rundata, Only : model, pot_int
+   Implicit None
+   Integer :: i, Indx, Indxq
+   Real(wp) :: xlo, xhi, ylo, yhi, zlo, zhi
+   Character(len=256) :: filename
+
+   filename = 'data.restart'
+   Open(21, file=filename, status='unknown')
+   xlo = -h(0)/2.0_wp; xhi = h(0)/2.0_wp; ylo = -h(4)/2.0_wp; yhi = h(4)/2.0_wp; zlo = -h(8)/2.0_wp; zhi = h(8)/2.0_wp
+
+   write(21,'(A)') "LAMMPS data file generated by GPU_MC restart"
+   write(21,*); write(21,'(I8,A)') natoms, " atoms"
+   If (pot_int > 0) write(21,'(I8,A)') natoms, " ellipsoids"
+   write(21,'(I8,A)') maxval(itype)+1, " atom types"; write(21,*) 
+   write(21,'(2F15.6,A)') xlo, xhi, " xlo xhi"; write(21,'(2F15.6,A)') ylo, yhi, " ylo yhi"; write(21,'(2F15.6,A)') zlo, zhi, " zlo zhi"; write(21,*) 
+   ! Write the Atoms section header
+      If (pot_int < 1) Then
+         Write(21, '(A)') "Atoms # atomic"
+      Else
+         Write(21, '(A)') "Atoms # ellipsoid"
+      End If
+      Write(21, *) ""
+   Do I=0, natoms-1
+      Indx = I * ndim
+      If (pot_int < 1) Then
+         write(21,'(I8,I8,3F16.8)') i+1, itype(i)+1, &
+             r(Indx)*h(0) + xlo, r(Indx+1)*h(4) + ylo, r(Indx+2)*h(8) + zlo
+      Else
+         write(21,'(I8,I8,I4,F10.4,3F16.8)') i+1, itype(i)+1, 1, 1.0_wp, &
+             r(Indx)*h(0) + xlo, r(Indx+1)*h(4) + ylo, r(Indx+2)*h(8) + zlo
+      End If
+   End Do
+   
+   If (pot_int > 0) Then
+      write(21,'(A)'); write(21,*) "Ellipsoids"
+      write(21,*) 
+      Do I=0, natoms-1
+         Indxq = I * 4
+         write(21,'(I8,3F10.4,4F16.8)') i+1, 1.0_wp, 1.0_wp, 1.0_wp, q(Indxq), q(Indxq+1), q(Indxq+2), q(Indxq+3)
+      End Do
+   End If
+   Close (21)
+End Subroutine Write_final_conf
+
+
+! ==============================================================================
+! SUBROUTINE: Write_final_conf2 (LAMMPS DUMP FORMAT)
+! ==============================================================================
+Subroutine Write_final_conf2(istep)
+   Use set_precision
+   Use configuration
+   Use rundata, Only : model, pot_int
+   Implicit None
+   Integer, Intent(in) :: istep
+   Integer :: i, Indx, Indxq
+   Real(wp) :: xlo, xhi, ylo, yhi, zlo, zhi
+   Logical :: is_open
+
+   xlo = -h(0)/2.0_wp; xhi = h(0)/2.0_wp; ylo = -h(4)/2.0_wp; yhi = h(4)/2.0_wp; zlo = -h(8)/2.0_wp; zhi = h(8)/2.0_wp
+
+   inquire(unit=674, opened=is_open)
+   If (is_open) Then
+      write(674,'(A)') "ITEM: TIMESTEP"; write(674,'(I12)') istep
+      write(674,'(A)') "ITEM: NUMBER OF ATOMS"; write(674,'(I12)') natoms
+      write(674,'(A)') "ITEM: BOX BOUNDS pp pp pp"; write(674,'(2F15.6)') 0.0_wp, h(0); write(674,'(2F15.6)') 0.0_wp, h(4); write(674,'(2F15.6)') 0.0_wp, h(8)
+      
+      If (pot_int < 1) Then
+         write(674,'(A)') "ITEM: ATOMS id mol type x y z"
+      Else
+         write(674,'(A)') "ITEM: ATOMS id mol type x y z quatw quati quatj quatk"
+      End If
+      
+      Do i=0, natoms-1
+           Indx = i*Ndim
+           If (pot_int < 1) Then
+               write(674,'(I8,x,I8,x,I4,x,3F16.8)') i+1, itype(i)+1, itype(i)+1, r(Indx)*h(0), r(Indx+1)*h(4), r(Indx+2)*h(8)
+           Else
+               Indxq = i*4
+               write(674,'(I8,x,I8,x,I4,x,3F16.8,x,4F16.8)') i+1, itype(i)+1, itype(i)+1, r(Indx)*h(0), r(Indx+1)*h(4), r(Indx+2)*h(8), q(Indxq), q(Indxq+1), q(Indxq+2), q(Indxq+3)
+           End If
+      End Do
+   End If
+
+   ! Write to mclast_conf.lammpstrj
+   open(675, file='mclast_conf.lammpstrj', status='unknown')
+   write(675,'(A)') "ITEM: TIMESTEP"; write(675,'(I12)') istep
+   write(675,'(A)') "ITEM: NUMBER OF ATOMS"; write(675,'(I12)') natoms
+   write(675,'(A)') "ITEM: BOX BOUNDS pp pp pp"; write(675,'(2F15.6)') 0.0_wp, h(0); write(675,'(2F15.6)') 0.0_wp, h(4); write(675,'(2F15.6)') 0.0_wp, h(8)
+   
+   If (pot_int < 1) Then
+      write(675,'(A)') "ITEM: ATOMS id mol type x y z"
+   Else
+      write(675,'(A)') "ITEM: ATOMS id mol type x y z quatw quati quatj quatk"
+   End If
+   
+   Do i=0, natoms-1
+        Indx = i*Ndim
+        If (pot_int < 1) Then
+            write(675,'(I8,x,I8,x,I4,x,3F16.8)') i+1, itype(i)+1, itype(i)+1, r(Indx)*h(0), r(Indx+1)*h(4), r(Indx+2)*h(8)
+        Else
+            Indxq = i*4
+            write(675,'(I8,x,I8,x,I4,x,3F16.8,x,4F16.8)') i+1, itype(i)+1, itype(i)+1, r(Indx)*h(0), r(Indx+1)*h(4), r(Indx+2)*h(8), q(Indxq), q(Indxq+1), q(Indxq+2), q(Indxq+3)
+        End If
+   End Do
+   close(675)
+End Subroutine Write_final_conf2
+
+Subroutine load_table_potentials()
+    use set_precision
+    use potential
+    use rundata, only : pot_int
+    use utils, only : uppercase
+    implicit none
+    integer :: unit_id, ierr, i, idx, t_lmp1, t_lmp2, t_mc1, t_mc2, N
+    character(len=256) :: line, keyword, filename, cand_file
+    character(len=32) :: t1_str, t2_str
+    real(wp) :: r, V, F, rmin, rmax
+    logical :: found, file_exists, is_rsq, ok
+    integer :: cand_idx
+    character(len=256) :: candidates(12)
+    integer :: num_candidates
+
+    if (.not. table_mc) return
+
+    print *, " >>> Loading MC table potentials..."
+
+    ! Initialize table arrays
+    has_table(:, :) = .false.
+    table_is_rsq(:, :) = .false.
+    table_N(:, :) = 0
+    table_rmin(:, :) = 0.0_wp
+    table_rmax(:, :) = 0.0_wp
+    table_dr_inv(:, :) = 0.0_wp
+    table_V = 0.0_wp
+    table_F = 0.0_wp
+
+    unit_id = 98
+
+    do t_lmp1 = 1, merge(2*Npart_types, Npart_types, pot_int == 2 .or. pot_int == 3)
+        do t_lmp2 = t_lmp1, merge(2*Npart_types, Npart_types, pot_int == 2 .or. pot_int == 3)
+            ! Map to MC site types
+            if (pot_int == 2 .or. pot_int == 3) then
+                if (mod(t_lmp1, 2) == 1) then
+                    t_mc1 = (t_lmp1 - 1) / 2
+                else
+                    t_mc1 = Npart_types + (t_lmp1 - 1) / 2
+                end if
+                if (mod(t_lmp2, 2) == 1) then
+                    t_mc2 = (t_lmp2 - 1) / 2
+                else
+                    t_mc2 = Npart_types + (t_lmp2 - 1) / 2
+                end if
+            else
+                t_mc1 = t_lmp1 - 1
+                t_mc2 = t_lmp2 - 1
+            end if
+
+            write(t1_str, '(I0)') t_lmp1
+            write(t2_str, '(I0)') t_lmp2
+
+            ! Build candidate filenames in order of preference
+            num_candidates = 0
+            if (len_trim(table_file_mc) > 0) then
+                num_candidates = num_candidates + 1
+                candidates(num_candidates) = trim(table_file_mc) // trim(t1_str) // trim(t2_str) // '.dat'
+                num_candidates = num_candidates + 1
+                candidates(num_candidates) = trim(table_file_mc) // trim(t1_str) // trim(t2_str)
+                num_candidates = num_candidates + 1
+                candidates(num_candidates) = trim(table_file_mc) // '_' // trim(t1_str) // '_' // trim(t2_str) // '.dat'
+                num_candidates = num_candidates + 1
+                candidates(num_candidates) = trim(table_file_mc)
+            end if
+            ! Standard prefixes (pot, mie, table)
+            num_candidates = num_candidates + 1
+            candidates(num_candidates) = 'pot' // trim(t1_str) // trim(t2_str) // '.dat'
+            num_candidates = num_candidates + 1
+            candidates(num_candidates) = 'mie' // trim(t1_str) // trim(t2_str) // '.dat'
+            num_candidates = num_candidates + 1
+            candidates(num_candidates) = 'table' // trim(t1_str) // trim(t2_str) // '.dat'
+            num_candidates = num_candidates + 1
+            candidates(num_candidates) = 'table_' // trim(t1_str) // '_' // trim(t2_str) // '.dat'
+            num_candidates = num_candidates + 1
+            candidates(num_candidates) = 'table.dat'
+            num_candidates = num_candidates + 1
+            candidates(num_candidates) = 'pot.dat'
+
+            ! Find the first candidate that exists
+            filename = ""
+            do cand_idx = 1, num_candidates
+                cand_file = candidates(cand_idx)
+                inquire(file=trim(cand_file), exist=file_exists)
+                if (file_exists) then
+                    filename = trim(cand_file)
+                    exit
+                end if
+            end do
+
+            if (len_trim(filename) == 0) then
+                ! File not found; skip or warn
+                if (pot_int < 1) then
+                    print *, "   Notice: No table file found for pair (", t_lmp1, ",", t_lmp2, ")"
+                end if
+                cycle
+            end if
+
+            ! Open file
+            open(unit=unit_id, file=trim(filename), status='old', action='read', iostat=ierr)
+            if (ierr /= 0) then
+                print *, "Error: Could not open table potential file: ", trim(filename)
+                stop 1
+            end if
+
+            ! Search for section keyword and N line in this file
+            found = .false.
+            do
+                read(unit_id, '(A)', iostat=ierr) line
+                if (ierr /= 0) exit
+                line = adjustl(line)
+                if (len_trim(line) == 0) cycle
+                if (line(1:1) == '#') cycle
+
+                ! A non-comment, non-empty line could be a keyword
+                ! Check if it's NOT the N line itself
+                if (line(1:2) /= 'N ' .and. line(1:2) /= 'n ') then
+                    keyword = trim(line)
+                    ! Now read the next non-empty, non-comment line to check if it's the N line
+                    do
+                        read(unit_id, '(A)', iostat=ierr) line
+                        if (ierr /= 0) exit
+                        line = adjustl(line)
+                        if (len_trim(line) == 0) cycle
+                        if (line(1:1) == '#') cycle
+                        exit
+                    end do
+                    if (ierr /= 0) exit
+
+                    if (line(1:2) == 'N ' .or. line(1:2) == 'n ') then
+                        block
+                            character(len=256) :: kw_upper
+                            kw_upper = keyword
+                            call uppercase(kw_upper)
+
+                            ! Keyword matches if dedicated file or contains pair indices
+                            if ((index(filename, trim(t1_str)) > 0 .and. index(filename, trim(t2_str)) > 0) .or. &
+                                (Npart_types == 1)) then
+                                found = .true.
+                            else if (index(kw_upper, trim(t1_str) // '_' // trim(t2_str)) > 0 .or. &
+                                     index(kw_upper, trim(t1_str) // trim(t2_str)) > 0 .or. &
+                                     index(kw_upper, trim(t2_str) // '_' // trim(t1_str)) > 0 .or. &
+                                     index(kw_upper, trim(t2_str) // trim(t1_str)) > 0) then
+                                found = .true.
+                            end if
+                        end block
+
+                        if (found) then
+                            ! Line contains the N parameters
+                            call parse_n_line(line, N, is_rsq, rmin, rmax, ok)
+                            if (.not. ok) then
+                                print *, "Error: Could not parse N line: ", trim(line), " in ", trim(filename)
+                                stop 1
+                            end if
+                            exit
+                        else
+                            ! Skip this section's data lines
+                            block
+                                integer :: skip_n, skip_i
+                                logical :: dummy_rsq, dummy_ok
+                                real(wp) :: dummy_rmin, dummy_rmax
+                                call parse_n_line(line, skip_n, dummy_rsq, dummy_rmin, dummy_rmax, dummy_ok)
+                                if (dummy_ok .and. skip_n > 0) then
+                                    do skip_i = 1, skip_n
+                                        read(unit_id, *, iostat=ierr)
+                                        if (ierr /= 0) exit
+                                    end do
+                                end if
+                            end block
+                        end if
+                    end if
+                end if
+            end do
+
+            if (found) then
+                if (N > table_N_max) then
+                    print *, "Error: Table size ", N, " exceeds maximum allocated size ", table_N_max
+                    stop 1
+                end if
+
+                table_N(t_mc1, t_mc2) = N
+                table_N(t_mc2, t_mc1) = N
+                table_rmin(t_mc1, t_mc2) = rmin
+                table_rmin(t_mc2, t_mc1) = rmin
+                table_rmax(t_mc1, t_mc2) = rmax
+                table_rmax(t_mc2, t_mc1) = rmax
+                has_table(t_mc1, t_mc2) = .true.
+                has_table(t_mc2, t_mc1) = .true.
+                table_is_rsq(t_mc1, t_mc2) = is_rsq
+                table_is_rsq(t_mc2, t_mc1) = is_rsq
+
+                if (is_rsq) then
+                    table_dr_inv(t_mc1, t_mc2) = real(N - 1, wp) / (rmax*rmax - rmin*rmin)
+                    table_dr_inv(t_mc2, t_mc1) = real(N - 1, wp) / (rmax*rmax - rmin*rmin)
+                else
+                    table_dr_inv(t_mc1, t_mc2) = real(N - 1, wp) / (rmax - rmin)
+                    table_dr_inv(t_mc2, t_mc1) = real(N - 1, wp) / (rmax - rmin)
+                end if
+
+                do i = 0, N - 1
+                    read(unit_id, *, iostat=ierr) idx, r, V, F
+                    if (ierr /= 0) then
+                        print *, "Error reading table data at point ", i, " from ", trim(filename)
+                        stop 1
+                    end if
+                    table_V(i, t_mc1, t_mc2) = V
+                    table_V(i, t_mc2, t_mc1) = V
+                    table_F(i, t_mc1, t_mc2) = F
+                    table_F(i, t_mc2, t_mc1) = F
+                end do
+
+                ! Update interaction range for this pair
+                if (allocated(rangep) .and. pot_int < 1) then
+                    rangep(t_mc1 * Npart_types + t_mc2) = rmax
+                    rangep(t_mc2 * Npart_types + t_mc1) = rmax
+                end if
+
+                if (is_rsq) then
+                    print *, "   Loaded table from ", trim(filename), " keyword ", trim(keyword), &
+                             " for pair (", t_lmp1, ",", t_lmp2, ") [MC types ", t_mc1, "-", t_mc2, &
+                             "] (N=", N, ", style=RSQ, rmin=", rmin, ", rmax=", rmax, ")"
+                else
+                    print *, "   Loaded table from ", trim(filename), " keyword ", trim(keyword), &
+                             " for pair (", t_lmp1, ",", t_lmp2, ") [MC types ", t_mc1, "-", t_mc2, &
+                             "] (N=", N, ", style=R, rmin=", rmin, ", rmax=", rmax, ")"
+                end if
+            else
+                print *, "   Warning: Could not find table for pair (", t_lmp1, ",", t_lmp2, ") in ", trim(filename)
+            end if
+            close(unit_id)
+        end do
+    end do
+
+    ! Copy to device
+    block
+        use potential, only : has_table_dev, table_is_rsq_dev, table_N_dev, &
+                              table_rmin_dev, table_rmax_dev, table_dr_inv_dev, &
+                              table_V_dev, table_F_dev, table_mc_dev
+        has_table_dev = has_table
+        table_is_rsq_dev = table_is_rsq
+        table_N_dev = table_N
+        table_rmin_dev = table_rmin
+        table_rmax_dev = table_rmax
+        table_dr_inv_dev = table_dr_inv
+        table_V_dev = table_V
+        table_F_dev = table_F
+        table_mc_dev = table_mc
+    end block
+    print *, " >>> Host and Device table potentials successfully loaded."
+contains
+    subroutine parse_n_line(n_line, n_pts, is_rsq_out, rmin_val, rmax_val, ok_out)
+        character(len=*), intent(in) :: n_line
+        integer, intent(out) :: n_pts
+        logical, intent(out) :: is_rsq_out
+        real(wp), intent(out) :: rmin_val, rmax_val
+        logical, intent(out) :: ok_out
+        character(len=256) :: tok1, tok2, tok3, tok4, tok5, upper_tok3
+        integer :: rstat
+
+        ok_out = .false.
+        is_rsq_out = .false.
+        n_pts = 0
+        rmin_val = 0.0_wp
+        rmax_val = 0.0_wp
+
+        read(n_line, *, iostat=rstat) tok1, tok2, tok3, tok4, tok5
+        if (rstat == 0) then
+            upper_tok3 = tok3
+            call uppercase(upper_tok3)
+            read(tok2, *, iostat=rstat) n_pts
+            if (rstat == 0) then
+                if (trim(upper_tok3) == 'RSQ') then
+                    is_rsq_out = .true.
+                    read(tok4, *, iostat=rstat) rmin_val
+                    if (rstat == 0) read(tok5, *, iostat=rstat) rmax_val
+                    if (rstat == 0) ok_out = .true.
+                else if (trim(upper_tok3) == 'R') then
+                    is_rsq_out = .false.
+                    read(tok4, *, iostat=rstat) rmin_val
+                    if (rstat == 0) read(tok5, *, iostat=rstat) rmax_val
+                    if (rstat == 0) ok_out = .true.
+                end if
+            end if
+        end if
+
+        if (.not. ok_out) then
+            read(n_line, *, iostat=rstat) tok1, tok2, tok3, tok4
+            if (rstat == 0) then
+                read(tok2, *, iostat=rstat) n_pts
+                if (rstat == 0) then
+                    read(tok3, *, iostat=rstat) rmin_val
+                    if (rstat == 0) read(tok4, *, iostat=rstat) rmax_val
+                    if (rstat == 0) then
+                        is_rsq_out = .false.
+                        ok_out = .true.
+                    end if
+                end if
+            end if
+        end if
+    end subroutine parse_n_line
+End Subroutine load_table_potentials

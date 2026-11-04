@@ -1,0 +1,884 @@
+MODULE mod_clusters
+    Use set_precision
+    Use configuration
+    Use rundata, Only : rcl, minPts, ncluster, cluster_types, istep_ini, pot_int, asym_threshold, avbmc, &
+                        border_criterion, energy_threshold, energy_border_ratio, use_energy_ratio, &
+                        n_avbmc, ncluster_init, cluster_threshold, bound_min_neighbors, cluster_regime_large
+    Use potential, Only : bool_tor, Npart_types, Nrb_sites_max, Ntor_max, sigma_tor_jon, sigp_factor, Rcp_factor, Rc_factor
+    Use mod_avbmc
+    Use cudafor
+    Use Cell, Only : Ntot_Cell, Nat_Cell_Max, Sphere_Cell, List_Cell, Nat_Cell, DR_Cell, Map_Cell
+    Use cuda_fortran, Only : Sphere_Celldev, List_Cell_dev, Map_Cell_dev, Nat_Cell_dev, DR_Cell_dev, hdev, compute_per_atom_energy_gpu
+    Implicit None
+
+    Integer, Parameter :: maxnbpp = 128
+
+    ! GPU grid parameters
+    Integer :: nthread = 256
+    Integer :: nbcuda
+
+    ! Host arrays for clustering
+    Integer, Allocatable, Dimension(:) :: label
+    Integer, Allocatable, Dimension(:) :: neighbors
+    Integer, Allocatable, Dimension(:) :: offset
+    Integer, Allocatable, Dimension(:) :: adjacency
+
+    ! Device arrays for GPU-accelerated DBSCAN
+    Integer, Device, Allocatable, Dimension(:) :: glabel
+    Integer, Device, Allocatable, Dimension(:) :: gborder
+    Integer, Device, Allocatable, Dimension(:) :: gneighbors
+    Integer, Device, Allocatable, Dimension(:) :: goffset
+    Integer, Device, Allocatable, Dimension(:) :: gadjacency
+    Integer, Device, Allocatable, Dimension(:) :: gcluster_mask
+    Integer, Device, Allocatable, Save :: glookup(:)
+
+    Integer :: io_clusevol_file = 111
+    Character(len=32) :: clusevol_filename = 'clusevol_mc.dat'
+
+    ! Latest cluster statistics for table output
+    Integer :: last_nclusters = 0
+    Integer :: last_max_size = 0
+    Real(wp) :: last_pct_clustered = 0.0_wp
+
+CONTAINS
+
+    ! GPU BFS kernel
+    Attributes(Global) Subroutine gbfs(Nsites, cluster_id, minPts, active)
+        Integer, Value, Intent(IN) :: Nsites, cluster_id, minPts
+        Logical, Intent(INOUT) :: active
+        Integer :: j, nbj, offj
+        j = (blockidx%x - 1)*blockdim%x + threadidx%x
+        If (j <= Nsites) Then
+            If (gborder(j) == 1 .And. glabel(j) == 0) Then
+                glabel(j) = cluster_id
+                nbj = gneighbors(j)
+                offj = goffset(j)
+                If (nbj >= minPts - 1) Then
+                    active = .True.
+                    gborder(gadjacency(offj:offj+nbj-1)) = 1
+                End If
+            End If
+        End If
+    End Subroutine gbfs
+
+    ! Adjacency count kernel (O(N^2) GPU direct search)
+    Attributes(Global) Subroutine gpu_graf(r, Nsites, dim, rcl2, sidel, minPts, mask)
+        Integer, Value, Intent(IN) :: Nsites, dim, minPts
+        Real(wp), Value :: rcl2
+        Real(wp), Intent(IN) :: r(Nsites*dim), sidel(dim)
+        Integer, Intent(IN) :: mask(Nsites)
+        Real(wp) :: dx, dy, dz, rr2, xi, yi, zi
+        Integer :: i, j, counter, indx_i, indx_j
+        i = (blockidx%x - 1)*blockdim%x + threadidx%x
+        If (i <= Nsites) Then
+            gneighbors(i) = 0
+            If (mask(i) == 0) Return
+            
+            counter = 0
+            indx_i = (i - 1) * dim
+            xi = r(indx_i + 1)
+            yi = r(indx_i + 2)
+            zi = r(indx_i + 3)
+            
+            Do j = 1, Nsites
+                If (i /= j .And. mask(j) /= 0) Then
+                    indx_j = (j - 1) * dim
+                    dx = xi - r(indx_j + 1)
+                    dy = yi - r(indx_j + 2)
+                    dz = zi - r(indx_j + 3)
+                    
+                    ! PBC
+                    dx = dx - sidel(1) * anint(dx / sidel(1))
+                    dy = dy - sidel(2) * anint(dy / sidel(2))
+                    dz = dz - sidel(3) * anint(dz / sidel(3))
+                    
+                    rr2 = dx*dx + dy*dy + dz*dz
+                    If (rr2 <= rcl2) Then
+                        counter = counter + 1
+                    End If
+                End If
+            End Do
+            gneighbors(i) = counter
+        End If
+    End Subroutine gpu_graf
+
+    ! Adjacency populate kernel
+    Attributes(Global) Subroutine gpu_adj(r, Nsites, dim, rcl2, sidel, mask)
+        Integer, Value, Intent(IN) :: Nsites, dim
+        Real(wp), Value :: rcl2
+        Real(wp), Intent(IN) :: r(Nsites*dim), sidel(dim)
+        Integer, Intent(IN) :: mask(Nsites)
+        Real(wp) :: dx, dy, dz, rr2, xi, yi, zi
+        Integer :: i, j, counter, indx_i, indx_j
+        i = (blockidx%x - 1)*blockdim%x + threadidx%x
+        If (i <= Nsites) Then
+            If (mask(i) == 0) Return
+            
+            counter = 0
+            indx_i = (i - 1) * dim
+            xi = r(indx_i + 1)
+            yi = r(indx_i + 2)
+            zi = r(indx_i + 3)
+            
+            Do j = 1, Nsites
+                If (i /= j .And. mask(j) /= 0) Then
+                    indx_j = (j - 1) * dim
+                    dx = xi - r(indx_j + 1)
+                    dy = yi - r(indx_j + 2)
+                    dz = zi - r(indx_j + 3)
+                    
+                    ! PBC
+                    dx = dx - sidel(1) * anint(dx / sidel(1))
+                    dy = dy - sidel(2) * anint(dy / sidel(2))
+                    dz = dz - sidel(3) * anint(dz / sidel(3))
+                    
+                    rr2 = dx*dx + dy*dy + dz*dz
+                    If (rr2 <= rcl2) Then
+                        gadjacency(goffset(i) + counter) = j
+                        counter = counter + 1
+                    End If
+                End If
+            End Do
+        End If
+    End Subroutine gpu_adj
+
+    ! GPU lookup builder kernel
+    Attributes(Global) Subroutine build_offset_lookup(List_Cell, Nat_Cell, Nat_Cell_Max, Ntot_Cell, Particle_to_CellOffset)
+        Implicit None
+        Integer, Value, Intent(IN) :: Nat_Cell_Max, Ntot_Cell
+        Integer, Intent(IN) :: List_Cell(0:*), Nat_Cell(0:*)
+        Integer, Intent(OUT) :: Particle_to_CellOffset(0:*)
+        Integer :: icell, j, jmol, ipart
+        
+        icell = (blockidx%x - 1)*blockdim%x + threadidx%x - 1
+        if (icell < Ntot_Cell) then
+            do j = 0, Nat_Cell(icell) - 1
+                jmol = icell * Nat_Cell_Max * 2 + j * 2
+                ipart = List_Cell(jmol) ! Particle ID (0 to Natoms-1)
+                Particle_to_CellOffset(ipart) = icell * Nat_Cell_Max + j
+            end do
+        end if
+    End Subroutine build_offset_lookup
+
+    ! Cell-list GPU neighbor count kernel
+    Attributes(Global) Subroutine gpu_graf_cell(Sphere_Cell, List_Cell, Map_Cell, Nat_Cell, DR_Cell, &
+                                               Lookup, Nat_Cell_Max, Ntot_Cell, Nsites, dim, rcl2, h, mask, gneighbors)
+        Implicit None
+        Integer, Value, Intent(IN) :: Nat_Cell_Max, Ntot_Cell, Nsites, dim
+        Real(wp), Value :: rcl2
+        real(wp), device, intent(in) :: Sphere_Cell(0:*), DR_Cell(0:*), h(0:*)
+        integer, device, intent(in) :: List_Cell(0:*), Map_Cell(0:*), Nat_Cell(0:*)
+        integer, device, intent(in) :: Lookup(0:*)
+        integer, device, intent(in) :: mask(*)
+        integer, device, intent(out) :: gneighbors(*)
+        
+        integer :: i, cell_offset, icell, j_offset, counter, jcell, k, kpart, n, nneigh
+        real(wp) :: xi, yi, zi, xj, yj, zj, dx, dy, dz, dxp, dyp, dzp, rr2
+        real(wp) :: dx_shift, dy_shift, dz_shift
+        
+        i = (blockidx%x - 1)*blockdim%x + threadidx%x
+        If (i <= Nsites) Then
+            gneighbors(i) = 0
+            If (mask(i) == 0) Return
+            
+            counter = 0
+            cell_offset = Lookup(i-1)
+            icell = cell_offset / Nat_Cell_Max
+            j_offset = mod(cell_offset, Nat_Cell_Max)
+            
+            xi = Sphere_Cell(icell * Nat_Cell_Max * (dim + 4) + j_offset * (dim + 4))
+            yi = Sphere_Cell(icell * Nat_Cell_Max * (dim + 4) + j_offset * (dim + 4) + 1)
+            zi = Sphere_Cell(icell * Nat_Cell_Max * (dim + 4) + j_offset * (dim + 4) + 2)
+            
+            ! 1. Check particles in same cell
+            do k = 0, Nat_Cell(icell) - 1
+                kpart = List_Cell(icell * Nat_Cell_Max * 2 + k * 2)
+                if (i-1 /= kpart .and. mask(kpart+1) /= 0) then
+                    xj = Sphere_Cell(icell * Nat_Cell_Max * (dim + 4) + k * (dim + 4))
+                    yj = Sphere_Cell(icell * Nat_Cell_Max * (dim + 4) + k * (dim + 4) + 1)
+                    zj = Sphere_Cell(icell * Nat_Cell_Max * (dim + 4) + k * (dim + 4) + 2)
+                    dx = xj - xi
+                    dy = yj - yi
+                    dz = zj - zi
+                    dxp = h(0)*dx + h(1)*dy + h(2)*dz
+                    dyp = h(3)*dx + h(4)*dy + h(5)*dz
+                    dzp = h(6)*dx + h(7)*dy + h(8)*dz
+                    rr2 = dxp*dxp + dyp*dyp + dzp*dzp
+                    if (rr2 <= rcl2) then
+                        counter = counter + 1
+                    end if
+                end if
+            end do
+            
+            ! 2. Check particles in neighbor cells
+            if (dim == 3) then
+                nneigh = 26
+            else
+                nneigh = 8
+            endif
+            
+            do n = 0, nneigh - 1
+                jcell = Map_Cell(icell * nneigh + n)
+                dx_shift = DR_Cell(icell * nneigh * dim + n * dim)
+                dy_shift = DR_Cell(icell * nneigh * dim + n * dim + 1)
+                dz_shift = 0.0_wp
+                if (dim == 3) dz_shift = DR_Cell(icell * nneigh * dim + n * dim + 2)
+                
+                do k = 0, Nat_Cell(jcell) - 1
+                    kpart = List_Cell(jcell * Nat_Cell_Max * 2 + k * 2)
+                    if (mask(kpart+1) /= 0) then
+                        xj = Sphere_Cell(jcell * Nat_Cell_Max * (dim + 4) + k * (dim + 4)) + dx_shift
+                        yj = Sphere_Cell(jcell * Nat_Cell_Max * (dim + 4) + k * (dim + 4) + 1) + dy_shift
+                        zj = Sphere_Cell(jcell * Nat_Cell_Max * (dim + 4) + k * (dim + 4) + 2) + dz_shift
+                        dx = xj - xi
+                        dy = yj - yi
+                        dz = zj - zi
+                        dxp = h(0)*dx + h(1)*dy + h(2)*dz
+                        dyp = h(3)*dx + h(4)*dy + h(5)*dz
+                        dzp = h(6)*dx + h(7)*dy + h(8)*dz
+                        rr2 = dxp*dxp + dyp*dyp + dzp*dzp
+                        if (rr2 <= rcl2) then
+                            counter = counter + 1
+                        end if
+                    end if
+                end do
+            end do
+            
+            gneighbors(i) = counter
+        End If
+    End Subroutine gpu_graf_cell
+
+    ! Cell-list GPU neighbor populate kernel
+    Attributes(Global) Subroutine gpu_adj_cell(Sphere_Cell, List_Cell, Map_Cell, Nat_Cell, DR_Cell, &
+                                              Lookup, Nat_Cell_Max, Ntot_Cell, Nsites, dim, rcl2, h, mask, goffset, gadjacency)
+        Implicit None
+        Integer, Value, Intent(IN) :: Nat_Cell_Max, Ntot_Cell, Nsites, dim
+        Real(wp), Value :: rcl2
+        real(wp), device, intent(in) :: Sphere_Cell(0:*), DR_Cell(0:*), h(0:*)
+        integer, device, intent(in) :: List_Cell(0:*), Map_Cell(0:*), Nat_Cell(0:*)
+        integer, device, intent(in) :: Lookup(0:*)
+        integer, device, intent(in) :: mask(*)
+        integer, device, intent(in) :: goffset(*)
+        integer, device, intent(out) :: gadjacency(*)
+        
+        integer :: i, cell_offset, icell, j_offset, counter, jcell, k, kpart, n, nneigh
+        real(wp) :: xi, yi, zi, xj, yj, zj, dx, dy, dz, dxp, dyp, dzp, rr2
+        real(wp) :: dx_shift, dy_shift, dz_shift
+        
+        i = (blockidx%x - 1)*blockdim%x + threadidx%x
+        If (i <= Nsites) Then
+            If (mask(i) == 0) Return
+            
+            counter = 0
+            cell_offset = Lookup(i-1)
+            icell = cell_offset / Nat_Cell_Max
+            j_offset = mod(cell_offset, Nat_Cell_Max)
+            
+            xi = Sphere_Cell(icell * Nat_Cell_Max * (dim + 4) + j_offset * (dim + 4))
+            yi = Sphere_Cell(icell * Nat_Cell_Max * (dim + 4) + j_offset * (dim + 4) + 1)
+            zi = Sphere_Cell(icell * Nat_Cell_Max * (dim + 4) + j_offset * (dim + 4) + 2)
+            
+            ! 1. Check particles in same cell
+            do k = 0, Nat_Cell(icell) - 1
+                kpart = List_Cell(icell * Nat_Cell_Max * 2 + k * 2)
+                if (i-1 /= kpart .and. mask(kpart+1) /= 0) then
+                    xj = Sphere_Cell(icell * Nat_Cell_Max * (dim + 4) + k * (dim + 4))
+                    yj = Sphere_Cell(icell * Nat_Cell_Max * (dim + 4) + k * (dim + 4) + 1)
+                    zj = Sphere_Cell(icell * Nat_Cell_Max * (dim + 4) + k * (dim + 4) + 2)
+                    dx = xj - xi
+                    dy = yj - yi
+                    dz = zj - zi
+                    dxp = h(0)*dx + h(1)*dy + h(2)*dz
+                    dyp = h(3)*dx + h(4)*dy + h(5)*dz
+                    dzp = h(6)*dx + h(7)*dy + h(8)*dz
+                    rr2 = dxp*dxp + dyp*dyp + dzp*dzp
+                    if (rr2 <= rcl2) then
+                        gadjacency(goffset(i) + counter) = kpart + 1 ! 1-indexed particle ID
+                        counter = counter + 1
+                    end if
+                end if
+            end do
+            
+            ! 2. Check particles in neighbor cells
+            if (dim == 3) then
+                nneigh = 26
+            else
+                nneigh = 8
+            endif
+            
+            do n = 0, nneigh - 1
+                jcell = Map_Cell(icell * nneigh + n)
+                dx_shift = DR_Cell(icell * nneigh * dim + n * dim)
+                dy_shift = DR_Cell(icell * nneigh * dim + n * dim + 1)
+                dz_shift = 0.0_wp
+                if (dim == 3) dz_shift = DR_Cell(icell * nneigh * dim + n * dim + 2)
+                
+                do k = 0, Nat_Cell(jcell) - 1
+                    kpart = List_Cell(jcell * Nat_Cell_Max * 2 + k * 2)
+                    if (mask(kpart+1) /= 0) then
+                        xj = Sphere_Cell(jcell * Nat_Cell_Max * (dim + 4) + k * (dim + 4)) + dx_shift
+                        yj = Sphere_Cell(jcell * Nat_Cell_Max * (dim + 4) + k * (dim + 4) + 1) + dy_shift
+                        zj = Sphere_Cell(jcell * Nat_Cell_Max * (dim + 4) + k * (dim + 4) + 2) + dz_shift
+                        dx = xj - xi
+                        dy = yj - yi
+                        dz = zj - zi
+                        dxp = h(0)*dx + h(1)*dy + h(2)*dz
+                        dyp = h(3)*dx + h(4)*dy + h(5)*dz
+                        dzp = h(6)*dx + h(7)*dy + h(8)*dz
+                        rr2 = dxp*dxp + dyp*dyp + dzp*dzp
+                        if (rr2 <= rcl2) then
+                            gadjacency(goffset(i) + counter) = kpart + 1 ! 1-indexed particle ID
+                            counter = counter + 1
+                        end if
+                    end if
+                end do
+            end do
+        End If
+    End Subroutine gpu_adj_cell
+
+
+    Subroutine clusters_alloc()
+        If (.Not. Allocated(gneighbors)) Then
+            Allocate(gneighbors(natoms))
+            Allocate(goffset(natoms))
+            Allocate(gadjacency(natoms * maxnbpp))
+            Allocate(glabel(natoms))
+            Allocate(gborder(natoms))
+            Allocate(gcluster_mask(natoms))
+            Allocate(glookup(0:natoms-1))
+            
+            Allocate(label(natoms))
+            Allocate(neighbors(natoms))
+            Allocate(offset(natoms))
+            Allocate(adjacency(natoms * maxnbpp))
+        End If
+    End Subroutine clusters_alloc
+
+    Subroutine clusters_dealloc()
+        If (Allocated(gneighbors)) Then
+            Deallocate(gneighbors)
+            Deallocate(goffset)
+            Deallocate(gadjacency)
+            Deallocate(glabel)
+            Deallocate(gborder)
+            Deallocate(gcluster_mask)
+            If (Allocated(glookup)) Deallocate(glookup)
+            
+            Deallocate(label)
+            Deallocate(neighbors)
+            Deallocate(offset)
+            Deallocate(adjacency)
+        End If
+        If (avbmc) Call avbmc_deallocate()
+    End Subroutine clusters_dealloc
+
+    Subroutine neighbor_search(Nsites_val)
+        Integer, Intent(IN) :: Nsites_val
+        Integer :: istat, i
+        Integer :: nblock_lookup
+        
+        gneighbors(:) = 0
+        gadjacency(:) = 0
+        
+        ! Ensure device arrays are allocated (handles cases where they were cleaned up or deallocated)
+        if (.not. allocated(Sphere_Celldev)) allocate(Sphere_Celldev(0:Ntot_Cell*Nat_Cell_Max*(ndim+4)-1))
+        if (.not. allocated(List_Cell_dev)) allocate(List_Cell_dev(0:Ntot_Cell*Nat_Cell_Max*2-1))
+        if (.not. allocated(Nat_Cell_dev)) allocate(Nat_Cell_dev(0:Ntot_Cell-1))
+        if (.not. allocated(DR_Cell_dev)) allocate(DR_Cell_dev(0:Ntot_Cell*26*3-1))
+        if (.not. allocated(hdev)) allocate(hdev(0:ndim*ndim-1))
+        if (.not. allocated(Map_Cell_dev)) then
+            allocate(Map_Cell_dev(0:Ntot_Cell*26-1))
+            Map_Cell_dev = Map_Cell
+        endif
+        
+        ! Synchronize host cell structures to device
+        Sphere_Celldev = Sphere_Cell
+        List_Cell_dev = List_Cell
+        Nat_Cell_dev = Nat_Cell
+        DR_Cell_dev = DR_Cell
+        hdev = h
+        
+        ! 1. Build particle-to-cell offset lookup array on GPU
+        nblock_lookup = (Ntot_Cell + nthread - 1)/nthread
+        if (nblock_lookup == 0) nblock_lookup = 1
+        Call build_offset_lookup<<<nblock_lookup, nthread>>>(List_Cell_dev, Nat_Cell_dev, Nat_Cell_Max, Ntot_Cell, glookup)
+        istat = cudaDeviceSynchronize()
+        
+        ! 2. Launch cell-list neighbor count kernel
+        Call gpu_graf_cell<<<nbcuda, nthread>>>(Sphere_Celldev, List_Cell_dev, Map_Cell_dev, Nat_Cell_dev, DR_Cell_dev, &
+                                               glookup, Nat_Cell_Max, Ntot_Cell, Nsites_val, ndim, rcl**2, hdev, gcluster_mask, gneighbors)
+        istat = cudaDeviceSynchronize()
+        
+        ! 3. Copy neighbor counts to host to compute exclusive prefix scan (offset list)
+        neighbors(:) = gneighbors(:)
+        
+        ! Check neighbor count limit
+        If (Maxval(neighbors) > maxnbpp) Then
+            Write(*, '(A, I5, A, I5)') '*** Error: max neighbors detected is ', Maxval(neighbors), &
+                                       ' which exceeds maxnbpp = ', maxnbpp
+            Write(*, '(A)') '*** Please increase maxnbpp in input file or decrease rcl.'
+            Stop
+        End If
+        
+        ! 4. Compute exclusive prefix sum (offset) on the host starting at 1
+        offset(1) = 1
+        Do i = 2, Nsites_val
+            offset(i) = offset(i-1) + neighbors(i-1)
+        End Do
+        
+        ! 5. Copy offset back to device
+        goffset(:) = offset(:)
+        
+        ! 6. Launch cell-list adjacency list kernel
+        Call gpu_adj_cell<<<nbcuda, nthread>>>(Sphere_Celldev, List_Cell_dev, Map_Cell_dev, Nat_Cell_dev, DR_Cell_dev, &
+                                              glookup, Nat_Cell_Max, Ntot_Cell, Nsites_val, ndim, rcl**2, hdev, gcluster_mask, goffset, gadjacency)
+        istat = cudaDeviceSynchronize()
+        
+        ! 7. Copy adjacency list back to host
+        adjacency(:) = gadjacency(:)
+        
+    End Subroutine neighbor_search
+
+    ! Subroutine to initialize cluster mask based on selected particle types
+    Subroutine get_cluster_mask(cluster_mask_host)
+        Integer, Intent(OUT) :: cluster_mask_host(natoms)
+        Integer :: i
+        cluster_mask_host(:) = 0
+        If (All(cluster_types == -1)) Then
+            If (pot_int == 2) Then
+                Do i = 1, natoms
+                    If (itype(i-1) == 1 .Or. itype(i-1) == 3) Then
+                        cluster_mask_host(i) = 1
+                    End If
+                End Do
+                If (All(cluster_mask_host == 0)) Then
+                    cluster_mask_host(:) = 1
+                End If
+            Else
+                cluster_mask_host(:) = 1
+            End If
+        Else
+            Do i = 1, natoms
+                If (Any(cluster_types == itype(i-1)) .Or. Any(cluster_types == itype(i-1) + 1)) Then
+                    cluster_mask_host(i) = 1
+                End If
+            End Do
+        End If
+    End Subroutine get_cluster_mask
+
+    ! Subroutine for lightweight AVBMC step in small-cluster regime (max cluster size <= cluster_threshold):
+    ! Performs GPU cell-list neighbor search, classifies into bound (neighbors >= bound_min_neighbors)
+    ! and isolated (neighbors == 0), and executes AVBMC pair exchanges without DBSCAN or surface detection.
+    Subroutine run_lightweight_avbmc_step()
+        Integer :: cluster_mask_host(natoms)
+
+        ! 1. Allocate memory if needed
+        Call clusters_alloc()
+
+        ! 2. Initialize cluster mask
+        Call get_cluster_mask(cluster_mask_host)
+        gcluster_mask(1:natoms) = cluster_mask_host(1:natoms)
+
+        ! 3. Configure GPU grid block
+        nthread = 256
+        nbcuda = (natoms + nthread - 1)/nthread
+
+        ! 4. Search for neighbors and build adjacency list on GPU
+        Call neighbor_search(natoms)
+
+        ! 5. Extract AVBMC data using lightweight bound/isolated classification
+        Call extract_avbmc_data_lightweight(natoms, r, neighbors, cluster_mask_host, bound_min_neighbors)
+
+        ! 6. Attempt AVBMC pair moves
+        Call attempt_avbmc_pair_moves(neighbors, offset, adjacency)
+        Call print_avbmc_stats()
+    End Subroutine run_lightweight_avbmc_step
+
+    Subroutine run_cluster_analysis(istep)
+        Use rundata, only : istep_ini, istep_fin
+        Integer, Intent(IN) :: istep
+        Integer :: i, k, nb, cluster_id, size_max, nclustered, ncenters, indx, indxq, type_cl
+        Integer :: queue(natoms), head, tail, curr
+        Integer :: cluster_mask_host(natoms)
+        Integer :: count_cl(natoms)
+        Logical :: file_exists
+        Real(wp) :: pct
+        Integer :: io_lastclconf = 112, io_lastbrdconf = 113, nbrd, id, indx_i, indx_j, maxcolor = 32
+        Real(wp), Allocatable :: asym(:)
+        Logical, Allocatable :: is_border(:)
+        Real(wp), Allocatable :: atom_energies_host(:)
+        Integer, Allocatable :: nbrd_in_cl(:)
+        Real(wp) :: S(3), xi, yi, zi, dx, dy, dz, dx_real, dy_real, dz_real, dist
+        Real(wp) :: e_sum, e_avg, thresh_val
+        Integer :: count_cluster_atoms
+        
+        ! 1. Allocate memory if needed
+        Call clusters_alloc()
+        
+        ! 2. Initialize cluster mask based on selected types
+        Call get_cluster_mask(cluster_mask_host)
+        gcluster_mask(1:natoms) = cluster_mask_host(1:natoms)
+        
+        ! 3. Configure grid block
+        nthread = 256
+        nbcuda = (natoms + nthread - 1)/nthread
+        
+        ! 4. Search for neighbors and build adjacency list
+        Call neighbor_search(natoms)
+        
+        ! 5. Run DBSCAN BFS search on Host (fast queue BFS on adjacency list)
+        label(:) = 0
+        cluster_id = 0
+        
+        Do i = 1, natoms
+            If (cluster_mask_host(i) == 0) Cycle
+            If (neighbors(i) < minPts - 1) Cycle
+            If (label(i) /= 0) Cycle
+            
+            cluster_id = cluster_id + 1
+            label(i) = cluster_id
+            
+            head = 1
+            tail = 1
+            queue(1) = i
+            
+            Do While (head <= tail)
+                curr = queue(head)
+                head = head + 1
+                
+                If (neighbors(curr) >= minPts - 1) Then
+                    Do k = offset(curr), offset(curr) + neighbors(curr) - 1
+                        nb = adjacency(k)
+                        If (label(nb) == 0) Then
+                            label(nb) = cluster_id
+                            tail = tail + 1
+                            queue(tail) = nb
+                        End If
+                    End Do
+                End If
+            End Do
+        End Do
+        
+        ! 6. Analyze cluster size distribution
+        count_cl(:) = 0
+        Do i = 1, natoms
+            If (label(i) > 0) Then
+                count_cl(label(i)) = count_cl(label(i)) + 1
+            End If
+        End Do
+        
+        nclustered = 0
+        size_max = 0
+        Do i = 1, cluster_id
+            If (count_cl(i) > 0) Then
+                nclustered = nclustered + count_cl(i)
+                If (count_cl(i) > size_max) Then
+                    size_max = count_cl(i)
+                End If
+            End If
+        End Do
+        
+        ncenters = Count(cluster_mask_host > 0)
+        If (ncenters > 0) Then
+            pct = (Real(nclustered, wp)/Real(ncenters, wp)) * 100.0_wp
+        Else
+            pct = 0.0_wp
+        End If
+        
+        last_nclusters = cluster_id
+        last_max_size = size_max
+        last_pct_clustered = pct
+            
+        Inquire(File=clusevol_filename, Exist=file_exists)
+        If (.Not. file_exists .Or. istep == istep_ini) Then
+            Open(io_clusevol_file, File=clusevol_filename, Status='unknown')
+            Write(io_clusevol_file, '(A)') '# step  n_clusters  max_size  n_clustered  pct_clustered'
+        Else
+            Open(io_clusevol_file, File=clusevol_filename, Status='unknown', Position='append')
+        End If
+        
+        Write(io_clusevol_file, '(i10, i12, i10, i13, f15.4)') &
+            istep, cluster_id, size_max, nclustered, pct
+        Close(io_clusevol_file)
+
+        ! 8. Write last cluster configuration to mclast_clconf.lammpstrj
+        open(io_lastclconf, file='mclast_clconf.lammpstrj', status='unknown')
+        write(io_lastclconf, '(A)') 'ITEM: TIMESTEP'
+        write(io_lastclconf, '(I12)') istep
+        write(io_lastclconf, '(A)') 'ITEM: NUMBER OF ATOMS'
+        write(io_lastclconf, '(I12)') nclustered
+        write(io_lastclconf, '(A)') 'ITEM: BOX BOUNDS pp pp pp'
+        write(io_lastclconf, '(2F15.7)') 0.0_wp, Box(0)
+        write(io_lastclconf, '(2F15.7)') 0.0_wp, Box(1)
+        write(io_lastclconf, '(2F15.7)') 0.0_wp, Box(2)
+        
+        If (pot_int < 1) Then
+            write(io_lastclconf, '(A)') 'ITEM: ATOMS id mol type x y z'
+        Else
+            write(io_lastclconf, '(A)') 'ITEM: ATOMS id mol type x y z quatw quati quatj quatk'
+        End If
+        
+        do i = 1, natoms
+            if (label(i) > 0) then
+                indx = (i - 1) * ndim
+                type_cl = 1 + mod(count_cl(label(i)), maxcolor)
+                If (pot_int < 1) Then
+                    write(io_lastclconf, '(I8,x,I8,x,I4,x,3F16.8)') &
+                        i, label(i), type_cl, &
+                        r(indx) * Box(0), r(indx + 1) * Box(1), r(indx + 2) * Box(2)
+                Else
+                    indxq = (i - 1) * 4
+                    write(io_lastclconf, '(I8,x,I8,x,I4,x,3F16.8,x,4F16.8)') &
+                        i, label(i), type_cl, &
+                        r(indx) * Box(0), r(indx + 1) * Box(1), r(indx + 2) * Box(2), &
+                        q(indxq), q(indxq + 1), q(indxq + 2), q(indxq + 3)
+                End If
+            end if
+        end do
+        close(io_lastclconf)
+
+        ! 9. Compute border points using chosen criterion (asymmetry or per-atom energy)
+        Allocate(is_border(natoms))
+        is_border(:) = .false.
+
+        If (avbmc .and. size_max <= cluster_threshold) Then
+            ! Small-cluster regime (max cluster size <= cluster_threshold):
+            ! All bound particles (neighbors >= bound_min_neighbors) are considered on the surface.
+            ! Completely bypass asymmetry and per-atom energy calculations.
+            Do i = 1, natoms
+                If (cluster_mask_host(i) == 1 .and. neighbors(i) >= bound_min_neighbors) Then
+                    is_border(i) = .true.
+                End If
+            End Do
+        Else
+            If (trim(border_criterion) == 'energy') Then
+                Allocate(atom_energies_host(0:natoms-1))
+                Call compute_per_atom_energy_gpu(pot_int, bool_tor, ndim, Nat_cell_max, Ntot_Cell, Npart_types, &
+                   Nrb_sites_max, Ntor_max, sigma_tor_jon, sigp_factor, Rcp_factor, Rc_factor, natoms, atom_energies_host)
+                
+                If (use_energy_ratio) Then
+                    e_sum = 0.0_wp
+                    count_cluster_atoms = 0
+                    Do i = 1, natoms
+                        If (label(i) > 0) Then
+                            e_sum = e_sum + atom_energies_host(i-1)
+                            count_cluster_atoms = count_cluster_atoms + 1
+                        End If
+                    End Do
+                    If (count_cluster_atoms > 0) Then
+                        e_avg = e_sum / Real(count_cluster_atoms, wp)
+                    Else
+                        e_avg = 0.0_wp
+                    End If
+                    thresh_val = energy_border_ratio * e_avg
+                Else
+                    thresh_val = energy_threshold
+                End If
+
+                Do i = 1, natoms
+                    If (label(i) > 0 .And. atom_energies_host(i-1) >= thresh_val) Then
+                        is_border(i) = .true.
+                    End If
+                End Do
+                Deallocate(atom_energies_host)
+
+            Else
+                ! Default: Geometric asymmetry criterion (normalized net neighbor vector magnitude)
+                Allocate(asym(natoms))
+                asym(:) = 0.0_wp
+                
+                Do i = 1, natoms
+                    If (label(i) > 0 .And. neighbors(i) > 0) Then
+                        S(1) = 0.0_wp; S(2) = 0.0_wp; S(3) = 0.0_wp
+                        indx_i = (i - 1) * ndim
+                        xi = r(indx_i)
+                        yi = r(indx_i + 1)
+                        zi = r(indx_i + 2)
+                        
+                        Do k = offset(i), offset(i) + neighbors(i) - 1
+                            id = adjacency(k)
+                            indx_j = (id - 1) * ndim
+                            dx = r(indx_j) - xi
+                            dy = r(indx_j + 1) - yi
+                            dz = r(indx_j + 2) - zi
+                            
+                            dx = dx - anint(dx)
+                            dy = dy - anint(dy)
+                            dz = dz - anint(dz)
+                            
+                            dx_real = dx * Box(0)
+                            dy_real = dy * Box(1)
+                            dz_real = dz * Box(2)
+                            
+                            dist = Sqrt(dx_real**2 + dy_real**2 + dz_real**2)
+                            If (dist > 0.0_wp) Then
+                                S(1) = S(1) + dx_real / dist
+                                S(2) = S(2) + dy_real / dist
+                                S(3) = S(3) + dz_real / dist
+                            End If
+                        End Do
+                        asym(i) = Sqrt(S(1)**2 + S(2)**2 + S(3)**2) / Real(neighbors(i), wp)
+                    End If
+                End Do
+
+                Do i = 1, natoms
+                    If (label(i) > 0 .And. asym(i) >= asym_threshold) Then
+                        is_border(i) = .true.
+                    End If
+                End Do
+                Deallocate(asym)
+            End If
+        End If
+
+        Allocate(nbrd_in_cl(Max(1, cluster_id)))
+        nbrd_in_cl(:) = 0
+        nbrd = 0
+        Do i = 1, natoms
+            If (is_border(i)) Then
+                nbrd = nbrd + 1
+                If (label(i) > 0) Then
+                    nbrd_in_cl(label(i)) = nbrd_in_cl(label(i)) + 1
+                End If
+            End If
+        End Do
+        
+        ! 10. Write last border configuration to mclast_brdconf.lammpstrj
+        open(io_lastbrdconf, file='mclast_brdconf.lammpstrj', status='unknown')
+        write(io_lastbrdconf, '(A)') 'ITEM: TIMESTEP'
+        write(io_lastbrdconf, '(I12)') istep
+        write(io_lastbrdconf, '(A)') 'ITEM: NUMBER OF ATOMS'
+        write(io_lastbrdconf, '(I12)') nbrd
+        write(io_lastbrdconf, '(A)') 'ITEM: BOX BOUNDS pp pp pp'
+        write(io_lastbrdconf, '(2F15.7)') 0.0_wp, Box(0)
+        write(io_lastbrdconf, '(2F15.7)') 0.0_wp, Box(1)
+        write(io_lastbrdconf, '(2F15.7)') 0.0_wp, Box(2)
+        
+        If (pot_int < 1) Then
+            write(io_lastbrdconf, '(A)') 'ITEM: ATOMS id mol type x y z'
+        Else
+            write(io_lastbrdconf, '(A)') 'ITEM: ATOMS id mol type x y z quatw quati quatj quatk'
+        End If
+        
+        do i = 1, natoms
+            if (is_border(i)) then
+                indx = (i - 1) * ndim
+                If (label(i) > 0) Then
+                    type_cl = 1 + mod(nbrd_in_cl(label(i)), maxcolor)
+                Else
+                    type_cl = 1
+                End If
+                If (pot_int < 1) Then
+                    write(io_lastbrdconf, '(I8,x,I8,x,I4,x,3F16.8)') &
+                        i, label(i), type_cl, &
+                        r(indx) * Box(0), r(indx + 1) * Box(1), r(indx + 2) * Box(2)
+                Else
+                    indxq = (i - 1) * 4
+                    write(io_lastbrdconf, '(I8,x,I8,x,I4,x,3F16.8,x,4F16.8)') &
+                        i, label(i), type_cl, &
+                        r(indx) * Box(0), r(indx + 1) * Box(1), r(indx + 2) * Box(2), &
+                        q(indxq), q(indxq + 1), q(indxq + 2), q(indxq + 3)
+                End If
+            end if
+        end do
+        close(io_lastbrdconf)
+        
+        If (avbmc) Then
+            If (size_max <= cluster_threshold) Then
+                Call extract_avbmc_data_lightweight(natoms, r, neighbors, cluster_mask_host, bound_min_neighbors)
+            Else
+                Call extract_avbmc_data(natoms, r, label, is_border, cluster_mask_host)
+            End If
+        End If
+
+        Deallocate(nbrd_in_cl)
+        Deallocate(is_border)
+        
+    End Subroutine run_cluster_analysis
+
+    Subroutine cpu_graf_cell(Sphere_Cell, List_Cell, Map_Cell, Nat_Cell, DR_Cell, &
+                             Lookup, Nat_Cell_Max, Ntot_Cell, Nsites, dim, rcl2, h, mask, neighbors_cpu)
+        Implicit None
+        Integer, Intent(IN) :: Nat_Cell_Max, Ntot_Cell, Nsites, dim
+        Real(wp) :: rcl2
+        real(wp), intent(in) :: Sphere_Cell(0:*), DR_Cell(0:*), h(0:*)
+        integer, intent(in) :: List_Cell(0:*), Map_Cell(0:*), Nat_Cell(0:*)
+        integer, intent(in) :: Lookup(0:*)
+        integer, intent(in) :: mask(Nsites)
+        integer, intent(out) :: neighbors_cpu(Nsites)
+        
+        integer :: i, cell_offset, icell, j_offset, counter, jcell, k, kpart, n, nneigh
+        real(wp) :: xi, yi, zi, xj, yj, zj, dx, dy, dz, dxp, dyp, dzp, rr2
+        real(wp) :: dx_shift, dy_shift, dz_shift
+        
+        do i = 1, Nsites
+            neighbors_cpu(i) = 0
+            If (mask(i) == 0) cycle
+            
+            counter = 0
+            cell_offset = Lookup(i-1)
+            icell = cell_offset / Nat_Cell_Max
+            j_offset = mod(cell_offset, Nat_Cell_Max)
+            
+            xi = Sphere_Cell(icell * Nat_Cell_Max * (dim + 4) + j_offset * (dim + 4))
+            yi = Sphere_Cell(icell * Nat_Cell_Max * (dim + 4) + j_offset * (dim + 4) + 1)
+            zi = Sphere_Cell(icell * Nat_Cell_Max * (dim + 4) + j_offset * (dim + 4) + 2)
+            
+            ! 1. Check particles in same cell
+            do k = 0, Nat_Cell(icell) - 1
+                kpart = List_Cell(icell * Nat_Cell_Max * 2 + k * 2)
+                if (i-1 /= kpart .and. mask(kpart+1) /= 0) then
+                    xj = Sphere_Cell(icell * Nat_Cell_Max * (dim + 4) + k * (dim + 4))
+                    yj = Sphere_Cell(icell * Nat_Cell_Max * (dim + 4) + k * (dim + 4) + 1)
+                    zj = Sphere_Cell(icell * Nat_Cell_Max * (dim + 4) + k * (dim + 4) + 2)
+                    dx = xj - xi
+                    dy = yj - yi
+                    dz = zj - zi
+                    dxp = h(0)*dx + h(1)*dy + h(2)*dz
+                    dyp = h(3)*dx + h(4)*dy + h(5)*dz
+                    dzp = h(6)*dx + h(7)*dy + h(8)*dz
+                    rr2 = dxp*dxp + dyp*dyp + dzp*dzp
+                    if (rr2 <= rcl2) then
+                        counter = counter + 1
+                    end if
+                end if
+            end do
+            
+            ! 2. Check particles in neighbor cells
+            if (dim == 3) then
+                nneigh = 26
+            else
+                nneigh = 8
+            endif
+            
+            do n = 0, nneigh - 1
+                jcell = Map_Cell(icell * nneigh + n)
+                dx_shift = DR_Cell(icell * nneigh * dim + n * dim)
+                dy_shift = DR_Cell(icell * nneigh * dim + n * dim + 1)
+                dz_shift = 0.0_wp
+                if (dim == 3) dz_shift = DR_Cell(icell * nneigh * dim + n * dim + 2)
+                
+                do k = 0, Nat_Cell(jcell) - 1
+                    kpart = List_Cell(jcell * Nat_Cell_Max * 2 + k * 2)
+                    if (mask(kpart+1) /= 0) then
+                        xj = Sphere_Cell(jcell * Nat_Cell_Max * (dim + 4) + k * (dim + 4)) + dx_shift
+                        yj = Sphere_Cell(jcell * Nat_Cell_Max * (dim + 4) + k * (dim + 4) + 1) + dy_shift
+                        zj = Sphere_Cell(jcell * Nat_Cell_Max * (dim + 4) + k * (dim + 4) + 2) + dz_shift
+                        dx = xj - xi
+                        dy = yj - yi
+                        dz = zj - zi
+                        dxp = h(0)*dx + h(1)*dy + h(2)*dz
+                        dyp = h(3)*dx + h(4)*dy + h(5)*dz
+                        dzp = h(6)*dx + h(7)*dy + h(8)*dz
+                        rr2 = dxp*dxp + dyp*dyp + dzp*dzp
+                        if (rr2 <= rcl2) then
+                            counter = counter + 1
+                        end if
+                    end if
+                end do
+            end do
+            
+            neighbors_cpu(i) = counter
+        enddo
+    End Subroutine cpu_graf_cell
+
+END MODULE mod_clusters

@@ -1,0 +1,475 @@
+! ==============================================================================
+! MODULE: mod_avbmc
+! ==============================================================================
+! DESCRIPTION:
+!   Provides data structures and execution subroutines for Aggregation Volume
+!   Bias Monte Carlo (AVBMC) moves. Manages flat coordinate arrays and particle
+!   index arrays for border points and non-associated particles, both on host
+!   and transferred to GPU device memory.
+!
+!   Executes paired AVBMC moves:
+!     - In-move (Association): Bulk non-associated particle -> Cluster border V_in
+!     - Out-move (Dissociation): Cluster border particle -> Bulk V_out
+!
+!   Features:
+!     - Configurable Rosenbluth scheme (K-trial CBMC) for probabilistic bulk probing.
+!     - O(1) single-particle cell updating (update_single_particle_cell) without O(N) rebuilds.
+!     - Correct 0-indexed array slicing for 0-indexed position array r.
+!     - Exact periodic coordinate wrapping via Floor function.
+!     - GPU total energy evaluation (CB_system_energy_GPU) for exact detailed balance.
+! ==============================================================================
+MODULE mod_avbmc
+   Use set_precision
+   Use configuration, Only : ndim
+   Use cudafor
+   Implicit None
+
+   ! Number of border points and non-associated particles
+   Integer :: nbrd = 0
+   Integer :: nnonassoc = 0
+
+   ! Latest AVBMC acceptance ratios for table output
+   Real(wp) :: last_avbmc_p_in = 0.0_wp
+   Real(wp) :: last_avbmc_p_out = 0.0_wp
+
+   ! AVBMC move counters
+   Integer :: navbmc_in_att = 0, navbmc_in_acc = 0
+   Integer :: navbmc_out_att = 0, navbmc_out_acc = 0
+
+   ! Host arrays
+   ! Flat coordinates array for border particles (size nbrd * ndim)
+   Real(wp), Allocatable, Dimension(:) :: r_brd
+   ! Original 1-based indices of border particles (size nbrd)
+   Integer, Allocatable, Dimension(:)  :: idx_brd
+
+   ! Flat coordinates array for non-associated particles (size nnonassoc * ndim)
+   Real(wp), Allocatable, Dimension(:) :: r_nonassoc
+   ! Original 1-based indices of non-associated particles (size nnonassoc)
+   Integer, Allocatable, Dimension(:)  :: idx_nonassoc
+
+   ! Device arrays for GPU transfer
+   Real(wp), Device, Allocatable, Dimension(:) :: gr_brd
+   Integer, Device, Allocatable, Dimension(:)  :: gidx_brd
+   Real(wp), Device, Allocatable, Dimension(:) :: gr_nonassoc
+   Integer, Device, Allocatable, Dimension(:)  :: gidx_nonassoc
+
+CONTAINS
+
+   ! Subroutine to extract flat arrays for border points and non-associated particles
+   ! and transfer them to GPU device memory.
+   Subroutine extract_avbmc_data(natoms_in, r_in, label_in, is_border_in, cluster_mask_in)
+      Integer, Intent(IN) :: natoms_in
+      Real(wp), Intent(IN) :: r_in(natoms_in * ndim)
+      Integer, Intent(IN) :: label_in(natoms_in)
+      Logical, Intent(IN) :: is_border_in(natoms_in)
+      Integer, Intent(IN) :: cluster_mask_in(natoms_in)
+
+      Integer :: i, k_brd, k_non, indx_src, indx_dst
+
+      ! First pass: count border points and non-associated particles
+      nbrd = 0
+      nnonassoc = 0
+
+      Do i = 1, natoms_in
+         If (is_border_in(i)) Then
+            nbrd = nbrd + 1
+         Else If (label_in(i) == 0 .And. cluster_mask_in(i) == 1) Then
+            nnonassoc = nnonassoc + 1
+         End If
+      End Do
+
+      ! Deallocate old host arrays if allocated
+      If (Allocated(r_brd)) Deallocate(r_brd)
+      If (Allocated(idx_brd)) Deallocate(idx_brd)
+      If (Allocated(r_nonassoc)) Deallocate(r_nonassoc)
+      If (Allocated(idx_nonassoc)) Deallocate(idx_nonassoc)
+
+      ! Deallocate old device arrays if allocated
+      If (Allocated(gr_brd)) Deallocate(gr_brd)
+      If (Allocated(gidx_brd)) Deallocate(gidx_brd)
+      If (Allocated(gr_nonassoc)) Deallocate(gr_nonassoc)
+      If (Allocated(gidx_nonassoc)) Deallocate(gidx_nonassoc)
+
+      ! Allocate host arrays
+      Allocate(r_brd(Max(1, nbrd * ndim)))
+      Allocate(idx_brd(Max(1, nbrd)))
+      Allocate(r_nonassoc(Max(1, nnonassoc * ndim)))
+      Allocate(idx_nonassoc(Max(1, nnonassoc)))
+
+      ! Populate host arrays
+      k_brd = 0
+      k_non = 0
+
+      Do i = 1, natoms_in
+         indx_src = (i - 1) * ndim
+         If (is_border_in(i)) Then
+            k_brd = k_brd + 1
+            idx_brd(k_brd) = i
+            indx_dst = (k_brd - 1) * ndim
+            r_brd(indx_dst + 1 : indx_dst + ndim) = r_in(indx_src + 1 : indx_src + ndim)
+         Else If (label_in(i) == 0 .And. cluster_mask_in(i) == 1) Then
+            k_non = k_non + 1
+            idx_nonassoc(k_non) = i
+            indx_dst = (k_non - 1) * ndim
+            r_nonassoc(indx_dst + 1 : indx_dst + ndim) = r_in(indx_src + 1 : indx_src + ndim)
+         End If
+      End Do
+
+      ! Allocate and copy to device memory
+      Allocate(gr_brd(Max(1, nbrd * ndim)))
+      Allocate(gidx_brd(Max(1, nbrd)))
+      Allocate(gr_nonassoc(Max(1, nnonassoc * ndim)))
+      Allocate(gidx_nonassoc(Max(1, nnonassoc)))
+
+      If (nbrd > 0) Then
+         gr_brd(1:nbrd*ndim) = r_brd(1:nbrd*ndim)
+         gidx_brd(1:nbrd)    = idx_brd(1:nbrd)
+      End If
+
+      If (nnonassoc > 0) Then
+         gr_nonassoc(1:nnonassoc*ndim) = r_nonassoc(1:nnonassoc*ndim)
+         gidx_nonassoc(1:nnonassoc)    = idx_nonassoc(1:nnonassoc)
+      End If
+
+!      Write(*,'(A,I8,A,I8)') '     [AVBMC GPU Transfer] Border points: ', nbrd, &
+!         ' | Non-associated particles: ', nnonassoc
+
+   End Subroutine extract_avbmc_data
+
+   ! Subroutine to extract bound particles (neighbors >= bound_min_neigh) as target pool
+   ! and isolated particles (neighbors == 0) as non-associated pool, transferring to GPU.
+   ! Completely bypasses DBSCAN BFS clustering and surface asymmetry/energy calculations.
+   Subroutine extract_avbmc_data_lightweight(natoms_in, r_in, neighbors_in, cluster_mask_in, bound_min_neigh)
+      Integer, Intent(IN) :: natoms_in
+      Real(wp), Intent(IN) :: r_in(natoms_in * ndim)
+      Integer, Intent(IN) :: neighbors_in(natoms_in)
+      Integer, Intent(IN) :: cluster_mask_in(natoms_in)
+      Integer, Intent(IN), Optional :: bound_min_neigh
+
+      Integer :: i, k_brd, k_non, indx_src, indx_dst, min_neigh
+
+      min_neigh = 1
+      If (Present(bound_min_neigh)) min_neigh = bound_min_neigh
+
+      ! First pass: count bound particles and isolated particles
+      nbrd = 0
+      nnonassoc = 0
+
+      Do i = 1, natoms_in
+         If (cluster_mask_in(i) == 1) Then
+            If (neighbors_in(i) >= min_neigh) Then
+               nbrd = nbrd + 1
+            Else If (neighbors_in(i) == 0) Then
+               nnonassoc = nnonassoc + 1
+            End If
+         End If
+      End Do
+
+      ! Deallocate old host arrays if allocated
+      If (Allocated(r_brd)) Deallocate(r_brd)
+      If (Allocated(idx_brd)) Deallocate(idx_brd)
+      If (Allocated(r_nonassoc)) Deallocate(r_nonassoc)
+      If (Allocated(idx_nonassoc)) Deallocate(idx_nonassoc)
+
+      ! Deallocate old device arrays if allocated
+      If (Allocated(gr_brd)) Deallocate(gr_brd)
+      If (Allocated(gidx_brd)) Deallocate(gidx_brd)
+      If (Allocated(gr_nonassoc)) Deallocate(gr_nonassoc)
+      If (Allocated(gidx_nonassoc)) Deallocate(gidx_nonassoc)
+
+      ! Allocate host arrays
+      Allocate(r_brd(Max(1, nbrd * ndim)))
+      Allocate(idx_brd(Max(1, nbrd)))
+      Allocate(r_nonassoc(Max(1, nnonassoc * ndim)))
+      Allocate(idx_nonassoc(Max(1, nnonassoc)))
+
+      ! Populate host arrays
+      k_brd = 0
+      k_non = 0
+
+      Do i = 1, natoms_in
+         indx_src = (i - 1) * ndim
+         If (cluster_mask_in(i) == 1) Then
+            If (neighbors_in(i) >= min_neigh) Then
+               k_brd = k_brd + 1
+               idx_brd(k_brd) = i
+               indx_dst = (k_brd - 1) * ndim
+               r_brd(indx_dst + 1 : indx_dst + ndim) = r_in(indx_src + 1 : indx_src + ndim)
+            Else If (neighbors_in(i) == 0) Then
+               k_non = k_non + 1
+               idx_nonassoc(k_non) = i
+               indx_dst = (k_non - 1) * ndim
+               r_nonassoc(indx_dst + 1 : indx_dst + ndim) = r_in(indx_src + 1 : indx_src + ndim)
+            End If
+         End If
+      End Do
+
+      ! Allocate and copy to device memory
+      Allocate(gr_brd(Max(1, nbrd * ndim)))
+      Allocate(gidx_brd(Max(1, nbrd)))
+      Allocate(gr_nonassoc(Max(1, nnonassoc * ndim)))
+      Allocate(gidx_nonassoc(Max(1, nnonassoc)))
+
+      If (nbrd > 0) Then
+         gr_brd(1:nbrd*ndim) = r_brd(1:nbrd*ndim)
+         gidx_brd(1:nbrd)    = idx_brd(1:nbrd)
+      End If
+
+      If (nnonassoc > 0) Then
+         gr_nonassoc(1:nnonassoc*ndim) = r_nonassoc(1:nnonassoc*ndim)
+         gidx_nonassoc(1:nnonassoc)    = idx_nonassoc(1:nnonassoc)
+      End If
+
+   End Subroutine extract_avbmc_data_lightweight
+
+   ! Subroutine to deallocate host and device arrays
+   Subroutine avbmc_deallocate()
+      If (Allocated(r_brd)) Deallocate(r_brd)
+      If (Allocated(idx_brd)) Deallocate(idx_brd)
+      If (Allocated(r_nonassoc)) Deallocate(r_nonassoc)
+      If (Allocated(idx_nonassoc)) Deallocate(idx_nonassoc)
+
+      If (Allocated(gr_brd)) Deallocate(gr_brd)
+      If (Allocated(gidx_brd)) Deallocate(gidx_brd)
+      If (Allocated(gr_nonassoc)) Deallocate(gr_nonassoc)
+      If (Allocated(gidx_nonassoc)) Deallocate(gidx_nonassoc)
+
+      nbrd = 0
+      nnonassoc = 0
+   End Subroutine avbmc_deallocate
+
+   ! Subroutine to attempt AVBMC paired moves (In-move and Out-move) with CBMC Rosenbluth trial scheme and O(1) cell updates
+   Subroutine attempt_avbmc_pair_moves(neighbors_in, offset_in, adjacency_in)
+      Use rundata, Only : avbmc, beta, avbmc_k_trials, avbmc_max_trials
+      Use potential, Only : rangepp
+      Use configuration, Only : r, Box, natoms, ndim
+      Use properties, Only : En_tot
+      Implicit None
+
+      Integer, Intent(IN) :: neighbors_in(natoms)
+      Integer, Intent(IN) :: offset_in(natoms)
+      Integer, Intent(IN) :: adjacency_in(:)
+
+      Integer :: i_non_idx, i_brd_idx, id_non, id_brd, id_target, n_neigh, k_pick, k_avbmc, navbmc_trials
+      Integer :: K_trials, m, m_chosen
+      Real(wp) :: r_bind, v_bind, v_box, pi
+      Real(wp) :: r_old(3), r_trial(3), r_target_real(3), dr(3), dist_r, u_dist
+      Real(wp) :: rnd, rnd1, rnd2, rnd3, phi, cos_th, sin_th
+      Real(wp) :: e_old, e_eval, delta_e, prob_acc
+      Real(wp) :: w_sum_bulk, w_avg_bulk, w_cluster, cum_w, r_pick
+      Real(wp), Allocatable :: w_trials(:), delta_e_trial(:), r_trials_box(:,:)
+      Logical :: has_overlap, any_accepted
+      External :: calc_single_particle_energy
+
+      If (.Not. avbmc) Return
+      If (nbrd <= 0 .Or. nnonassoc <= 0) Return
+
+      K_trials = Max(1, avbmc_k_trials)
+      Allocate(w_trials(K_trials))
+      Allocate(delta_e_trial(K_trials))
+      Allocate(r_trials_box(3, K_trials))
+
+      pi = Acos(-1.0_wp)
+      r_bind = 1.5_wp * rangepp
+      v_bind = (4.0_wp / 3.0_wp) * pi * (r_bind**3)
+      v_box = Box(0) * Box(1) * Box(2)
+      navbmc_trials = Min(avbmc_max_trials, Min(nbrd, nnonassoc))
+      any_accepted = .False.
+
+      Call Convert_CB_RU()
+
+      Do k_avbmc = 1, navbmc_trials
+         If (nbrd <= 0 .Or. nnonassoc <= 0) Exit
+
+         ! ==================================================================
+         ! 1. AVBMC IN-MOVE (Association: Bulk V_out -> Cluster Border V_in)
+         ! ==================================================================
+         Call Random_number(rnd)
+         i_non_idx = 1 + Int(rnd * Real(nnonassoc, wp))
+         If (i_non_idx > nnonassoc) i_non_idx = nnonassoc
+         id_non = idx_nonassoc(i_non_idx)
+
+         Call Random_number(rnd)
+         i_brd_idx = 1 + Int(rnd * Real(nbrd, wp))
+         If (i_brd_idx > nbrd) i_brd_idx = nbrd
+         id_brd = idx_brd(i_brd_idx)
+
+         n_neigh = neighbors_in(id_brd)
+         If (n_neigh > 0) Then
+            Call Random_number(rnd)
+            k_pick = Int(rnd * Real(n_neigh, wp))
+            If (k_pick >= n_neigh) k_pick = n_neigh - 1
+            id_target = adjacency_in(offset_in(id_brd) + k_pick)
+         Else
+            id_target = id_brd
+            n_neigh = 1
+         End If
+
+         r_old(1:3) = r((id_non - 1) * ndim : (id_non - 1) * ndim + 2)
+         Call calc_single_particle_energy(id_non, r_old, e_old, has_overlap)
+         If (has_overlap) Then
+            w_trials(1) = 0.0_wp
+         Else
+            w_trials(1) = 1.0_wp
+         End If
+         r_trials_box(1:3, 1) = r_old(1:3)
+
+         ! Generate K-1 dummy trial positions in the bulk
+         Do m = 2, K_trials
+            Call Random_number(rnd1)
+            Call Random_number(rnd2)
+            Call Random_number(rnd3)
+            r_trials_box(1, m) = rnd1
+            r_trials_box(2, m) = rnd2
+            r_trials_box(3, m) = rnd3
+
+            Call calc_single_particle_energy(id_non, r_trials_box(1:3, m), e_eval, has_overlap)
+            If (has_overlap) Then
+               w_trials(m) = 0.0_wp
+            Else
+               delta_e = e_eval - e_old
+               w_trials(m) = Exp(-beta * delta_e)
+            End If
+         End Do
+         w_sum_bulk = Sum(w_trials(1:K_trials))
+
+         ! Sample trial position inside binding volume V_in centered on target atom
+         r_target_real(1) = r((id_target - 1) * ndim) * Box(0)
+         r_target_real(2) = r((id_target - 1) * ndim + 1) * Box(1)
+         r_target_real(3) = r((id_target - 1) * ndim + 2) * Box(2)
+
+         Call Random_number(rnd1)
+         Call Random_number(rnd2)
+         Call Random_number(rnd3)
+         phi = 2.0_wp * pi * rnd1
+         cos_th = 2.0_wp * rnd2 - 1.0_wp
+         sin_th = Sqrt(Max(0.0_wp, 1.0_wp - cos_th**2))
+         u_dist = rnd3**(1.0_wp / 3.0_wp)
+         dist_r = r_bind * u_dist
+
+         dr(1) = dist_r * sin_th * Cos(phi)
+         dr(2) = dist_r * sin_th * Sin(phi)
+         dr(3) = dist_r * cos_th
+
+         r_trial(1) = (r_target_real(1) + dr(1)) / Box(0)
+         r_trial(2) = (r_target_real(2) + dr(2)) / Box(1)
+         r_trial(3) = (r_target_real(3) + dr(3)) / Box(2)
+
+         r_trial(1) = r_trial(1) - Floor(r_trial(1))
+         r_trial(2) = r_trial(2) - Floor(r_trial(2))
+         r_trial(3) = r_trial(3) - Floor(r_trial(3))
+
+         Call calc_single_particle_energy(id_non, r_trial, e_eval, has_overlap)
+         If (has_overlap) Then
+            w_cluster = 0.0_wp
+         Else
+            delta_e = e_eval - e_old
+            w_cluster = Exp(-beta * delta_e)
+         End If
+
+         ! Association acceptance criterion using Rosenbluth weight W_old
+         If (w_sum_bulk > 0.0_wp .And. w_cluster > 0.0_wp) Then
+            prob_acc = (Real(nbrd * n_neigh + 1, wp) / Real(nnonassoc, wp)) * &
+               (v_box / v_bind) * (Real(K_trials, wp) * w_cluster / w_sum_bulk)
+         Else
+            prob_acc = 0.0_wp
+         End If
+
+         navbmc_in_att = navbmc_in_att + 1
+
+         Call Random_number(rnd)
+         If (rnd < prob_acc) Then
+            navbmc_in_acc = navbmc_in_acc + 1
+            r((id_non - 1) * ndim : (id_non - 1) * ndim + 2) = r_trial(1:3)
+            Call update_single_particle_cell(id_non, r_old, r_trial)
+            En_tot = En_tot + delta_e
+            any_accepted = .True.
+         End If
+
+         ! ===================================================================
+         ! 2. AVBMC OUT-MOVE (Dissociation: Cluster Border V_in -> Bulk V_out)
+         ! ===================================================================
+         If (nbrd <= 0 .Or. nnonassoc <= 0) Exit
+
+         Call Random_number(rnd)
+         i_brd_idx = 1 + Int(rnd * Real(nbrd, wp))
+         If (i_brd_idx > nbrd) i_brd_idx = nbrd
+         id_brd = idx_brd(i_brd_idx)
+
+         n_neigh = neighbors_in(id_brd)
+         If (n_neigh <= 0) n_neigh = 1
+
+         r_old(1:3) = r((id_brd - 1) * ndim : (id_brd - 1) * ndim + 2)
+         Call calc_single_particle_energy(id_brd, r_old, e_old, has_overlap)
+
+         ! Generate K_trials independent trial positions in bulk V_out
+         Do m = 1, K_trials
+            Call Random_number(rnd1)
+            Call Random_number(rnd2)
+            Call Random_number(rnd3)
+            r_trials_box(1, m) = rnd1
+            r_trials_box(2, m) = rnd2
+            r_trials_box(3, m) = rnd3
+
+            Call calc_single_particle_energy(id_brd, r_trials_box(1:3, m), e_eval, has_overlap)
+            If (has_overlap) Then
+               w_trials(m) = 0.0_wp
+               delta_e_trial(m) = 0.0_wp
+            Else
+               delta_e_trial(m) = e_eval - e_old
+               w_trials(m) = Exp(-beta * delta_e_trial(m))
+            End If
+         End Do
+         w_sum_bulk = Sum(w_trials(1:K_trials))
+         w_avg_bulk = w_sum_bulk / Real(K_trials, wp)
+
+         ! Dissociation acceptance criterion using Rosenbluth average w_avg_bulk
+         If (w_sum_bulk > 0.0_wp) Then
+            prob_acc = (Real(nnonassoc + 1, wp) / Real(nbrd * n_neigh, wp)) * &
+               (v_bind / v_box) * w_avg_bulk
+         Else
+            prob_acc = 0.0_wp
+         End If
+
+         navbmc_out_att = navbmc_out_att + 1
+
+         Call Random_number(rnd)
+         If (rnd < prob_acc .And. w_sum_bulk > 0.0_wp) Then
+            navbmc_out_acc = navbmc_out_acc + 1
+            ! Select one of the K trial positions m_chosen with probability P(m) = w_m / w_sum_bulk
+            Call Random_number(r_pick)
+            r_pick = r_pick * w_sum_bulk
+            cum_w = 0.0_wp
+            m_chosen = K_trials
+            Do m = 1, K_trials
+               cum_w = cum_w + w_trials(m)
+               If (r_pick <= cum_w) Then
+                  m_chosen = m
+                  Exit
+               End If
+            End Do
+
+            r((id_brd - 1) * ndim : (id_brd - 1) * ndim + 2) = r_trials_box(1:3, m_chosen)
+            Call update_single_particle_cell(id_brd, r_old, r_trials_box(1:3, m_chosen))
+            En_tot = En_tot + delta_e_trial(m_chosen)
+            any_accepted = .True.
+         End If
+      End Do
+
+      If (any_accepted) Then
+         Call repopulate_checkerboard_cells()
+         Call CB_system_energy_GPU(1)
+      End If
+
+      Deallocate(w_trials)
+      Deallocate(delta_e_trial)
+      Deallocate(r_trials_box)
+
+   End Subroutine attempt_avbmc_pair_moves
+
+   Subroutine print_avbmc_stats()
+      If (navbmc_in_att > 0) last_avbmc_p_in = Real(navbmc_in_acc, wp) / Real(navbmc_in_att, wp)
+      If (navbmc_out_att > 0) last_avbmc_p_out = Real(navbmc_out_acc, wp) / Real(navbmc_out_att, wp)
+   End Subroutine print_avbmc_stats
+
+END MODULE mod_avbmc
