@@ -530,64 +530,23 @@ Program MCCB_gpu
          If (diff_gpu_time_ms /= diff_gpu_time_ms .or. diff_gpu_time_ms <= 0.0) diff_gpu_time_ms = Real(diff_cpu_time * 1000.0_wp, 4)
          total_gpu_time = total_gpu_time + (real(diff_gpu_time_ms, wp) / 1000.0_wp)
 
-         ! --------------------------------------------------------------------------
-         ! Dynamic Two-Tier AVBMC and Cluster Analysis
-         ! --------------------------------------------------------------------------
-         If (ncluster > 0 .or. avbmc) Then
-            If (.not. avbmc) Then
-               ! Standard clustering without AVBMC
-               If (ncluster > 0 .and. mod(i, ncluster) == 0) Then
+         ! Cluster analysis may use two frequencies; move frequency is fixed.
+         If (ncluster > 0) Then
+            If (avbmc .and. .not. cluster_regime_large) Then
+               If (ncluster_init > 0 .and. mod(i,ncluster_init) == 0) Then
                   Call Convert_CB_RU
                   Call run_cluster_analysis(i)
+                  If (last_max_size > cluster_threshold) cluster_regime_large = .true.
                End If
-            Else
-               ! AVBMC is ENABLED: Two-tier dynamic scheduling
-               If (cluster_regime_large) Then
-                  ! --- Tier 2: Large-cluster regime (max cluster size > cluster_threshold) ---
-                  ! Execute full DBSCAN cluster detection + surface detection every ncluster sweeps
-                  If (ncluster > 0 .and. mod(i, ncluster) == 0) Then
-                     Call Convert_CB_RU
-                     Call run_cluster_analysis(i)
-                     If (last_max_size <= cluster_threshold) Then
-                        cluster_regime_large = .false.
-                        write(*,*)
-                        write(*,'(A)') c_yellow // ' ---------------------------------------------------------------------------------------------------' // c_reset
-                        write(*,'(A,I0,A,I0,A)') c_yellow // '  >>> [AVBMC REGIME SWITCH] Max cluster size dropped to ', &
-                                                 last_max_size, ' <= threshold (', cluster_threshold, ').' // c_reset
-                        write(*,'(A,I0,A,I0,A)') c_yellow // '             Reverting to Tier-1 lightweight AVBMC (every ', &
-                                                 n_avbmc, ' sweeps; DBSCAN check every ', ncluster_init, ' sweeps).' // c_reset
-                        write(*,'(A)') c_yellow // ' ---------------------------------------------------------------------------------------------------' // c_reset
-                        write(*,*)
-                     End If
-                     Call attempt_avbmc_pair_moves(neighbors, offset, adjacency)
-                     Call print_avbmc_stats()
-                  End If
-               Else
-                  ! --- Tier 1: Small-cluster regime (max cluster size <= cluster_threshold) ---
-                  ! Periodic DBSCAN cluster search every ncluster_init sweeps to check for nucleation
-                  If (ncluster_init > 0 .and. mod(i, ncluster_init) == 0) Then
-                     Call Convert_CB_RU
-                     Call run_cluster_analysis(i)
-                     If (last_max_size > cluster_threshold) Then
-                        cluster_regime_large = .true.
-                        write(*,*)
-                        write(*,'(A)') c_green // ' ---------------------------------------------------------------------------------------------------' // c_reset
-                        write(*,'(A,I0,A,I0,A)') c_green // '  >>> [AVBMC REGIME SWITCH] Nucleation detected: max cluster size = ', &
-                                                 last_max_size, ' > threshold (', cluster_threshold, ').' // c_reset
-                        write(*,'(A,I0,A)') c_green // '             Switching to Tier-2 full DBSCAN & surface detection every ncluster = ', &
-                                                 ncluster, ' sweeps (n_avbmc = ncluster).' // c_reset
-                        write(*,'(A)') c_green // ' ---------------------------------------------------------------------------------------------------' // c_reset
-                        write(*,*)
-                     End If
-                     Call attempt_avbmc_pair_moves(neighbors, offset, adjacency)
-                     Call print_avbmc_stats()
-                  Else If (n_avbmc > 0 .and. mod(i, n_avbmc) == 0) Then
-                     ! Lightweight AVBMC move: only cell-list neighbor search, no DBSCAN, no surface detection
-                     Call Convert_CB_RU
-                     Call run_lightweight_avbmc_step()
-                  End If
-               End If
+            ElseIf (mod(i,ncluster) == 0) Then
+               Call Convert_CB_RU
+               Call run_cluster_analysis(i)
+               If (avbmc .and. last_max_size <= cluster_threshold) cluster_regime_large = .false.
             End If
+         End If
+         If (avbmc .and. ncluster > 0 .and. mod(i, ncluster) == 0) Then
+            Call attempt_avbmc_pair_moves(neighbors, offset, adjacency)
+            Call print_avbmc_stats()
          End If
          ! Compute Virial Pressure for all systems
          If (pot_int == -1) Then

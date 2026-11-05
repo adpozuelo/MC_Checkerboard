@@ -606,7 +606,6 @@ Subroutine update_single_particle_cell(id_atom, r_old, r_new)
       If (List_Cell(Indice2_old) == i_atom) Then
          k_pos = k_last
          Indice2_old = Indice_old * Nat_cell_max * (ndim + 4) + k_pos * (ndim + 4)
-         q_saved(1:4) = Sphere_Cell(Indice2_old + 3 : Indice2_old + 6)
          Exit
       End If
    End Do
@@ -620,8 +619,7 @@ Subroutine update_single_particle_cell(id_atom, r_old, r_new)
                Indice_old = icell_idx
                k_pos = k_last
                Indice2_old = Indice_old * Nat_cell_max * (ndim + 4) + k_pos * (ndim + 4)
-               q_saved(1:4) = Sphere_Cell(Indice2_old + 3 : Indice2_old + 6)
-               Exit
+                     Exit
             End If
          End Do
          If (k_pos >= 0) Exit

@@ -112,6 +112,8 @@ MODULE rundata
    Real(wp) :: energy_threshold = -2.0_wp              ! Energy cutoff for surface/border atoms
    Real(wp) :: energy_border_ratio = 0.5_wp            ! Energy ratio relative to bulk/inner cluster atoms for border detection
    Logical  :: use_energy_ratio = .false.              ! Use relative energy ratio instead of absolute threshold
+   Integer  :: avbmc_target_types(10) = -1, avbmc_move_types(10) = -1
+   Real(wp) :: avbmc_p_in = 0.5_wp, avbmc_rbind = -1.0_wp
    Integer  :: avbmc_k_trials = 10                     ! Number of CBMC Rosenbluth trial positions (K) in bulk for AVBMC moves
    Integer  :: avbmc_max_trials = 50                   ! Maximum AVBMC pair trials per step to cap execution time
    Integer  :: n_avbmc = 10                             ! Frequency (in MC sweeps) of AVBMC exchange moves in small-cluster regime

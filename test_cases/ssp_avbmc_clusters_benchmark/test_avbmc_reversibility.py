@@ -1,3 +1,6 @@
+# SUPERSEDED: This test checks only reciprocal algebra and cannot detect biased
+# proposal probabilities. Run ../avbmc_detailed_balance/avbmc_reference.py for
+# statistical ideal-gas and interacting-system checks of the corrected scheme.
 #!/usr/bin/env python3
 """
 ==============================================================================

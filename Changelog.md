@@ -1,3 +1,27 @@
+## AVBMC detailed-balance correction (November 2026)
+
+- Replaced border/non-associated proposals with fixed-type target selection and
+  current-configuration in/out counts. Acceptance uses the exact AVBMC-1
+  volume, count, direction, and Rosenbluth factors; trials include uniform
+  orientations. The host energy uses the full core and patch Hamiltonian.
+- AVBMC attempts now run at a fixed `ncluster` sweep interval. Cluster and
+  border calculations remain analysis only. Accepted positions and quaternions
+  are copied into checkerboard cells before the GPU energy recomputation.
+- The old implementation inverted the volume/count proposal factors and used
+  stale, configuration-dependent DBSCAN lists. Previous AVBMC results,
+  including `sb_avbmc_50_50*` and `ssp_avbmc_clusters_benchmark`, are biased
+  toward aggregation and should be rerun.
+- Validation: Python reference (`test_cases/avbmc_detailed_balance`) passes the ideal-gas binomial test (χ² p = 0.61; old scheme p < 1e-300) and agrees with plain MC for an interacting system (p = 0.72/0.35/0.43). GPU runs with AVBMC on vs off agree for a WCA fluid (5 seeds: E/N 0.02σ, P 0.19σ) and for weak patchy bonds (E/N 0.9σ, P 0.5σ, bonds 0.4σ).
+
+## Campaign input safety and SSP mapping
+
+- Check SSP center cutoff against both patch offsets and the patch well reach.
+- Include tabulated patch energy in the host pair-energy path used by AVBMC and CPU checks.
+- Preserve Vpot precision in restart inputs so matched SSP bond depths survive continuation.
+- Read the SSP sigma matrix with full precision and print effective geometry and WCA depth.
+- Restart inputs (`input-restart.nml`) now also store `temp1`; previously a restarted run fell back to the default `temp1 = 1.0` and silently annealed towards T = 1.
+- Document that Eq. 2 uses 0.05/0.15 while the figure caption and unchanged defaults use 0.10/0.30; epsilon_LJ is fixed at 1, so temperature and Vpot set relative depths.
+
 # Changelog
 
 All notable changes to the **MC_Checkerboard** simulation code will be documented in this file.
