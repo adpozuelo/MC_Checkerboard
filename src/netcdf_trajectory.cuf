@@ -29,7 +29,7 @@ Module netcdf_trajectory
    Implicit None
 
    Private
-   Public :: netcdf_init_trajectory, netcdf_write_frame, netcdf_close_trajectory
+   Public :: netcdf_init_trajectory, netcdf_write_frame, netcdf_close_trajectory, netcdf_trajectory_finalize
 
    ! NetCDF file ID and variable IDs
    Integer :: ncid
@@ -346,5 +346,10 @@ Contains
       current_frame = 0
 
    End Subroutine netcdf_close_trajectory
+
+   Subroutine netcdf_trajectory_finalize()
+      ! Frame buffers are local and released after each write.
+      current_frame = 0
+   End Subroutine netcdf_trajectory_finalize
 
 End Module netcdf_trajectory

@@ -71,13 +71,11 @@ contains
 
     subroutine close_hmc_lammps()
         implicit none
-        if (hmc_initialized) then
-            call lmp%close(.true.)
-            hmc_initialized = .false.
-            lmp_system_loaded = .false.
-            if (allocated(pos_real)) deallocate(pos_real)
-            if (allocated(atom_types_lmp)) deallocate(atom_types_lmp)
-        end if
+        if (hmc_initialized) call lmp%close(.true.)
+        hmc_initialized = .false.
+        lmp_system_loaded = .false.
+        if (allocated(pos_real)) deallocate(pos_real)
+        if (allocated(atom_types_lmp)) deallocate(atom_types_lmp)
     end subroutine close_hmc_lammps
 
     subroutine uppercase_str(str)

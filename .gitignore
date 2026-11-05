@@ -134,3 +134,6 @@ test_cases/sb_avbmc_*/dens*.dat
 test_cases/sb_avbmc_*/fshape*.dat
 test_cases/sb_avbmc_*/radii*.dat
 test_cases/sb_avbmc_*/rhoprof*.dat
+/bin/MCCB-gpu-v3
+/bin/MCCB-gpu-v4
+/src/build/
