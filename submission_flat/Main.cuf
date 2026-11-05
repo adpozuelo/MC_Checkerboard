@@ -51,13 +51,14 @@ Program MCCB_gpu
    Use rundata
    Use cell
 
-   Use cuda_fortran, only: limpio, compute_per_atom_energy_gpu
+   Use cuda_fortran, only: limpio, gpu_finalize, compute_per_atom_energy_gpu
    Use tools
    Use cudafor                            ! Required for cudaEvent structures
    Use netcdf_trajectory
    Use mod_clusters
    Use mod_avbmc
    Use lammps_hmc_wrapper, only: init_hmc_lammps, execute_hmc_step, close_hmc_lammps
+   Use mod_hs_virial_accum, only: mod_hs_virial_accum_dealloc
 
    Implicit None
    Integer :: i, j, ll, Iend, Ieq, vec_shift(6,0:ndim-1), vec(0:ndim-1), k_swap
@@ -134,7 +135,7 @@ Program MCCB_gpu
 
    write(*,'(A)') c_blue // '========================================================================================' // c_reset
    write(*,'(A)') c_cyan // '                            HYBRID MCCB-gpu/LAMMPS SIMULATION ENGINE                            ' // c_reset
-   write(*,'(A)') c_cyan // '                                     Version 2.8.0                                      ' // c_reset
+   write(*,'(A)') c_cyan // '                                     Version 2.9.0                                      ' // c_reset
    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
    write(*,'(A)') c_cyan // ' Authors: A. Diaz-Pozuelo, E. Lomba, and E.G. Noya (IQF-CSIC)                           ' // c_reset
    write(*,'(A)') c_cyan // ' Based on original CUDA-C MC code by E.G. Noya (https://github.com/evanoya/MC_GPU)       ' // c_reset
@@ -530,64 +531,23 @@ Program MCCB_gpu
          If (diff_gpu_time_ms /= diff_gpu_time_ms .or. diff_gpu_time_ms <= 0.0) diff_gpu_time_ms = Real(diff_cpu_time * 1000.0_wp, 4)
          total_gpu_time = total_gpu_time + (real(diff_gpu_time_ms, wp) / 1000.0_wp)
 
-         ! --------------------------------------------------------------------------
-         ! Dynamic Two-Tier AVBMC and Cluster Analysis
-         ! --------------------------------------------------------------------------
-         If (ncluster > 0 .or. avbmc) Then
-            If (.not. avbmc) Then
-               ! Standard clustering without AVBMC
-               If (ncluster > 0 .and. mod(i, ncluster) == 0) Then
+         ! Cluster analysis may use two frequencies; move frequency is fixed.
+         If (ncluster > 0) Then
+            If (avbmc .and. .not. cluster_regime_large) Then
+               If (ncluster_init > 0 .and. mod(i,ncluster_init) == 0) Then
                   Call Convert_CB_RU
                   Call run_cluster_analysis(i)
+                  If (last_max_size > cluster_threshold) cluster_regime_large = .true.
                End If
-            Else
-               ! AVBMC is ENABLED: Two-tier dynamic scheduling
-               If (cluster_regime_large) Then
-                  ! --- Tier 2: Large-cluster regime (max cluster size > cluster_threshold) ---
-                  ! Execute full DBSCAN cluster detection + surface detection every ncluster sweeps
-                  If (ncluster > 0 .and. mod(i, ncluster) == 0) Then
-                     Call Convert_CB_RU
-                     Call run_cluster_analysis(i)
-                     If (last_max_size <= cluster_threshold) Then
-                        cluster_regime_large = .false.
-                        write(*,*)
-                        write(*,'(A)') c_yellow // ' ---------------------------------------------------------------------------------------------------' // c_reset
-                        write(*,'(A,I0,A,I0,A)') c_yellow // '  >>> [AVBMC REGIME SWITCH] Max cluster size dropped to ', &
-                                                 last_max_size, ' <= threshold (', cluster_threshold, ').' // c_reset
-                        write(*,'(A,I0,A,I0,A)') c_yellow // '             Reverting to Tier-1 lightweight AVBMC (every ', &
-                                                 n_avbmc, ' sweeps; DBSCAN check every ', ncluster_init, ' sweeps).' // c_reset
-                        write(*,'(A)') c_yellow // ' ---------------------------------------------------------------------------------------------------' // c_reset
-                        write(*,*)
-                     End If
-                     Call attempt_avbmc_pair_moves(neighbors, offset, adjacency)
-                     Call print_avbmc_stats()
-                  End If
-               Else
-                  ! --- Tier 1: Small-cluster regime (max cluster size <= cluster_threshold) ---
-                  ! Periodic DBSCAN cluster search every ncluster_init sweeps to check for nucleation
-                  If (ncluster_init > 0 .and. mod(i, ncluster_init) == 0) Then
-                     Call Convert_CB_RU
-                     Call run_cluster_analysis(i)
-                     If (last_max_size > cluster_threshold) Then
-                        cluster_regime_large = .true.
-                        write(*,*)
-                        write(*,'(A)') c_green // ' ---------------------------------------------------------------------------------------------------' // c_reset
-                        write(*,'(A,I0,A,I0,A)') c_green // '  >>> [AVBMC REGIME SWITCH] Nucleation detected: max cluster size = ', &
-                                                 last_max_size, ' > threshold (', cluster_threshold, ').' // c_reset
-                        write(*,'(A,I0,A)') c_green // '             Switching to Tier-2 full DBSCAN & surface detection every ncluster = ', &
-                                                 ncluster, ' sweeps (n_avbmc = ncluster).' // c_reset
-                        write(*,'(A)') c_green // ' ---------------------------------------------------------------------------------------------------' // c_reset
-                        write(*,*)
-                     End If
-                     Call attempt_avbmc_pair_moves(neighbors, offset, adjacency)
-                     Call print_avbmc_stats()
-                  Else If (n_avbmc > 0 .and. mod(i, n_avbmc) == 0) Then
-                     ! Lightweight AVBMC move: only cell-list neighbor search, no DBSCAN, no surface detection
-                     Call Convert_CB_RU
-                     Call run_lightweight_avbmc_step()
-                  End If
-               End If
+            ElseIf (mod(i,ncluster) == 0) Then
+               Call Convert_CB_RU
+               Call run_cluster_analysis(i)
+               If (avbmc .and. last_max_size <= cluster_threshold) cluster_regime_large = .false.
             End If
+         End If
+         If (avbmc .and. ncluster > 0 .and. mod(i, ncluster) == 0) Then
+            Call attempt_avbmc_pair_moves(neighbors, offset, adjacency)
+            Call print_avbmc_stats()
          End If
          ! Compute Virial Pressure for all systems
          If (pot_int == -1) Then
@@ -831,9 +791,18 @@ Program MCCB_gpu
    If (pot_int /= -1) write(*,'(A,f18.8,A,es11.4)') c_yellow // ' >>> Final energy evaluated with GPU = ' // c_reset, En_tot, &
                                                     ' | Drift = ', abs(En_tot - En_tot_old)
 
-   if (lammps .and. Nmc_hmc > 0) call close_hmc_lammps()
-   Call clusters_dealloc()
-   Call limpio
+   call close_hmc_lammps()
+   call clusters_dealloc()
+   call avbmc_finalize()
+   call netcdf_trajectory_finalize()
+   if (allocated(atom_energies_host)) deallocate(atom_energies_host)
+   call gpu_finalize()
+   call cell_dealloc()
+   call configuration_dealloc()
+   call potential_dealloc()
+   call mod_hs_virial_accum_dealloc()
+   istat = cudaDeviceSynchronize()
+   call limpio
    write(*,'(A)') c_green // ' >>> Simulation completely finished. GPU memory cleaned.' // c_reset
 
 End Program MCCB_gpu

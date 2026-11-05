@@ -50,7 +50,7 @@ Lennard-Jones reduced units are used. Potentials are truncated and shifted at ra
 - **GPU-Accelerated Identity Swaps**: Massively parallel identity swap moves for multicomponent mixtures ($N_{\text{species}} \ge 2$, with trial species pairs chosen uniformly at random) across all potential models (Hard Spheres, Lennard-Jones/table, angular patchy, and site-site patchy) leveraging checkerboard cellular decomposition and long-range sublattice swaps [5]
 - **Anisotropic Interactions**: Lennard-Jones core with angular (patch-patch) and torsional terms
 - **Multiple Ensembles**: Supports both NVT (canonical) and NpT (isothermal-isobaric)
-- **Aggregation Volume Bias MC (AVBMC)**: Advanced cluster swap moves (association & dissociation) [3] with two-tier dynamic scheduling (lightweight small-cluster nucleation vs. full G-DBSCAN surface-guided aggregation), Configurable Rosenbluth (CBMC) bulk probing scheme, and $O(1)$ single-particle cell list updates
+- **Aggregation Volume Bias MC (AVBMC)**: AVBMC-1 moves [3] with fixed-type target selection, exact in/out proposal factors, configurable Rosenbluth trials with random orientations, and fixed-frequency scheduling
 - **Flexible Particle Models**: Up to 7 patches per particle with customizable geometries
 - **Adaptive MC Parameters**: Automatic adjustment of displacement parameters for optimal acceptance rates
 - **Temperature Annealing**: Linear temperature ramping capability
@@ -82,7 +82,7 @@ Lennard-Jones reduced units are used. Potentials are truncated and shifted at ra
 #### Core Modules
 - `Definitions.cuf` - Module definitions (precision, configuration, potential, properties, cell structure)
 - `Main.cuf` - Main program with MC loop and simulation control
-- `mod_avbmc.cuf` - Aggregation Volume Bias MC (AVBMC) module, CBMC Rosenbluth scheme, and border/bulk particle transfers
+- `mod_avbmc.cuf` - Aggregation Volume Bias MC (AVBMC) module with fixed-type targets and configurational bias
 
 #### Energy and Interactions
 - `energy.cuf` - CPU energy calculation for verification
@@ -232,30 +232,36 @@ The namelist filename passed as the first command-line argument to `MCCB-gpu` is
 - `cluster_types` - Integer array of up to 10 particle species to include in cluster analysis. Default is `-1` (unspecified). Accepts either 0-based (`0`) or 1-based (`1`) indexing for species selection (e.g., both `cluster_types = 0` and `cluster_types = 1` select the first species).
 
 ### Aggregation Volume Bias MC (AVBMC) Control
-- `avbmc` - Enable AVBMC cluster association/dissociation moves (`.true.` / `.false.`, default: `.false.`)
-- `n_avbmc` - Frequency (in MC sweeps) of lightweight AVBMC exchange moves in Tier 1 (small-cluster regime, default: `10`)
-- `ncluster_init` - Periodic frequency (in MC sweeps) of full DBSCAN cluster checks in Tier 1 to detect nucleation (default: `500`)
-- `cluster_threshold` - Cluster size threshold ($S_{\text{thresh}}$) separating Tier 1 and Tier 2 (default: `5`)
-- `bound_min_neighbors` - Minimum coordination number ($z_{\text{bound}}$) for a particle to be classified as bound in Tier 1 (default: `1`, capturing dimers and higher oligomers)
-- `border_criterion` - Surface/border particle detection method in Tier 2: `'energy'` (energy threshold relative to bulk) or `'asymmetry'` (geometric displacement asymmetry) (default: `'asymmetry'`)
-- `energy_border_ratio` - Energy ratio relative to bulk binding energy for border particle identification when `border_criterion = 'energy'` (default: `0.5`)
-- `avbmc_k_trials` - Number of trial positions ($K$) generated in the bulk for Configurable Rosenbluth (CBMC) bulk volume probing (default: `10`)
-- `avbmc_max_trials` - Maximum number of pair attempts per AVBMC step to bound execution time for large systems (default: `50`)
 
-#### Two-Tier Dynamic AVBMC Scheduling (Nucleation vs. Condensed Phase)
-AVBMC in `MCCB-gpu` employs a dynamic two-tier scheduler that automatically adapts according to the instantaneous maximum cluster size $S_{\max}$:
-1. **Tier 1: Pre-Nucleation / Small-Cluster Regime ($S_{\max} \le S_{\text{thresh}}$, default $\le 5$ particles)**:
-   - For small clusters (dimers, trimers, etc.), every particle is on the surface. Standard DBSCAN with $\text{minPts} \ge 3$ classifies dimers as noise ($\text{label} = 0$), which previously prevented monomer association onto dimers.
-   - Tier 1 completely bypasses full DBSCAN BFS search, cluster size distribution analysis, trajectory file logging (`mclast_clconf.lammpstrj`), and geometric dipole asymmetry $\eta_i$ or per-atom energy calculations.
-   - Particles are partitioned via fast $O(N)$ GPU cell-list neighbor counting (`neighbor_search`) into:
-     - **Bound Pool** ($\mathcal{B}$): particles with $z_i \ge \text{bound\_min\_neighbors}$ (default 1, capturing dimers and oligomers).
-     - **Isolated Pool** ($\mathcal{F}$): particles with $z_i = 0$ (unbonded monomers).
-   - Lightweight AVBMC pair exchanges execute frequently, every `n_avbmc` sweeps (default 10), accelerating initial aggregation with sub-millisecond execution time.
-   - A full DBSCAN check runs periodically every `ncluster_init` sweeps (default 500) to monitor whether a critical nucleus has formed.
-2. **Tier 2: Post-Nucleation / Condensed Phase Regime ($S_{\max} > S_{\text{thresh}}$)**:
-   - When a cluster exceeding `cluster_threshold` (default 5) is discovered, the code dynamically switches to `n_avbmc = ncluster`.
-   - Every `ncluster` sweeps, full DBSCAN clustering, geometric dipole asymmetry detection ($\eta_i \ge \eta_{\text{thresh}}$), border logging (`mclast_brdconf.lammpstrj`), and AVBMC surface exchanges are executed.
-   - If the cluster dissolves ($S_{\max} \le S_{\text{thresh}}$), the simulation dynamically reverts to Tier 1 without user intervention.
+AVBMC-1 selects a target uniformly from a fixed list of particle types, then
+chooses an IN move with probability `avbmc_p_in` or an OUT move otherwise.
+For the chosen target, it counts eligible movable particles inside and outside
+a minimum-image sphere of radius `avbmc_rbind` (default `1.5*rangepp`).
+Every attempt uses `avbmc_k_trials` position and uniform-quaternion trials in
+the destination volume and the old state plus `K-1` trials in the source
+volume. The full host pair energy includes the core and patch interactions.
+
+The acceptance factors are, with `Wnew/Wold` the Rosenbluth ratio:
+
+- IN: `(1-p_in)/p_in * V_in*N_out/(V_out*(N_in+1)) * Wnew/Wold`
+- OUT: `p_in/(1-p_in) * V_out*N_in/(V_in*(N_out+1)) * Wnew/Wold`
+
+`avbmc_target_types` and `avbmc_move_types` use 1-based input type IDs
+and default to all particle types.
+`avbmc_p_in` defaults to 0.5; `avbmc_k_trials` to 10;
+`avbmc_max_trials` to 50; and `avbmc_rbind <= 0` selects the default radius.
+The radius must be less than half each box length. Moves run every `ncluster`
+sweeps, independent of cluster state. DBSCAN and border detection remain
+analysis features; legacy border keys remain accepted by the namelist.
+`P_AV_in` and `P_AV_out` report separate acceptance fractions.
+
+**Previous AVBMC results are biased toward aggregation.** The former code
+inverted proposal volume/count factors and used configuration-dependent
+DBSCAN lists without updating them for reverse moves. This affects results in
+`test_cases/sb_avbmc_50_50*` and
+`test_cases/ssp_avbmc_clusters_benchmark`, and any other run made with AVBMC
+before this fix. See `test_cases/avbmc_detailed_balance` for independent
+statistical checks.
 
 ### Identity Swap Moves (Multicomponent Mixtures)
 - `swap_moves` - Enable GPU-accelerated identity swap moves (`.true.` / `.false.`, default: `.false.`). Supported for multicomponent mixtures ($N_{\text{part\_types}} \ge 2$) across all interaction potentials: Hard Spheres (`HS`), Lennard-Jones (`LJ`), Tabulated potentials (`TABLE`), Angular Patchy (`LJG`), and Site-Site Patchy (`SSP`). In multicomponent systems ($N_{\text{species}} > 2$), the two distinct species involved in each swap attempt are chosen uniformly at random.
@@ -419,6 +425,17 @@ Where:
    * **Torsional Alignment** (if `bool_tor == 1`):
      $$V_{\text{tor}}(\phi) = \max_k \left\{ \exp\left( -\frac{(\phi - \phi_{\alpha, k}^{\text{ref}})^2}{\sigma_{\text{tor}}} \right) \right\}$$
      Where $\phi$ is the dihedral angle between the reference orientation vectors of patch $\alpha$ and patch $\beta$ projected onto the perpendicular plane, and $\phi_{\alpha, k}^{\text{ref}}$ are allowed torsional alignment angles.
+
+#### Palaia parameter mapping
+
+Palaia and Šarić (2022) Eq. 2 specifies patch inner and outer radii 0.05 and
+0.15 times the WCA minimum distance; the Fig. 1 caption gives 0.10 and 0.30.
+The code defaults follow the caption for backward compatibility. Set
+`sigp_factor=0.05, Rcp_factor=0.15` explicitly to use Eq. 2.
+`epsilon_LJ` is fixed to 1 in the SSP reader, so `temp0` controls the
+WCA depth in kT (`1/temp0`), while `Vpot` controls each patch bond depth.
+The input reader checks that `rangeP` covers the two patch offsets plus
+`Rcp_factor*Rmin` for each patched type pair.
 
 #### Mathematical Formulation of SSP
 

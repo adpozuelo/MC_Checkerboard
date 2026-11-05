@@ -123,8 +123,8 @@ The build system in `src/Makefile` automatically discovers standard module paths
 | :--- | :--- | :--- |
 | `FC` | Fortran compiler | `nvfortran` |
 | `LAMMPS_DIR` | Root directory of LAMMPS source/build | `$(HOME)/lammps_latest` |
-| `LAMMPSINC` | Path to LAMMPS Fortran source (`lammps.f90`) | `$(LAMMPS_DIR)/fortran` |
-| `LAMMPSLIB` | Path to `liblammps.so` | `$(LAMMPS_DIR)/build` |
+| `LAMMPSINC` | Path to LAMMPS Fortran source (`lammps.f90`); command line only | `$(LAMMPS_DIR)/fortran` |
+| `LAMMPSLIB` | Path to `liblammps.so`; command line only | `$(LAMMPS_DIR)/build` |
 | `NETCDFINC` | NetCDF header/module include directory | Auto-detected from `$EBROOTNETCDFMINFORTRAN` |
 | `NETCDFLIB` | NetCDF-Fortran dynamic library directory | Auto-detected from `$EBROOTNETCDFMINFORTRAN` |
 | `NVBIN` | Path to `nvfortran` binary directory | Auto-detected from NVHPC root |

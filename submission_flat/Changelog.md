@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.9.0] - 2026-11-05
+
+### Fixed
+- **AVBMC detailed-balance correction**:
+  - Replaced border/non-associated proposals with fixed-type target selection and
+    current-configuration in/out counts. Acceptance uses the exact AVBMC-1
+    volume, count, direction, and Rosenbluth factors; trials include uniform
+    orientations. The host energy uses the full core and patch Hamiltonian.
+  - AVBMC attempts now run at a fixed `ncluster` sweep interval. Cluster and
+    border calculations remain analysis only. Accepted positions and quaternions
+    are copied into checkerboard cells before the GPU energy recomputation.
+  - The old implementation inverted the volume/count proposal factors and used
+    stale, configuration-dependent DBSCAN lists. Previous AVBMC results,
+    including `sb_avbmc_50_50*` and `ssp_avbmc_clusters_benchmark`, are biased
+    toward aggregation and should be rerun.
+- **Complete memory release on exit**: the new `gpu_finalize()` (module `cuda_fortran`)
+  frees every module-level device, pinned and host allocatable and the cuRAND states.
+  `clusters_dealloc()` now frees each cluster array independently, and new
+  `configuration_dealloc`, `potential_dealloc`, `cell_dealloc`,
+  `mod_hs_virial_accum_dealloc`, `avbmc_finalize` and `netcdf_trajectory_finalize`
+  routines release or reset the remaining state. `Main` calls them after the final
+  energy check and synchronises the device before `cudaDeviceReset()`.
+  The mid-run `clean()` is unchanged. Note: with NVHPC 25.3, `compute-sanitizer
+  --leak-check full` still lists these allocation sites, because the CUDA Fortran runtime
+  keeps freed blocks and its own buffers until process exit. Even a minimal
+  `cudaMalloc`/`cudaFree` program is reported as leaking, so those reports are not real leaks.
+
+### Campaign input safety and SSP mapping
+- Check SSP center cutoff against both patch offsets and the patch well reach.
+- Include tabulated patch energy in the host pair-energy path used by AVBMC and CPU checks.
+- Preserve Vpot precision in restart inputs so matched SSP bond depths survive continuation.
+- Read the SSP sigma matrix with full precision and print effective geometry and WCA depth.
+- Document that Eq. 2 uses 0.05/0.15 while the figure caption and unchanged defaults use 0.10/0.30; epsilon_LJ is fixed at 1, so temperature and Vpot set relative depths.
+
+### Changed (build)
+- **One binary per cluster CPU generation**: `make` now builds `bin/MCCB-gpu-v3`
+  (`-tp=x86-64-v3`, AVX2, linked against the `x64_v3` NetCDF/HDF5 modules) and
+  `bin/MCCB-gpu-v4` (`-tp=x86-64-v4`, AVX-512, `x64_v4` modules), with separate
+  `build/v3` and `build/v4` object/module directories (`make v3` / `make v4` build one).
+  Previously the single binary, built on the AVX-512 login node, died with SIGILL in
+  `NCDISPATCH_initialize` on Broadwell GPU nodes (ladon25/26).
+- `bin/MCCB-gpu` is now a launcher script that runs the v4 binary on CPUs with
+  `avx512f` and the v3 binary otherwise. `bin/mc_gpu.exe` still points to it.
+- Library paths are embedded as `DT_RPATH` (`--disable-new-dtags`), so a module
+  `LD_LIBRARY_PATH` for the other architecture cannot override them.
+- GPU code is compiled for all Ladon GPUs: `cc75,cc86,cc89,cc90,cc120`.
+
+---
+
 ## [2.8.11] - 2026-10-15
 
 ### Added & Optimized

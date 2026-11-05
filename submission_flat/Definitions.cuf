@@ -52,6 +52,13 @@ MODULE  configuration
    Real (wp), Dimension(0:ndim*ndim-1) :: h, hinv   ! Simulation box matrix and its inverse
    Real(wp), Dimension(0:ndim-1)       :: Box, Bangles ! Box dimensions and angles
 
+   contains
+   subroutine configuration_dealloc()
+      if (allocated(itype)) deallocate(itype)
+      if (allocated(r)) deallocate(r)
+      if (allocated(q)) deallocate(q)
+      if (allocated(enp_atom)) deallocate(enp_atom)
+   end subroutine configuration_dealloc
 END MODULE configuration
 
 
@@ -112,6 +119,8 @@ MODULE rundata
    Real(wp) :: energy_threshold = -2.0_wp              ! Energy cutoff for surface/border atoms
    Real(wp) :: energy_border_ratio = 0.5_wp            ! Energy ratio relative to bulk/inner cluster atoms for border detection
    Logical  :: use_energy_ratio = .false.              ! Use relative energy ratio instead of absolute threshold
+   Integer  :: avbmc_target_types(10) = -1, avbmc_move_types(10) = -1
+   Real(wp) :: avbmc_p_in = 0.5_wp, avbmc_rbind = -1.0_wp
    Integer  :: avbmc_k_trials = 10                     ! Number of CBMC Rosenbluth trial positions (K) in bulk for AVBMC moves
    Integer  :: avbmc_max_trials = 50                   ! Maximum AVBMC pair trials per step to cap execution time
    Integer  :: n_avbmc = 10                             ! Frequency (in MC sweeps) of AVBMC exchange moves in small-cluster regime
@@ -212,6 +221,21 @@ MODULE potential
     Real(wp), device, save :: rc_CSW_dev = 0.20_wp
     Integer, device, save  :: pot_int_dev = 0
 
+   contains
+   subroutine potential_dealloc()
+      if (allocated(Nrb_sites)) deallocate(Nrb_sites)
+      if (allocated(Ntor_angle)) deallocate(Ntor_angle)
+      if (allocated(patch)) deallocate(patch)
+      if (allocated(ref_tor_vec)) deallocate(ref_tor_vec)
+      if (allocated(Vpot_Matrix)) deallocate(Vpot_Matrix)
+      if (allocated(tor_angle)) deallocate(tor_angle)
+      if (allocated(sigma_jon)) deallocate(sigma_jon)
+      if (allocated(sigma_LJ)) deallocate(sigma_LJ)
+      if (allocated(epsilon_LJ)) deallocate(epsilon_LJ)
+      if (allocated(xop)) deallocate(xop)
+      if (allocated(VL0)) deallocate(VL0)
+      if (allocated(rangeP)) deallocate(rangeP)
+   end subroutine potential_dealloc
 END MODULE potential
 
 
@@ -322,6 +346,18 @@ MODULE Cell
    real(dkind)                               :: W_RU(0:ndim-1)                  ! Cell widths in reduced units
    real(wp)                                  :: disp_max(0:ndim-1)              ! Maximum displacement per direction
 
+   contains
+   subroutine cell_dealloc()
+      if (allocated(Nat_Cell)) deallocate(Nat_Cell)
+      if (allocated(List_Cell)) deallocate(List_Cell)
+      if (allocated(List_CB)) deallocate(List_CB)
+      if (allocated(Map_Cell)) deallocate(Map_Cell)
+      if (allocated(Indx_Set)) deallocate(Indx_Set)
+      if (allocated(CB_Set)) deallocate(CB_Set)
+      if (allocated(Offset_CB)) deallocate(Offset_CB)
+      if (allocated(Sphere_Cell)) deallocate(Sphere_Cell)
+      if (allocated(DR_Cell)) deallocate(DR_Cell)
+   end subroutine cell_dealloc
 END MODULE Cell 
 
 ! ==============================================================================
@@ -334,4 +370,8 @@ MODULE mod_hs_virial_accum
    Integer  :: nsamples_virial = 0
    Real(wp) :: Vol_accum = 0.0_wp
    Real(wp), Allocatable :: counts_accum(:,:)
+   contains
+   subroutine mod_hs_virial_accum_dealloc()
+      if (allocated(counts_accum)) deallocate(counts_accum)
+   end subroutine mod_hs_virial_accum_dealloc
 END MODULE mod_hs_virial_accum

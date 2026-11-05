@@ -58,6 +58,10 @@ Subroutine Write_Input_File(istep)
       Write(21,*) "  cluster_threshold = ", cluster_threshold, ","
       Write(21,*) "  bound_min_neighbors = ", bound_min_neighbors, ","
       Write(21,*) "  border_criterion = '", trim(border_criterion), "',"
+      Write(21,*) "  avbmc_target_types = ", avbmc_target_types, ","
+      Write(21,*) "  avbmc_move_types = ", avbmc_move_types, ","
+      Write(21,*) "  avbmc_p_in = ", avbmc_p_in, ","
+      Write(21,*) "  avbmc_rbind = ", avbmc_rbind, ","
       Write(21,*) "  avbmc_k_trials = ", avbmc_k_trials, ","
       Write(21,*) "  avbmc_max_trials = ", avbmc_max_trials, ","
       if (trim(border_criterion) == 'energy') then
@@ -90,6 +94,7 @@ Subroutine Write_Input_File(istep)
    Write(21,*) "  displ_update = ", displ_update, ","
    temp0 = 1.0_wp / beta
    Write(21,*) "  temp0 = ", temp0, ","
+   Write(21,*) "  temp1 = ", temp1, ","
    Write(21,*) "  npt = ", npt, ","
    Write(21,*) "  Nvolf = ", Nvolf, ","
    Write(21,*) "  iscale = ", iscale, ","
@@ -192,7 +197,7 @@ Subroutine Write_Input_File(istep)
           Indx2 = Indx1 +  J * (Nrb_sites_max*Npart_types) 
             Do K = 0, Npart_types -1
                Do M = 0, Nrb_sites(K) -1
-                    write(21,'(F5.2)',advance='no') Vpot_Matrix( Indx2+k*Nrb_sites_max+M )
+                    write(21,'(1X,F12.8)',advance='no') Vpot_Matrix( Indx2+k*Nrb_sites_max+M )
                EndDo
             EndDo
             write(21,*) 
@@ -214,7 +219,11 @@ Subroutine Write_Input_File(istep)
          Do I=0,Npart_types-1
               Indx = I*Npart_types
               Do J = 0, Npart_types-1
-                 Write(21,'(F6.3)',advance='no') sigma_LJ(indx+j)
+                 If (pot_int == 2) Then
+                    Write(21,'(1X,ES18.10)',advance='no') sigma_LJ(indx+j)
+                 Else
+                    Write(21,'(F6.3)',advance='no') sigma_LJ(indx+j)
+                 End If
               EndDo
               Write(21,*) 
          EndDo
@@ -249,9 +258,9 @@ Subroutine Read_Input_Data
    !   avbmc: .true. / .false. (Enable AVBMC moves)
    !   border_criterion: 'asymmetry' / 'energy' (Surface particle detection method)
    !   energy_border_ratio: Ratio for energy-based border identification (default 0.5)
-   !   avbmc_k_trials: Number of Rosenbluth trial positions (K) in bulk (default 10)
-   !   avbmc_max_trials: Cap on maximum AVBMC pair attempts per step (default 50)
-   !   n_avbmc: AVBMC move period in small-cluster regime (default 10)
+   !   avbmc_k_trials: Number of Rosenbluth trials in each direction (default 10)
+   !   avbmc_max_trials: Number of AVBMC attempts per call (default 50)
+   !   n_avbmc: Legacy key, accepted but unused for move scheduling
    !   ncluster_init: DBSCAN check period in small-cluster regime (default 500)
    !   cluster_threshold: Size threshold to switch between regimes (default 5)
    !   bound_min_neighbors: Min neighbors for bound classification in small regime (default 1)
@@ -259,7 +268,8 @@ Subroutine Read_Input_Data
    Namelist /Control_Params/ istep_ini, istep_fin, Neq, Nmove, Nsave, Ndump, Nrestart, imovie, traj_format, Npart_types, Ecpu_check, data_file, &
                               rcl, minPts, asym_threshold, ncluster, cluster_types, lammps, Nmc_hmc, Nmd_hmc, tstep_hmc, avbmc, &
                               border_criterion, energy_threshold, energy_border_ratio, use_energy_ratio, avbmc_k_trials, avbmc_max_trials, &
-                              n_avbmc, ncluster_init, cluster_threshold, bound_min_neighbors
+                              n_avbmc, ncluster_init, cluster_threshold, bound_min_neighbors, &
+                              avbmc_target_types, avbmc_move_types, avbmc_p_in, avbmc_rbind
     ! MC_Params include:
     !   Nvolf: Frequency (in MC sweeps) of NpT volume moves (default 1)
     !   swap_moves: .true. / .false. (Enable GPU checkerboard identity swaps, binary mixtures)
@@ -286,6 +296,7 @@ Subroutine Read_Input_Data
    imovie = .false.; displ_update = .false.; npt = .false.; Nvolf = 1; swap_moves = .false.; Nswap = 1; Nswapf = 1
    sigp_factor = 0.1_wp; Rcp_factor = 0.3_wp; Rc_factor = 2.0_wp; epsp_factor = -1.0_wp; patch_radial_factor = 0.5_wp
    rcl = 1.8_wp; minPts = 3; asym_threshold = 0.5_wp; ncluster = 0; cluster_types(:) = -1; avbmc = .false.
+   avbmc_target_types = -1; avbmc_move_types = -1; avbmc_p_in = 0.5_wp; avbmc_rbind = -1.0_wp
    n_avbmc = 10; ncluster_init = 500; cluster_threshold = 5; bound_min_neighbors = 1
    border_criterion = 'asymmetry'; energy_threshold = -2.0_wp; energy_border_ratio = 0.5_wp; use_energy_ratio = .false.
    lammps = .false.
@@ -341,6 +352,8 @@ Subroutine Read_Input_Data
 
    ! If AVBMC is enabled, ensure valid positive frequencies for both regimes
    if (avbmc) then
+      if (avbmc_p_in <= 0.0_wp .or. avbmc_p_in >= 1.0_wp) stop 'AVBMC: avbmc_p_in must be in (0,1)'
+      if (avbmc_k_trials < 1 .or. avbmc_max_trials < 1) stop 'AVBMC: trial counts must be positive'
       if (ncluster <= 0) ncluster = 50
       if (n_avbmc <= 0) n_avbmc = 10
       if (ncluster_init <= 0) ncluster_init = 500
@@ -431,8 +444,8 @@ Subroutine Read_Input_Data
       write(*,'(A)') c_yellow // '  -> Identity Swap Moves:     DISABLED' // c_reset
    End If
    If (avbmc) Then
-      write(*,'(A)') c_green // '  -> AVBMC Moves:             ENABLED (Two-Tier Dynamic Scheduling)' // c_reset
-      write(*,'(A,I6)')         '     - AVBMC Move Frequency:  ', n_avbmc
+      write(*,'(A)') c_green // '  -> AVBMC Moves:             ENABLED (fixed ncluster interval)' // c_reset
+      write(*,'(A,I6)')         '     - AVBMC Move Frequency:  ', ncluster
       write(*,'(A,I6)')         '     - DBSCAN Check Interval: ', ncluster_init
       write(*,'(A,I6)')         '     - Transition Threshold:  ', cluster_threshold
       write(*,'(A,I6)')         '     - Min Bound Neighbors:   ', bound_min_neighbors
@@ -446,8 +459,10 @@ Subroutine Read_Input_Data
       Else
          write(*,'(A,F10.4)')    '     - Asymmetry Threshold:   ', asym_threshold
       End If
-      write(*,'(A,I6)')         '     - Bulk Trials (K):       ', avbmc_k_trials
-      write(*,'(A,I6)')         '     - Max Attempts / Sweep:  ', avbmc_max_trials
+      write(*,'(A,I6)')         '     - Rosenbluth Trials (K): ', avbmc_k_trials
+      write(*,'(A,I6)')         '     - Attempts / Call:       ', avbmc_max_trials
+      write(*,'(A,F10.4)')    '     - IN probability:        ', avbmc_p_in
+      write(*,'(A,F10.4)')    '     - Bind radius override:  ', avbmc_rbind
    Else
       write(*,'(A)') c_yellow // '  -> AVBMC Moves:             DISABLED' // c_reset
    End If
@@ -786,14 +801,15 @@ Subroutine Read_Input_Data
          End Do
          Do I=0,Npart_types-1
               Indx = I*Npart_types
+              Read(20,'(A)') line
+              Read(line,*) (sigma_LJ(indx+j), j=0,Npart_types-1)
               Do J = 0, Npart_types-1
-                 Read(20,'(F6.3)',advance='no') sigma_jon_ij; sigma_LJ(indx+j) = sigma_jon_ij 
+                 sigma_jon_ij = sigma_LJ(indx+j)
                  rangep(indx+j) = rangepp * sigma_jon_ij
                  VL0(indx+j)=(sigma_jon_ij/rangep(indx+j))**12.d0-(sigma_jon_ij/rangep(indx+j))**6.0
                  xopp = (1.d0+sqrt(1.d0+4.d00*VL0(indx+j)))/2.d0
                  xop(indx+j) = sigma_LJ(indx+j)/(xopp**(1.d0/6.d0))
               EndDo
-              Read(20,*) 
          EndDo
       EndIf
    End If
@@ -821,6 +837,19 @@ Subroutine Read_Input_Data
                        Print *, "Please increase 'rangep' in your datos.nml file."
                        Print *, "======================================================",c_reset
                        Stop 1
+                   End If
+                   If (Nrb_sites(i) > 0 .and. Nrb_sites(j) > 0) Then
+                       req_range = patch_radial_factor * (sigma_LJ(i*Npart_types+i) + &
+                                   sigma_LJ(j*Npart_types+j)) + Rcp_factor * Rmin_ij
+                       If (rangeP(Indx) < req_range) Then
+                           Print *, c_red, " FATAL ERROR: CUTOFF TOO SHORT FOR PALAIA PATCH REACH"
+                           Print *, "Particle Types : ", i, " and ", j
+                           Print *, "Current rangeP : ", rangeP(Indx)
+                           Print *, "Required rangeP: ", req_range, " (or greater)"
+                           Print *, "Reason: Center cutoff must cover both patch offsets and patch cutoff."
+                           Print *, "Please increase 'rangepp' in your datos.nml file.", c_reset
+                           Stop 1
+                       End If
                    End If
                End Do
            End Do
@@ -858,7 +887,21 @@ Subroutine Read_Input_Data
     ! OVERRIDE ATTRACTIVE TAIL DEPTH (V1.4): If epsp_factor is specified (>= 0.0)
     ! in the namelist Potential_Params, override VL0 to be -epsp_factor.
     ! ==============================================================================
-    If (pot_int == 2 .and. epsp_factor >= 0.0_wp) Then
+    If (pot_int == 2) Then
+       Write(*,'(A,F12.8)') '  -> SSP WCA eps/kT:         ', 1.0_wp/temp0
+       Do i=0,Npart_types-1
+           Write(*,'(A,I0,A,F12.8)') '  -> SSP patch offset type ',i+1,': ', &
+               patch_radial_factor*sigma_LJ(i*Npart_types+i)
+           Do j=0,Npart_types-1
+               Indx=i*Npart_types+j
+               Rmin_ij=sigma_LJ(Indx)*1.122462048309373_wp
+               Write(*,'(A,I0,A,I0,A,3F12.8)') '  -> SSP pair ',i+1,',',j+1, &
+                   ' Rmin/sigp/Rcp: ',Rmin_ij,sigp_factor*Rmin_ij,Rcp_factor*Rmin_ij
+           End Do
+       End Do
+   End If
+
+   If (pot_int == 2 .and. epsp_factor >= 0.0_wp) Then
         If (Allocated(VL0)) Then
             VL0 = -epsp_factor
         End If

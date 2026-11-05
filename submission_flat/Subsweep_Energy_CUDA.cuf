@@ -6134,6 +6134,59 @@ attributes(device) subroutine evaluate_cell_interactions( &
   end subroutine clean
   
   ! ==============================================================================
+  ! HOST SUBROUTINE: gpu_finalize
+  ! DESCRIPTION: Release all saved allocations on normal program exit.
+  ! ==============================================================================
+  subroutine gpu_finalize()
+    ! Complete shutdown; clean() above retains arrays needed across sweeps.
+    if (allocated(Map_Cell_dev)) deallocate(Map_Cell_dev)
+    if (allocated(Offset_dev)) deallocate(Offset_dev)
+    if (allocated(Nl_Cell_dev)) deallocate(Nl_Cell_dev)
+    if (allocated(Nat_Cell_dev)) deallocate(Nat_Cell_dev)
+    if (allocated(List_Cell_dev)) deallocate(List_Cell_dev)
+    if (allocated(Nat_Cell_new)) deallocate(Nat_Cell_new)
+    if (allocated(List_Cell_new)) deallocate(List_Cell_new)
+    if (allocated(Npatches_dev)) deallocate(Npatches_dev)
+    if (allocated(Ntor_angle_dev)) deallocate(Ntor_angle_dev)
+    if (allocated(patchdev)) deallocate(patchdev)
+    if (allocated(ref_tor_dev)) deallocate(ref_tor_dev)
+    if (allocated(tor_angle_dev)) deallocate(tor_angle_dev)
+    if (allocated(Vpot_Matrix_dev)) deallocate(Vpot_Matrix_dev)
+    if (allocated(sigma_jon_dev)) deallocate(sigma_jon_dev)
+    if (allocated(sigma_LJ_dev)) deallocate(sigma_LJ_dev)
+    if (allocated(epsilon_LJ_dev)) deallocate(epsilon_LJ_dev)
+    if (allocated(range_dev)) deallocate(range_dev)
+    if (allocated(XOP_dev)) deallocate(XOP_dev)
+    if (allocated(VL0_dev)) deallocate(VL0_dev)
+    if (allocated(Sphere_Celldev)) deallocate(Sphere_Celldev)
+    if (allocated(Sphere_Cell_new)) deallocate(Sphere_Cell_new)
+    if (allocated(W_RU_dev)) deallocate(W_RU_dev)
+    if (allocated(hdev)) deallocate(hdev)
+    if (allocated(DR_Cell_dev)) deallocate(DR_Cell_dev)
+    if (allocated(disp_dev)) deallocate(disp_dev)
+    if (allocated(ivec_dev)) deallocate(ivec_dev)
+    if (allocated(energydev)) deallocate(energydev)
+    if (allocated(virialdev)) deallocate(virialdev)
+    if (allocated(Delta_E_dev)) deallocate(Delta_E_dev)
+    if (allocated(Delta_E)) deallocate(Delta_E)
+    if (allocated(energy)) deallocate(energy)
+    if (allocated(virial_host)) deallocate(virial_host)
+    if (allocated(overlap_error_dev)) deallocate(overlap_error_dev)
+    if (allocated(overlap_error)) deallocate(overlap_error)
+    if (allocated(Ntras_ac_dev)) deallocate(Ntras_ac_dev)
+    if (allocated(Nrot_ac_dev)) deallocate(Nrot_ac_dev)
+    if (allocated(Ntras_ac)) deallocate(Ntras_ac)
+    if (allocated(Nrot_ac)) deallocate(Nrot_ac)
+    if (allocated(Nswap_ac_dev)) deallocate(Nswap_ac_dev)
+    if (allocated(Nswap_att_dev)) deallocate(Nswap_att_dev)
+    if (allocated(Nswap_ac_host)) deallocate(Nswap_ac_host)
+    if (allocated(Nswap_att_host)) deallocate(Nswap_att_host)
+    if (allocated(RND_States)) deallocate(RND_States)
+    init_subsweep = 0
+    init_shift = 0
+  end subroutine gpu_finalize
+
+  ! ==============================================================================
   ! HOST SUBROUTINE: limpio
   ! DESCRIPTION: Forcibly resets the CUDA device.
   ! ==============================================================================

@@ -80,11 +80,7 @@ cmake ../cmake \
 
 make -j4
 
-# 3. Build Fortran 2003 wrapper module
-cd ~/lammps_latest/fortran
-nvfortran -c -fPIC lammps.f90 -o lammps.o
-
-# 4. Add LAMMPS shared library to your runtime loader path
+# 3. Add LAMMPS shared library to your runtime loader path
 export LD_LIBRARY_PATH=$HOME/lammps_latest/build:$LD_LIBRARY_PATH
 ```
 
@@ -109,11 +105,14 @@ export LD_LIBRARY_PATH=$HOME/lammps_latest/build:$LD_LIBRARY_PATH
    make -j4
    ```
 
-3. Upon successful compilation, the executable is created directly in the current directory:
+3. Upon successful compilation, the executables are created directly in the current directory:
    ```
    ./MCCB-gpu
    ```
-   *(Note: A backward-compatible symlink `./mc_gpu.exe -> MCCB-gpu` is also created).*
+   `make` builds `MCCB-gpu-v3` (AVX2) and `MCCB-gpu-v4` (AVX-512).
+   `MCCB-gpu` is a launcher that selects the supported binary on the current node; `mc_gpu.exe` links to it.
+   Use `make v3` or `make v4` to build just one architecture.
+   Objects and modules (including the compiled `lammps.f90`) go to `build/v3` and `build/v4`.
 
 ### Makefile Configuration Variables
 
@@ -123,8 +122,8 @@ The build system in `Makefile` automatically discovers standard module paths (`$
 | :--- | :--- | :--- |
 | `FC` | Fortran compiler | `nvfortran` |
 | `LAMMPS_DIR` | Root directory of LAMMPS source/build | `$(HOME)/lammps_latest` |
-| `LAMMPSINC` | Path to LAMMPS Fortran module (`lammps.o`) | `$(LAMMPS_DIR)/fortran` |
-| `LAMMPSLIB` | Path to `liblammps.so` | `$(LAMMPS_DIR)/build` |
+| `LAMMPSINC` | Path to LAMMPS Fortran source (`lammps.f90`); command line only | `$(LAMMPS_DIR)/fortran` |
+| `LAMMPSLIB` | Path to `liblammps.so`; command line only | `$(LAMMPS_DIR)/build` |
 | `NETCDFINC` | NetCDF header/module include directory | Auto-detected from `$EBROOTNETCDFMINFORTRAN` |
 | `NETCDFLIB` | NetCDF-Fortran dynamic library directory | Auto-detected from `$EBROOTNETCDFMINFORTRAN` |
 | `NVBIN` | Path to `nvfortran` binary directory | Auto-detected from NVHPC root |

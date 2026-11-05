@@ -355,21 +355,17 @@ CONTAINS
     End Subroutine clusters_alloc
 
     Subroutine clusters_dealloc()
-        If (Allocated(gneighbors)) Then
-            Deallocate(gneighbors)
-            Deallocate(goffset)
-            Deallocate(gadjacency)
-            Deallocate(glabel)
-            Deallocate(gborder)
-            Deallocate(gcluster_mask)
-            If (Allocated(glookup)) Deallocate(glookup)
-            
-            Deallocate(label)
-            Deallocate(neighbors)
-            Deallocate(offset)
-            Deallocate(adjacency)
-        End If
-        If (avbmc) Call avbmc_deallocate()
+        If (Allocated(gneighbors)) Deallocate(gneighbors)
+        If (Allocated(goffset)) Deallocate(goffset)
+        If (Allocated(gadjacency)) Deallocate(gadjacency)
+        If (Allocated(glabel)) Deallocate(glabel)
+        If (Allocated(gborder)) Deallocate(gborder)
+        If (Allocated(gcluster_mask)) Deallocate(gcluster_mask)
+        If (Allocated(glookup)) Deallocate(glookup)
+        If (Allocated(label)) Deallocate(label)
+        If (Allocated(neighbors)) Deallocate(neighbors)
+        If (Allocated(offset)) Deallocate(offset)
+        If (Allocated(adjacency)) Deallocate(adjacency)
     End Subroutine clusters_dealloc
 
     Subroutine neighbor_search(Nsites_val)
@@ -465,34 +461,6 @@ CONTAINS
             End Do
         End If
     End Subroutine get_cluster_mask
-
-    ! Subroutine for lightweight AVBMC step in small-cluster regime (max cluster size <= cluster_threshold):
-    ! Performs GPU cell-list neighbor search, classifies into bound (neighbors >= bound_min_neighbors)
-    ! and isolated (neighbors == 0), and executes AVBMC pair exchanges without DBSCAN or surface detection.
-    Subroutine run_lightweight_avbmc_step()
-        Integer :: cluster_mask_host(natoms)
-
-        ! 1. Allocate memory if needed
-        Call clusters_alloc()
-
-        ! 2. Initialize cluster mask
-        Call get_cluster_mask(cluster_mask_host)
-        gcluster_mask(1:natoms) = cluster_mask_host(1:natoms)
-
-        ! 3. Configure GPU grid block
-        nthread = 256
-        nbcuda = (natoms + nthread - 1)/nthread
-
-        ! 4. Search for neighbors and build adjacency list on GPU
-        Call neighbor_search(natoms)
-
-        ! 5. Extract AVBMC data using lightweight bound/isolated classification
-        Call extract_avbmc_data_lightweight(natoms, r, neighbors, cluster_mask_host, bound_min_neighbors)
-
-        ! 6. Attempt AVBMC pair moves
-        Call attempt_avbmc_pair_moves(neighbors, offset, adjacency)
-        Call print_avbmc_stats()
-    End Subroutine run_lightweight_avbmc_step
 
     Subroutine run_cluster_analysis(istep)
         Use rundata, only : istep_ini, istep_fin
@@ -782,14 +750,6 @@ CONTAINS
         end do
         close(io_lastbrdconf)
         
-        If (avbmc) Then
-            If (size_max <= cluster_threshold) Then
-                Call extract_avbmc_data_lightweight(natoms, r, neighbors, cluster_mask_host, bound_min_neighbors)
-            Else
-                Call extract_avbmc_data(natoms, r, label, is_border, cluster_mask_host)
-            End If
-        End If
-
         Deallocate(nbrd_in_cl)
         Deallocate(is_border)
         
