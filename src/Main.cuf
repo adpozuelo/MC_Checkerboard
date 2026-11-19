@@ -76,6 +76,7 @@ Program MCCB_gpu
 
    ! Array for NetCDF per-atom instantaneous energies
    Real(wp), Allocatable :: atom_energies_host(:)
+   Integer, Allocatable :: avbmc_cluster_mask(:)
 
    ! --------------------------------------------------------------------------
    ! CPU & GPU Timing Variables
@@ -135,7 +136,7 @@ Program MCCB_gpu
 
    write(*,'(A)') c_blue // '========================================================================================' // c_reset
    write(*,'(A)') c_cyan // '                            HYBRID MCCB-gpu/LAMMPS SIMULATION ENGINE                            ' // c_reset
-   write(*,'(A)') c_cyan // '                                     Version 2.9.0                                      ' // c_reset
+   write(*,'(A)') c_cyan // '                                     Version 2.9.1                                      ' // c_reset
    write(*,'(A)') c_blue // '----------------------------------------------------------------------------------------' // c_reset
    write(*,'(A)') c_cyan // ' Authors: A. Diaz-Pozuelo, E. Lomba, and E.G. Noya (IQF-CSIC)                           ' // c_reset
    write(*,'(A)') c_cyan // ' Based on original CUDA-C MC code by E.G. Noya (https://github.com/evanoya/MC_GPU)       ' // c_reset
@@ -171,6 +172,7 @@ Program MCCB_gpu
    end if
    Call load_table_potentials
    Call Read_init_conf
+   If (avbmc) Allocate(avbmc_cluster_mask(natoms))
 
    ! Calculate total number of sites
    total_sites = natoms
@@ -348,17 +350,9 @@ Program MCCB_gpu
    If (ncluster > 0 .and. avbmc) Then
       Call Convert_CB_RU
       Call run_cluster_analysis(istep_ini)
-      If (last_max_size > cluster_threshold) Then
-         cluster_regime_large = .true.
-         write(*,'(A,I0,A,I0,A)') c_green // ' >>> [AVBMC] Initial state: max cluster size = ', &
-                                  last_max_size, ' > threshold (', cluster_threshold, &
-                                  '): starting in Tier-2 (Full DBSCAN & Surface Detection).' // c_reset
-      Else
-         cluster_regime_large = .false.
-         write(*,'(A,I0,A,I0,A)') c_cyan // ' >>> [AVBMC] Initial state: max cluster size = ', &
-                                  last_max_size, ' <= threshold (', cluster_threshold, &
-                                  '): starting in Tier-1 (Lightweight Bound/Isolated AVBMC).' // c_reset
-      End If
+      write(*,'(A,I0,A,I0,A)') c_cyan // ' >>> [AVBMC] Initial max cluster size = ', &
+                               last_max_size, '; proposal crossover size = ', cluster_threshold, &
+                               '; using a fixed small-cluster/surface mixture.' // c_reset
    End If
 
    Do I = 1+istep_ini, istep_ini+Neq+istep_fin
@@ -531,23 +525,15 @@ Program MCCB_gpu
          If (diff_gpu_time_ms /= diff_gpu_time_ms .or. diff_gpu_time_ms <= 0.0) diff_gpu_time_ms = Real(diff_cpu_time * 1000.0_wp, 4)
          total_gpu_time = total_gpu_time + (real(diff_gpu_time_ms, wp) / 1000.0_wp)
 
-         ! Cluster analysis may use two frequencies; move frequency is fixed.
-         If (ncluster > 0) Then
-            If (avbmc .and. .not. cluster_regime_large) Then
-               If (ncluster_init > 0 .and. mod(i,ncluster_init) == 0) Then
-                  Call Convert_CB_RU
-                  Call run_cluster_analysis(i)
-                  If (last_max_size > cluster_threshold) cluster_regime_large = .true.
-               End If
-            ElseIf (mod(i,ncluster) == 0) Then
-               Call Convert_CB_RU
-               Call run_cluster_analysis(i)
-               If (avbmc .and. last_max_size <= cluster_threshold) cluster_regime_large = .false.
-            End If
+         ! The proposal graph is rebuilt from the current state at each AVBMC invocation.
+         If (ncluster > 0 .and. mod(i,ncluster) == 0) Then
+            Call Convert_CB_RU
+            Call run_cluster_analysis(i)
          End If
-         If (avbmc .and. ncluster > 0 .and. mod(i, ncluster) == 0) Then
-            Call attempt_avbmc_pair_moves(neighbors, offset, adjacency)
-            Call print_avbmc_stats()
+         If (avbmc .and. ncluster > 0 .and. mod(i,ncluster) == 0) Then
+            Call get_cluster_mask(avbmc_cluster_mask)
+            Call attempt_avbmc_pair_moves(neighbors, offset, adjacency, avbmc_cluster_mask, i)
+            Call print_avbmc_stats(i)
          End If
          ! Compute Virial Pressure for all systems
          If (pot_int == -1) Then
@@ -794,6 +780,7 @@ Program MCCB_gpu
    call close_hmc_lammps()
    call clusters_dealloc()
    call avbmc_finalize()
+   if (allocated(avbmc_cluster_mask)) deallocate(avbmc_cluster_mask)
    call netcdf_trajectory_finalize()
    if (allocated(atom_energies_host)) deallocate(atom_energies_host)
    call gpu_finalize()
