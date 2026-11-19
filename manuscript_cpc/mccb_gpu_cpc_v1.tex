@@ -1515,13 +1515,47 @@ Profiling the HMC coupling layer for $N = 7{,}695$ tetrahedral patchy colloids (
 \label{sec:bench_advanced_moves}
 
 \paragraph{AVBMC on Patchy Colloidal Clusters}
-The previously reported AVBMC cluster-size and acceptance-rate
-benchmarks used an earlier acceptance rule with exchanged IN and OUT
-volume factors. Those data do not validate the corrected algorithm
-and have been withdrawn from this version. New equilibrium and
-sampling-efficiency measurements for the cluster-aware implementation
-are required before quantitative AVBMC acceleration claims can be
-made.
+We compared corrected AVBMC-40 against plain translation and rotation
+moves for the SSP mixture at $T^*=0.154$ and total density
+$\rho^*=0.01350$. Three matched 1:1 runs used independently dispersed
+starting configurations and identical random seeds within each pair.
+At 100,000 sweeps, the mean number of particles in a qualifying
+patch-bonded A--B cluster was larger with AVBMC in every pair: 45.73
+versus 35.50 (original start), 54.01 versus 35.59 (seed 72696), and
+41.57 versus 32.33 (seed 72697). These correspond to increases of
+29\%, 52\%, and 29\%, respectively. Averaged over sweeps 90,000--100,000,
+the paired increases were 28\%, 40\%, and 34\%. The AVBMC runs took
+about 5--8\% longer wall time, so these runs show a measurable increase
+in bonded-cluster growth per unit simulation time, but they do not
+establish an equilibrium speedup: all three AVBMC trajectories were
+still evolving, and only three initial configurations were compared.
+
+For a 1:2 composition continued to 200,000 sweeps, the mean bonded
+cluster sizes over the final 10,000 sweeps were 40.30 for plain moves,
+46.36 for AVBMC-20, and 51.17 for AVBMC-40. The AVBMC geometric graph
+used by the move includes A and B particles, whereas the reported
+patch-bonded cluster statistic averages minority A counts over
+components containing at least two A and two B particles. This single
+continuation per method is consistent with enhanced growth at the larger
+AVBMC attempt count but is not an independent-seed estimate.
+
+Figure~\ref{fig:ssp_avbmc_growth} summarizes these completed
+trajectories. The earlier AVBMC measurements made with exchanged IN/OUT
+volume factors are excluded; these results use the corrected acceptance
+rule and the reciprocal, cutoff-consistent AVBMC graph.
+\begin{figure}[t]
+ \centering
+ \includegraphics[width=\columnwidth]{figures/avbmc_completed_aggregation.pdf}
+ \caption{Growth of mean patch-bonded A--B cluster size in the SSP
+   model. Left: three matched 1:1 starts, plain moves and AVBMC-40,
+   shown as paired trajectories. Right: one 1:2 continuation for plain,
+   AVBMC-20, and AVBMC-40. Bonded clusters contain at least two A and
+   two B particles. The AVBMC graph includes both species and all
+   center-distance contacts within $r_{\rm cl}=1.3$. Runs are
+   nonequilibrium growth comparisons, not equilibrium efficiency
+   measurements.}
+ \label{fig:ssp_avbmc_growth}
+\end{figure}
 
 \paragraph{Identity Swaps in Jammed Non-Additive Mixtures}
 In a dense non-additive hard sphere mixture ($N = 2{,}916$, $P^* =
