@@ -9,6 +9,7 @@ MODULE mod_clusters
     Use cudafor
     Use Cell, Only : Ntot_Cell, Nat_Cell_Max, Sphere_Cell, List_Cell, Nat_Cell, DR_Cell, Map_Cell
     Use cuda_fortran, Only : Sphere_Celldev, List_Cell_dev, Map_Cell_dev, Nat_Cell_dev, DR_Cell_dev, hdev, compute_per_atom_energy_gpu
+    Use, Intrinsic :: iso_fortran_env, Only: error_unit
     Implicit None
 
     Integer, Parameter :: maxnbpp = 128
@@ -22,6 +23,8 @@ MODULE mod_clusters
     Integer, Allocatable, Dimension(:) :: neighbors
     Integer, Allocatable, Dimension(:) :: offset
     Integer, Allocatable, Dimension(:) :: adjacency
+    Integer, Allocatable, Dimension(:) :: filled
+    Integer, Allocatable, Dimension(:) :: lookup_host
 
     ! Device arrays for GPU-accelerated DBSCAN
     Integer, Device, Allocatable, Dimension(:) :: glabel
@@ -29,6 +32,7 @@ MODULE mod_clusters
     Integer, Device, Allocatable, Dimension(:) :: gneighbors
     Integer, Device, Allocatable, Dimension(:) :: goffset
     Integer, Device, Allocatable, Dimension(:) :: gadjacency
+    Integer, Device, Allocatable, Dimension(:) :: gfilled
     Integer, Device, Allocatable, Dimension(:) :: gcluster_mask
     Integer, Device, Allocatable, Save :: glookup(:)
 
@@ -39,6 +43,7 @@ MODULE mod_clusters
     Integer :: last_nclusters = 0
     Integer :: last_max_size = 0
     Real(wp) :: last_pct_clustered = 0.0_wp
+    Integer :: cluster_diagnostic_step = 0
 
 CONTAINS
 
@@ -250,7 +255,7 @@ CONTAINS
 
     ! Cell-list GPU neighbor populate kernel
     Attributes(Global) Subroutine gpu_adj_cell(Sphere_Cell, List_Cell, Map_Cell, Nat_Cell, DR_Cell, &
-                                              Lookup, Nat_Cell_Max, Ntot_Cell, Nsites, dim, rcl2, h, mask, goffset, gadjacency)
+                                              Lookup, Nat_Cell_Max, Ntot_Cell, Nsites, dim, rcl2, h, mask, goffset, gadjacency, gfilled)
         Implicit None
         Integer, Value, Intent(IN) :: Nat_Cell_Max, Ntot_Cell, Nsites, dim
         Real(wp), Value :: rcl2
@@ -260,6 +265,7 @@ CONTAINS
         integer, device, intent(in) :: mask(*)
         integer, device, intent(in) :: goffset(*)
         integer, device, intent(out) :: gadjacency(*)
+        integer, device, intent(out) :: gfilled(*)
         
         integer :: i, cell_offset, icell, j_offset, counter, jcell, k, kpart, n, nneigh
         real(wp) :: xi, yi, zi, xj, yj, zj, dx, dy, dz, dxp, dyp, dzp, rr2
@@ -267,6 +273,7 @@ CONTAINS
         
         i = (blockidx%x - 1)*blockdim%x + threadidx%x
         If (i <= Nsites) Then
+            gfilled(i) = 0
             If (mask(i) == 0) Return
             
             counter = 0
@@ -333,6 +340,7 @@ CONTAINS
                     end if
                 end do
             end do
+            gfilled(i) = counter
         End If
     End Subroutine gpu_adj_cell
 
@@ -342,6 +350,7 @@ CONTAINS
             Allocate(gneighbors(natoms))
             Allocate(goffset(natoms))
             Allocate(gadjacency(natoms * maxnbpp))
+            Allocate(gfilled(natoms))
             Allocate(glabel(natoms))
             Allocate(gborder(natoms))
             Allocate(gcluster_mask(natoms))
@@ -351,6 +360,8 @@ CONTAINS
             Allocate(neighbors(natoms))
             Allocate(offset(natoms))
             Allocate(adjacency(natoms * maxnbpp))
+            Allocate(filled(natoms))
+            Allocate(lookup_host(0:natoms-1))
         End If
     End Subroutine clusters_alloc
 
@@ -358,6 +369,7 @@ CONTAINS
         If (Allocated(gneighbors)) Deallocate(gneighbors)
         If (Allocated(goffset)) Deallocate(goffset)
         If (Allocated(gadjacency)) Deallocate(gadjacency)
+        If (Allocated(gfilled)) Deallocate(gfilled)
         If (Allocated(glabel)) Deallocate(glabel)
         If (Allocated(gborder)) Deallocate(gborder)
         If (Allocated(gcluster_mask)) Deallocate(gcluster_mask)
@@ -366,12 +378,15 @@ CONTAINS
         If (Allocated(neighbors)) Deallocate(neighbors)
         If (Allocated(offset)) Deallocate(offset)
         If (Allocated(adjacency)) Deallocate(adjacency)
+        If (Allocated(filled)) Deallocate(filled)
+        If (Allocated(lookup_host)) Deallocate(lookup_host)
     End Subroutine clusters_dealloc
 
     Subroutine neighbor_search(Nsites_val)
         Integer, Intent(IN) :: Nsites_val
         Integer :: istat, i
         Integer :: nblock_lookup
+        Real(wp) :: search_rcl2
         
         gneighbors(:) = 0
         gadjacency(:) = 0
@@ -393,16 +408,24 @@ CONTAINS
         Nat_Cell_dev = Nat_Cell
         DR_Cell_dev = DR_Cell
         hdev = h
+        ! The GPU's cell-relative arithmetic can round a contact on the
+        ! boundary differently from the minimum-image arithmetic used by
+        ! AVBMC graph updates. Search a small envelope, then apply that exact
+        ! host predicate while building a reciprocal graph.
+        search_rcl2 = (rcl + 64.0_wp*Epsilon(rcl)*Max(1.0_wp,Maxval(Box)))**2
         
         ! 1. Build particle-to-cell offset lookup array on GPU
         nblock_lookup = (Ntot_Cell + nthread - 1)/nthread
         if (nblock_lookup == 0) nblock_lookup = 1
         Call build_offset_lookup<<<nblock_lookup, nthread>>>(List_Cell_dev, Nat_Cell_dev, Nat_Cell_Max, Ntot_Cell, glookup)
         istat = cudaDeviceSynchronize()
+        If (avbmc_graph_checks .And. cluster_diagnostic_step >= avbmc_graph_check_from_step) Then
+            Call validate_cluster_lookup(cluster_diagnostic_step)
+        End If
         
         ! 2. Launch cell-list neighbor count kernel
         Call gpu_graf_cell<<<nbcuda, nthread>>>(Sphere_Celldev, List_Cell_dev, Map_Cell_dev, Nat_Cell_dev, DR_Cell_dev, &
-                                               glookup, Nat_Cell_Max, Ntot_Cell, Nsites_val, ndim, rcl**2, hdev, gcluster_mask, gneighbors)
+                                               glookup, Nat_Cell_Max, Ntot_Cell, Nsites_val, ndim, search_rcl2, hdev, gcluster_mask, gneighbors)
         istat = cudaDeviceSynchronize()
         
         ! 3. Copy neighbor counts to host to compute exclusive prefix scan (offset list)
@@ -427,13 +450,217 @@ CONTAINS
         
         ! 6. Launch cell-list adjacency list kernel
         Call gpu_adj_cell<<<nbcuda, nthread>>>(Sphere_Celldev, List_Cell_dev, Map_Cell_dev, Nat_Cell_dev, DR_Cell_dev, &
-                                              glookup, Nat_Cell_Max, Ntot_Cell, Nsites_val, ndim, rcl**2, hdev, gcluster_mask, goffset, gadjacency)
+                                              glookup, Nat_Cell_Max, Ntot_Cell, Nsites_val, ndim, search_rcl2, hdev, gcluster_mask, goffset, &
+                                              gadjacency, gfilled)
         istat = cudaDeviceSynchronize()
+        If (avbmc_graph_checks .And. cluster_diagnostic_step >= avbmc_graph_check_from_step) Then
+            filled(:) = gfilled(:)
+            Do i = 1, Nsites_val
+                If (filled(i) == neighbors(i)) Cycle
+                Write(error_unit,*) 'Cluster GPU count/fill mismatch: step/particle/count/filled', &
+                                     cluster_diagnostic_step, i, neighbors(i), filled(i)
+                Error Stop 'Cluster GPU count/fill mismatch'
+            End Do
+        End If
         
         ! 7. Copy adjacency list back to host
         adjacency(:) = gadjacency(:)
+        Call canonicalize_cluster_graph(Nsites_val)
         
     End Subroutine neighbor_search
+
+    Subroutine canonicalize_cluster_graph(Nsites_val)
+        Integer, Intent(In) :: Nsites_val
+        Integer, Allocatable :: raw_count(:), raw_offset(:), raw_adj(:), pair_i(:), pair_j(:), cursor(:)
+        Integer(8), Allocatable :: hash_key(:)
+        Integer(8) :: key
+        Integer :: i, j, k, a, b, npairs, slot, table_size, edge_capacity
+        Real(wp) :: dr(3)
+        edge_capacity = Sum(neighbors(1:Nsites_val))
+        raw_count = neighbors(1:Nsites_val)
+        raw_offset = offset(1:Nsites_val)
+        raw_adj = adjacency(1:edge_capacity)
+        Allocate(pair_i(edge_capacity), pair_j(edge_capacity), cursor(Nsites_val))
+        table_size = Max(17,2*edge_capacity+1)
+        Allocate(hash_key(table_size))
+        hash_key = 0_8
+        neighbors(1:Nsites_val) = 0
+        npairs = 0
+        Do i = 1, Nsites_val
+            Do k = raw_offset(i), raw_offset(i)+raw_count(i)-1
+                j = raw_adj(k)
+                If (j < 1 .Or. j > Nsites_val .Or. j == i) Then
+                    Write(error_unit,*) 'Cluster GPU graph invalid neighbor: step/i/j', cluster_diagnostic_step, i, j
+                    Error Stop 'Cluster GPU graph invalid neighbor'
+                End If
+                dr = r((j-1)*ndim:(j-1)*ndim+2)-r((i-1)*ndim:(i-1)*ndim+2)
+                dr = (dr-Anint(dr))*Box(0:2)
+                If (Sum(dr*dr) >= rcl*rcl) Cycle
+                a = Min(i,j)
+                b = Max(i,j)
+                key = Int(a-1,8)*Int(Nsites_val,8)+Int(b,8)
+                slot = Int(Mod(key,Int(table_size,8)))+1
+                Do While (hash_key(slot) /= 0_8 .And. hash_key(slot) /= key)
+                    slot = Mod(slot,table_size)+1
+                End Do
+                If (hash_key(slot) == key) Cycle
+                hash_key(slot) = key
+                npairs = npairs+1
+                pair_i(npairs) = a
+                pair_j(npairs) = b
+                neighbors(a) = neighbors(a)+1
+                neighbors(b) = neighbors(b)+1
+            End Do
+        End Do
+        If (Maxval(neighbors(1:Nsites_val)) > maxnbpp) Then
+            Write(error_unit,*) 'Cluster canonical graph exceeds maxnbpp at step', cluster_diagnostic_step
+            Error Stop 'Cluster canonical graph overflow'
+        End If
+        offset(1) = 1
+        Do i = 2, Nsites_val
+            offset(i) = offset(i-1)+neighbors(i-1)
+        End Do
+        cursor = offset(1:Nsites_val)
+        Do k = 1, npairs
+            a = pair_i(k)
+            b = pair_j(k)
+            adjacency(cursor(a)) = b
+            cursor(a) = cursor(a)+1
+            adjacency(cursor(b)) = a
+            cursor(b) = cursor(b)+1
+        End Do
+    End Subroutine canonicalize_cluster_graph
+
+    Subroutine validate_cluster_lookup(istep)
+        Integer, Intent(In) :: istep
+        Integer :: icell, slot, particle, expected
+        Integer, Allocatable :: map_copy(:)
+        lookup_host = glookup
+        Do icell = 0, Ntot_Cell-1
+            Do slot = 0, Nat_Cell(icell)-1
+                particle = List_Cell(icell*Nat_Cell_Max*2+slot*2)
+                expected = icell*Nat_Cell_Max+slot
+                If (lookup_host(particle) /= expected) Then
+                    Write(error_unit,*) 'Cluster GPU lookup mismatch: step/id/expected/actual', &
+                                         istep, particle+1, expected, lookup_host(particle)
+                    Error Stop 'Cluster GPU lookup mismatch'
+                End If
+            End Do
+        End Do
+        map_copy = Map_Cell_dev
+        If (Any(map_copy /= Map_Cell)) Then
+            Write(error_unit,*) 'Cluster GPU cell map mismatch at step', istep
+            Error Stop 'Cluster GPU cell map mismatch'
+        End If
+    End Subroutine validate_cluster_lookup
+
+    Subroutine diagnose_cluster_edge(i, j)
+        Integer, Intent(In) :: i, j
+        Integer :: ci, cj, si, sj, n, neighbor_cell
+        Real(wp) :: xi(3), xj(3), shift(3), dx(3), physical(3)
+        ci = lookup_host(i-1)/Nat_Cell_Max
+        si = Mod(lookup_host(i-1),Nat_Cell_Max)
+        cj = lookup_host(j-1)/Nat_Cell_Max
+        sj = Mod(lookup_host(j-1),Nat_Cell_Max)
+        xi = Sphere_Cell(ci*Nat_Cell_Max*(ndim+4)+si*(ndim+4): &
+                         ci*Nat_Cell_Max*(ndim+4)+si*(ndim+4)+2)
+        xj = Sphere_Cell(cj*Nat_Cell_Max*(ndim+4)+sj*(ndim+4): &
+                         cj*Nat_Cell_Max*(ndim+4)+sj*(ndim+4)+2)
+        Write(error_unit,*) 'Cluster edge IDs/cells/slots:', i, j, ci, si, cj, sj
+        Write(error_unit,*) 'Cluster edge fractional coordinates:', &
+                             r((i-1)*ndim:(i-1)*ndim+2), r((j-1)*ndim:(j-1)*ndim+2)
+        Write(error_unit,*) 'Cluster edge cell coordinates:', xi, xj
+        If (ci == cj) Then
+            dx = xj-xi
+            physical = [h(0)*dx(1)+h(1)*dx(2)+h(2)*dx(3), &
+                        h(3)*dx(1)+h(4)*dx(2)+h(5)*dx(3), &
+                        h(6)*dx(1)+h(7)*dx(2)+h(8)*dx(3)]
+            Write(error_unit,*) 'Cluster same-cell distance:', Sqrt(Sum(physical*physical))
+        End If
+        Do n = 0, 25
+            neighbor_cell = Map_Cell(ci*26+n)
+            If (neighbor_cell /= cj) Cycle
+            shift = DR_Cell(ci*26*ndim+n*ndim:ci*26*ndim+n*ndim+2)
+            dx = xj+shift-xi
+            physical = [h(0)*dx(1)+h(1)*dx(2)+h(2)*dx(3), &
+                        h(3)*dx(1)+h(4)*dx(2)+h(5)*dx(3), &
+                        h(6)*dx(1)+h(7)*dx(2)+h(8)*dx(3)]
+            Write(error_unit,*) 'Cluster mapped-cell neighbor/shift/distance:', n, shift, Sqrt(Sum(physical*physical))
+        End Do
+    End Subroutine diagnose_cluster_edge
+
+    Subroutine validate_cluster_cell_list(istep)
+        Integer, Intent(In) :: istep
+        Integer :: seen(natoms), icell, slot, particle, total
+        seen = 0
+        total = 0
+        Do icell = 0, Ntot_Cell-1
+            If (Nat_Cell(icell) < 0 .Or. Nat_Cell(icell) > Nat_Cell_Max) Then
+                Write(error_unit,*) 'Cluster cell occupancy invalid: step/cell/count', istep, icell, Nat_Cell(icell)
+                Error Stop 'Cluster cell occupancy invalid'
+            End If
+            Do slot = 0, Nat_Cell(icell)-1
+                particle = List_Cell(icell*Nat_Cell_Max*2+slot*2)
+                If (particle < 0 .Or. particle >= natoms) Then
+                    Write(error_unit,*) 'Cluster cell particle ID invalid: step/cell/slot/id', &
+                                         istep, icell, slot, particle
+                    Error Stop 'Cluster cell particle ID invalid'
+                End If
+                seen(particle+1) = seen(particle+1)+1
+                total = total+1
+            End Do
+        End Do
+        If (total /= natoms .Or. Any(seen /= 1)) Then
+            Write(error_unit,*) 'Cluster cell list invalid: step/total/natoms', istep, total, natoms
+            Do particle = 1, natoms
+                If (seen(particle) /= 1) Write(error_unit,*) 'Cluster cell ID/multiplicity:', particle, seen(particle)
+            End Do
+            Error Stop 'Cluster cell list invalid'
+        End If
+    End Subroutine validate_cluster_cell_list
+
+    Subroutine validate_cluster_graph_cpu(istep, mask)
+        Integer, Intent(In) :: istep, mask(natoms)
+        Integer :: i, j, k, expected
+        Real(wp) :: dr(3), distance2
+        Do i = 1, natoms
+            expected = 0
+            If (mask(i) /= 0) Then
+                Do j = 1, natoms
+                    If (j == i .Or. mask(j) == 0) Cycle
+                    dr = r((j-1)*ndim:(j-1)*ndim+2)-r((i-1)*ndim:(i-1)*ndim+2)
+                    dr = (dr-Anint(dr))*Box(0:2)
+                    If (Sum(dr*dr) < rcl*rcl) expected = expected+1
+                End Do
+            End If
+            If (expected /= neighbors(i)) Then
+                Write(error_unit,*) 'Cluster CPU/GPU neighbor-count mismatch: step/id/cpu/gpu/filled', &
+                                     istep, i, expected, neighbors(i), filled(i)
+                Write(error_unit,*) 'Cluster GPU row:', adjacency(offset(i):offset(i)+neighbors(i)-1)
+                Do k = offset(i), offset(i)+neighbors(i)-1
+                    j = adjacency(k)
+                    If (j >= 1 .And. j <= natoms) Call diagnose_cluster_edge(i, j)
+                End Do
+                Error Stop 'Cluster CPU/GPU neighbor-count mismatch'
+            End If
+            Do k = offset(i), offset(i)+neighbors(i)-1
+                j = adjacency(k)
+                If (j < 1 .Or. j > natoms) Then
+                    Write(error_unit,*) 'Cluster GPU invalid edge: step/i/j', istep, i, j
+                    Error Stop 'Cluster GPU invalid edge'
+                End If
+                dr = r((j-1)*ndim:(j-1)*ndim+2)-r((i-1)*ndim:(i-1)*ndim+2)
+                dr = (dr-Anint(dr))*Box(0:2)
+                distance2 = Sum(dr*dr)
+                If (distance2 > rcl*rcl) Then
+                    Write(error_unit,*) 'Cluster GPU false edge: step/i/j/distance/cutoff', &
+                                         istep, i, j, Sqrt(distance2), rcl
+                    Write(error_unit,*) 'Cluster GPU row:', adjacency(offset(i):offset(i)+neighbors(i)-1)
+                    Error Stop 'Cluster GPU false edge'
+                End If
+            End Do
+        End Do
+    End Subroutine validate_cluster_graph_cpu
 
     ! Subroutine to initialize cluster mask based on selected particle types
     Subroutine get_cluster_mask(cluster_mask_host)
@@ -482,6 +709,10 @@ CONTAINS
         
         ! 1. Allocate memory if needed
         Call clusters_alloc()
+        cluster_diagnostic_step = istep
+        If (avbmc .And. .Not. avbmc_graph_checks_initialized) Call avbmc_initialize_graph_checks()
+        If (avbmc_graph_checks .And. istep >= avbmc_graph_check_from_step) &
+            Call validate_cluster_cell_list(istep)
         
         ! 2. Initialize cluster mask based on selected types
         Call get_cluster_mask(cluster_mask_host)
@@ -493,6 +724,8 @@ CONTAINS
         
         ! 4. Search for neighbors and build adjacency list
         Call neighbor_search(natoms)
+        If (avbmc_graph_checks .And. istep >= avbmc_graph_check_from_step) &
+            Call validate_cluster_graph_cpu(istep, cluster_mask_host)
         
         ! 5. Run DBSCAN BFS search on Host (fast queue BFS on adjacency list)
         label(:) = 0
