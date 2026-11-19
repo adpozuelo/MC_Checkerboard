@@ -137,3 +137,27 @@ test_cases/sb_avbmc_*/rhoprof*.dat
 /bin/MCCB-gpu-v3
 /bin/MCCB-gpu-v4
 /src/build/
+
+# Local AVBMC/CPC research runs and generated diagnostics (keep tracked release files)
+/bin/avbmc_graph_*/
+/bin/avbmc_radius_diag/
+/manuscript_cpc/*.pdf
+/manuscript_cpc/figures/
+/manuscript_cpc/*.aux
+/manuscript_cpc/*.log
+/manuscript_cpc/*.out
+/manuscript_cpc/*.spl
+/manuscript_cpc/*.bib
+/test_cases/ssp_avbmc_clusters_benchmark/composition_extension_2026_11/
+/test_cases/ssp_avbmc_clusters_benchmark/corrected_avbmc_2026_11/
+/test_cases/ssp_avbmc_clusters_benchmark/dispersed_growth_2026_11/
+/test_cases/ssp_avbmc_clusters_benchmark/growth_extension_2026_11/
+/test_cases/ssp_avbmc_clusters_benchmark/low_density_growth_2026_11/
+/test_cases/ssp_avbmc_clusters_benchmark/packing_matched_growth_2026_11/
+/test_cases/ssp_avbmc_clusters_benchmark/ratio_1to2_radius_2026_11/
+/test_cases/ssp_avbmc_clusters_benchmark/prepare_corrected_runs.py
+/test_cases/avbmc_detailed_balance/cluster_mixture_ideal_gas_2026-11-09.md
+/test_cases/avbmc_detailed_balance/cluster_mixture_reference.py
+/test_cases/avbmc_detailed_balance/gpu_zero_epsilon/
+/test_cases/avbmc_detailed_balance/graph_fix_zero_epsilon_2026_11_19/
+/test_cases/avbmc_detailed_balance/hold_dependency_jobs.sh
