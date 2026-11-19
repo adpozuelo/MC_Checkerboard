@@ -1,5 +1,7 @@
 # GPU-Accelerated Monte Carlo for Patchy Particles/Simple fluid mixtures
 
+**Current release: 2.9.1**
+
 A high-performance GPU-accelerated Monte Carlo simulation code for patchy particle systems  with anisotropic interactionsi and simple fluid mixtures in NVT and NpT ensembles.
 
 ## Authors
@@ -50,7 +52,7 @@ Lennard-Jones reduced units are used. Potentials are truncated and shifted at ra
 - **GPU-Accelerated Identity Swaps**: Massively parallel identity swap moves for multicomponent mixtures ($N_{\text{species}} \ge 2$, with trial species pairs chosen uniformly at random) across all potential models (Hard Spheres, Lennard-Jones/table, angular patchy, and site-site patchy) leveraging checkerboard cellular decomposition and long-range sublattice swaps [5]
 - **Anisotropic Interactions**: Lennard-Jones core with angular (patch-patch) and torsional terms
 - **Multiple Ensembles**: Supports both NVT (canonical) and NpT (isothermal-isobaric)
-- **Aggregation Volume Bias MC (AVBMC)**: AVBMC-1 moves [3] with fixed-type target selection, exact in/out proposal factors, configurable Rosenbluth trials with random orientations, and fixed-frequency scheduling
+- **Aggregation Volume Bias MC (AVBMC)**: AVBMC-1 moves [3] with a fixed mixture of small-cluster and surface-biased proposals, exact forward/reverse selection factors, configurable Rosenbluth trials, and fixed-frequency scheduling
 - **Flexible Particle Models**: Up to 7 patches per particle with customizable geometries
 - **Adaptive MC Parameters**: Automatic adjustment of displacement parameters for optimal acceptance rates
 - **Temperature Annealing**: Linear temperature ramping capability
@@ -82,7 +84,7 @@ Lennard-Jones reduced units are used. Potentials are truncated and shifted at ra
 #### Core Modules
 - `Definitions.cuf` - Module definitions (precision, configuration, potential, properties, cell structure)
 - `Main.cuf` - Main program with MC loop and simulation control
-- `mod_avbmc.cuf` - Aggregation Volume Bias MC (AVBMC) module with fixed-type targets and configurational bias
+- `mod_avbmc.cuf` - Aggregation Volume Bias MC (AVBMC) module with cluster-aware target/source selection and configurational bias
 
 #### Energy and Interactions
 - `energy.cuf` - CPU energy calculation for verification
@@ -235,26 +237,46 @@ The namelist filename passed as the first command-line argument to `MCCB-gpu` is
 
 ### Aggregation Volume Bias MC (AVBMC) Control
 
-AVBMC-1 selects a target uniformly from a fixed list of particle types, then
-chooses an IN move with probability `avbmc_p_in` or an OUT move otherwise.
+AVBMC-1 chooses one of two proposal kernels with fixed 50:50 probability.
+The small-cluster kernel favors targets in connected components of size 2
+through `cluster_threshold`; the surface kernel favors targets in larger
+components whose geometric asymmetry exceeds `asym_threshold`. The same
+geometry favors isolated source particles for IN moves and small-cluster or
+surface source particles for OUT moves. Every eligible particle retains unit
+baseline weight; a favored particle has weight 5. Thus every proposal has a
+possible reverse even when cluster labels change. The default crossover size
+is `2*minPts` (6 for the default `minPts=3`). Connected components use `rcl`
+and `cluster_types`; DBSCAN reporting remains a separate analysis.
+
+After target selection, the code chooses an IN move with probability
+`avbmc_p_in` or an OUT move otherwise.
 For the chosen target, it counts eligible movable particles inside and outside
 a minimum-image sphere of radius `avbmc_rbind` (default `1.5*rangepp`).
 Every attempt uses `avbmc_k_trials` position and uniform-quaternion trials in
 the destination volume and the old state plus `K-1` trials in the source
 volume. The full host pair energy includes the core and patch interactions.
 
-The acceptance factors are, with `Wnew/Wold` the Rosenbluth ratio:
+Let `T_X(t)` be the normalized target-selection probability and `S_X(j)`
+the normalized source-selection probability for the chosen kernel and
+direction in the current state; `T_Y(t)` and `S_Y(j)` denote their reverse
+counterparts after the trial move. The acceptance factors are:
 
-- IN: `(1-p_in)/p_in * V_in*N_out/(V_out*(N_in+1)) * Wnew/Wold`
-- OUT: `p_in/(1-p_in) * V_out*N_in/(V_in*(N_out+1)) * Wnew/Wold`
+- IN: `(1-p_in)/p_in * V_in/V_out * T_Y(t)/T_X(t) * S_Y,out(j)/S_X,in(j) * Wnew/Wold`
+- OUT: `p_in/(1-p_in) * V_out/V_in * T_Y(t)/T_X(t) * S_Y,in(j)/S_X,out(j) * Wnew/Wold`
+
+Setting the geometry bias to zero reduces the selection probabilities to
+uniform in/out counts and recovers the usual AVBMC-1 formulas. The code
+updates its proposal graph after every accepted move and evaluates the
+hypothetical reverse graph for each trial before acceptance.
 
 `avbmc_target_types` and `avbmc_move_types` use 1-based input type IDs
 and default to all particle types.
 `avbmc_p_in` defaults to 0.5; `avbmc_k_trials` to 10;
 `avbmc_max_trials` to 50; and `avbmc_rbind <= 0` selects the default radius.
 The radius must be less than half each box length. Moves run every `ncluster`
-sweeps, independent of cluster state. DBSCAN and border detection remain
-analysis features; legacy border keys remain accepted by the namelist.
+sweeps, independent of cluster state. A current cluster graph is built at
+each invocation. Legacy `n_avbmc` and `ncluster_init` keys remain accepted
+but do not change the move frequency.
 `P_AV_in` and `P_AV_out` report separate acceptance fractions.
 
 **Previous AVBMC results are biased toward aggregation.** The former code
@@ -313,7 +335,7 @@ For the center-center distance $r$ between particles of types $i$ and $j$ with p
 $$V_{ij}(r) = \begin{cases} \infty & r < \sigma_{ij} \\ 0 & r \ge \sigma_{ij} \end{cases}$$
 The potential is athermal, so the temperature never enters the Metropolis acceptance in the NVT ensemble; a trial move is accepted if and only if it produces no overlap. For **non-additive** mixtures the cross diameter is independent, $\sigma_{ij} \ne \tfrac{1}{2}(\sigma_{ii}+\sigma_{jj})$, and is read directly from the `--- HS SIGMA MATRIX ---`.
 
-> **NpT note:** In the NpT ensemble the acceptance rule is $\exp[-\beta P\,\Delta V + N\ln(V'/V)]$. Since HS is athermal the code fixes $\beta = 1$, so the input `pres` is interpreted as the **reduced pressure** $P^* = P/k_BT$ (equivalently $\beta P$).
+> **NpT note:** With the isotropic proposal uniform in box length $L$, the acceptance rule is $\min[1,\exp(-\beta P\,\Delta V + (N+2/3)\ln(V'/V))]$ for hard spheres. Since HS is athermal the code fixes $\beta = 1$, so the input `pres` is interpreted as the **reduced pressure** $P^* = P/k_BT$ (equivalently $\beta P$).
 
 #### Virial Pressure Calculation (All Interaction Potentials)
 
@@ -462,23 +484,29 @@ The input reader checks that `rangeP` covers the two patch offsets plus
 
 #### Aggregation Volume Bias MC (AVBMC) & CBMC Rosenbluth Scheme
 
-AVBMC moves [3] sample particle swaps between non-associated bulk particles and cluster border particles to accelerate cluster condensation and dissociation kinetics. To overcome low acceptance in dense bulk phases, a Configurable Rosenbluth (CBMC) scheme probabilistically probes bulk volume using $K$ trial positions:
+The current AVBMC-1 implementation uses a fixed mixture of small-cluster and
+large-surface proposal kernels. It moves an eligible particle between the
+inside and outside of a selected target's binding sphere, using $K$
+destination trials and the old configuration plus $K-1$ source trials.
+Let $T_X,T_Y$ denote forward and reverse target-selection probabilities,
+and $S_X,S_Y$ the corresponding source-particle probabilities. For move
+probability $p_{\text{in}}$, the acceptance factors are
 
-1. **Dissociation Move ($V_{\text{in}} \rightarrow V_{\text{out}}$)**:
-   When attempting to move a bound border particle from cluster binding volume $V_{\text{in}}$ to bulk $V_{\text{out}}$:
-   - Generate $K$ independent trial positions $m=1 \dots K$ randomly in bulk $V_{\text{out}}$.
-   - Evaluate interaction energy $u_m$ for each trial position on the GPU and calculate the Rosenbluth weight:
-     $$W_{\text{new}} = \sum_{m=1}^K \exp(-\beta u_m)$$
-   - Acceptance probability:
-     $$\text{acc}(n \rightarrow o) = \min\left(1, \; \frac{N_{\text{out}} + 1}{N_{\text{in}} \cdot N_{\text{neigh}}} \cdot \frac{V_{\text{in}}}{V_{\text{out}}} \cdot \frac{W_{\text{new}}}{K \cdot \exp(-\beta u_{\text{cluster\_state}})}\right)$$
-   - If accepted, select one of the $K$ bulk trial positions $m$ with probability $P(m) = \exp(-\beta u_m) / W_{\text{new}}$.
+$$A_{\text{in}}=\min\left(1,\frac{1-p_{\text{in}}}{p_{\text{in}}}
+\frac{V_{\text{in}}}{V_{\text{out}}}
+\frac{T_Y S_{Y,\text{out}}}{T_X S_{X,\text{in}}}
+\frac{W_{\text{new}}}{W_{\text{old}}}\right),$$
 
-2. **Association Move ($V_{\text{out}} \rightarrow V_{\text{in}}$)**:
-   When attempting to move a non-associated bulk particle into the binding shell $V_{\text{in}}$ of a cluster border particle:
-   - Calculate Rosenbluth weight $W_{\text{old}}$ of the original bulk state using $K-1$ additional dummy bulk trial positions.
-   - Sample a new target position in $V_{\text{in}}$ and compute its cluster interaction energy $u_{\text{cluster\_state}}$.
-   - Acceptance probability:
-     $$\text{acc}(o \rightarrow n) = \min\left(1, \; \frac{N_{\text{in}} \cdot N_{\text{neigh}} + 1}{N_{\text{out}}} \cdot \frac{V_{\text{out}}}{V_{\text{in}}} \cdot \frac{K \cdot \exp(-\beta u_{\text{cluster\_state}})}{W_{\text{old}}}\right)$$
+$$A_{\text{out}}=\min\left(1,\frac{p_{\text{in}}}{1-p_{\text{in}}}
+\frac{V_{\text{out}}}{V_{\text{in}}}
+\frac{T_Y S_{Y,\text{in}}}{T_X S_{X,\text{out}}}
+\frac{W_{\text{new}}}{W_{\text{old}}}\right).$$
+
+For $K=1$ the Rosenbluth ratio becomes $\exp(-\beta\Delta E)$. Uniform
+selection reduces these expressions to the one-target form of Chen et al.'s
+canonical intrabox in/out rules. Positive baseline weights preserve reverse
+support when cluster geometry changes.
+The earlier border-pool benchmark data must be rerun before quantitative reuse.
 
 #### Mapping SSP to LAMMPS [4]
 
@@ -760,4 +788,3 @@ For a complete record of all versions and features, see [Changelog.md](Changelog
   - LJG potential with patches
   - NVT and NpT ensembles
   - Comprehensive code documentation
-

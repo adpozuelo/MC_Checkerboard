@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.9.1] - 2026-11-19
+
+### Fixed
+- **AVBMC cutoff graph reciprocity**: GPU cell-list searches now use a small
+  rounding envelope and canonicalize candidate pairs with AVBMC's strict
+  minimum-image distance rule. Accepted edges are stored in both directions,
+  preventing a boundary contact from leaving a stale one-way graph edge.
+- Verified with a 300,000-sweep replay through the formerly failing interval
+  and a zero-epsilon GPU regression with graph checks enabled from the first
+  sweep (jobs 104487 and 104694).
+
 ## [2.9.0] - 2026-11-05
 
 ### Fixed
